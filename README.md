@@ -26,7 +26,7 @@ persistence layer.
 |---|---|
 | Build, R8 full mode, release APK | done |
 | Schema, 14 triggers, seed, PRAGMAs | done — 31 instrumented assertions |
-| `Money`, `Period`, `NameKey` | done — 56 JVM tests |
+| `Money`, `Period`, `NameKey` | done — 53 JVM tests |
 | Khata design system, light + dark | done |
 | Navigation shell, bottom bar, FAB | done |
 | **Quick Add** — custom keypad, chips, undo | done |
@@ -41,7 +41,7 @@ Requires JDK 17 and the Android SDK (platform 37, build-tools 36).
 
 ```bash
 ./gradlew :app:installDebug          # build and install
-./gradlew :app:testDebugUnitTest     # 56 JVM tests — domain and core
+./gradlew :app:testDebugUnitTest     # 53 JVM tests — domain and core
 ./gradlew :app:connectedAndroidTest  # 31 schema/trigger assertions, needs a device
 ./gradlew :app:assembleRelease       # R8 full mode
 ```

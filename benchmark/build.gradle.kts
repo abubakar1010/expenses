@@ -31,7 +31,12 @@ android {
         // floor applies to the measuring harness, not to the product.
         minSdk = 28
         targetSdk = 37
-        testInstrumentationRunner = "androidx.benchmark.junit4.AndroidBenchmarkRunner"
+        // The standard runner, not `androidx.benchmark.junit4.AndroidBenchmarkRunner`
+        // — that one ships with the *micro*benchmark artifact and is absent
+        // here, so using it fails with ClassNotFoundException before a single
+        // test runs. Macrobenchmark drives the app from a separate process and
+        // needs nothing special of the runner.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     compileOptions {

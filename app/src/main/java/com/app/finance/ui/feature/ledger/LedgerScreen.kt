@@ -324,6 +324,9 @@ private fun DayHeader(day: LedgerDay, today: LocalDate) {
                 money = day.total,
                 style = KhataTheme.type.caption,
                 color = KhataTheme.colors.inkSoft,
+                // "<amount> spent", so the figure is not a bare number to
+                // TalkBack when it follows the day heading.
+                spokenSuffix = stringResource(R.string.day_total, ""),
             )
         },
     )

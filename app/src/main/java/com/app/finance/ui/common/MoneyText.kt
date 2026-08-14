@@ -4,11 +4,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.intl.Locale as ComposeLocale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -41,9 +41,18 @@ fun MoneyText(
     style: TextStyle = KhataTheme.type.rowFigure,
     color: Color? = null,
     showSymbol: Boolean = true,
+    /**
+     * Appended to the spoken form, for figures whose meaning is not obvious in
+     * isolation — a day subtotal reads "three hundred forty taka spent" rather
+     * than leaving TalkBack to announce a bare number after the date.
+     */
+    spokenSuffix: String = "",
 ) {
     val colors = KhataTheme.colors
-    val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
+    // Compose's own locale, not `LocalConfiguration.locales` — the latter is
+    // read in a way recomposition does not track, so grouping and the spoken
+    // form would keep the old locale after a language change.
+    val locale = rememberJavaLocale()
 
     // Negative means a refund, and refunds read as corrections — the red pen.
     val figureColor = color ?: if (money.isNegative) colors.vermilion else colors.ink
@@ -59,13 +68,29 @@ fun MoneyText(
         )
     }
 
-    val spoken = remember(money, locale) { money.spokenForm(locale) }
+    val spoken = remember(money, locale, spokenSuffix) {
+        (money.spokenForm(locale) + " " + spokenSuffix).trim()
+    }
 
     Text(
         text = text,
         style = style,
         modifier = modifier.clearAndSetSemantics { contentDescription = spoken },
     )
+}
+
+/**
+ * The device locale as a `java.util.Locale`, read observably.
+ *
+ * `Money` lives in `core/` and takes a `java.util.Locale`, because it must stay
+ * free of Compose as well as of Android. Compose's own `Locale.current` is the
+ * observable read, so this bridges the two and re-derives only when the locale
+ * actually changes.
+ */
+@Composable
+private fun rememberJavaLocale(): Locale {
+    val composeLocale = ComposeLocale.current
+    return remember(composeLocale) { Locale.forLanguageTag(composeLocale.toLanguageTag()) }
 }
 
 private const val KHATA_SYMBOL_SCALE = 0.7f

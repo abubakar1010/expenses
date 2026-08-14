@@ -2,6 +2,4 @@
 <!-- 05-ui-ux-guide.md §3.2 — not an inversion; neither end reaches pure black. -->
 <resources>
     <color name="paper">#12151A</color>
-    <color name="ink">#E8E6E0</color>
-    <color name="indigo">#8FAEE8</color>
 </resources>

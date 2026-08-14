@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only the handful of tokens the *platform* needs before Compose takes over:
+  the window background, which is what the user sees between process start and
+  the first composed frame. The full Khata palette lives in ui/theme/Color.kt.
+  05-ui-ux-guide.md §3.1
+-->
+<resources>
+    <color name="paper">#F6F5F1</color>
+    <color name="ink">#141C28</color>
+    <color name="indigo">#25407A</color>
+
+    <!--
+      Deliberately separate from @color/indigo, which has a values-night
+      variant. A launcher icon that changed colour with the system theme would
+      be a bug, not a feature — this one never varies.
+    -->
+    <color name="indigo_launcher">#25407A</color>
+</resources>

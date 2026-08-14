@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  05-ui-ux-guide.md §9 governs every string in this file:
+    - Sentence case everywhere except the tracked section headers.
+    - Name things by what the user controls.
+    - A control says what happens: "Save expense" -> "Expense saved". The verb
+      does not change between the button and the result.
+    - Errors state the problem and the fix, without apology.
+    - Empty states are invitations, not reports.
+    - Never congratulate. This is a ledger, not a coach.
+-->
+<resources>
+    <string name="app_name">Khata</string>
+
+    <!-- Navigation -->
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_ledger">Ledger</string>
+    <string name="nav_income">Income</string>
+    <string name="nav_budget">Budget</string>
+    <string name="add_expense">Add expense</string>
+
+    <!-- Quick Add -->
+    <string name="save_expense">Save expense</string>
+    <string name="expense_saved">Expense saved</string>
+    <string name="today">Today</string>
+    <string name="add_note">Add note</string>
+
+    <!-- Ledger -->
+    <string name="ledger_title">Ledger</string>
+    <string name="expense_deleted">Expense deleted</string>
+    <string name="undo">Undo</string>
+    <string name="day_total">%1$s spent</string>
+
+    <!-- Empty states: an invitation, plus the control that starts the fix. -->
+    <string name="empty_ledger">Nothing logged yet. Tap + to add your first expense.</string>
+    <string name="empty_today">Nothing logged today. Tap + to add your first expense.</string>
+    <string name="empty_budget">No limits set yet. Set one to see how the month is going.</string>
+    <string name="empty_income">Nothing recorded yet. Add what came in and it will show here.</string>
+
+    <!-- Errors: problem, then fix. No apology, no "oops". -->
+    <string name="error_zero_amount">Amount can\'t be zero. Enter how much you spent.</string>
+    <string name="error_not_a_leaf">Pick a subcategory, not a group.</string>
+    <string name="error_category_archived">That category is archived. Pick another one.</string>
+    <string name="error_pick_category">Pick a category first.</string>
+    <string name="error_duplicate_name">That name is already used here. Try another.</string>
+    <string name="error_blank_name">Enter a name.</string>
+    <string name="error_category_too_deep">Categories go two levels deep. Add this under a group instead.</string>
+    <string name="error_budget_non_leaf">Set the limit on a subcategory. The group adds them up.</string>
+    <string name="error_not_saved">That didn\'t save. Check the amount and category, then try again.</string>
+
+    <!-- Placeholder screens for M2-M4. Each states what it will hold rather
+         than pretending to be finished. -->
+    <string name="coming_dashboard">Safe to spend, the month ribbon and budget bars land here.</string>
+    <string name="coming_income">Income by source, and the year view that makes lumpy income readable.</string>
+    <string name="coming_budget">Monthly limits per subcategory, and copy from last month.</string>
+</resources>

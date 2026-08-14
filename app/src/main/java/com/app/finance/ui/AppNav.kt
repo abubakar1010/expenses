@@ -1,0 +1,134 @@
+package com.app.finance.ui
+
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.app.finance.di.AppContainer
+import com.app.finance.ui.common.KhataIcons
+import com.app.finance.ui.feature.budget.BudgetScreen
+import com.app.finance.ui.feature.dashboard.DashboardScreen
+import com.app.finance.ui.feature.entry.QuickAddSheet
+import com.app.finance.ui.feature.income.IncomeScreen
+import com.app.finance.ui.feature.ledger.LedgerScreen
+import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.Motion
+import kotlinx.coroutines.launch
+
+/** The four bottom-bar destinations. Everything else is a detail route or sheet. */
+enum class Route(val path: String, val icon: ImageVector) {
+    Dashboard("dashboard", KhataIcons.Dashboard),
+    Ledger("ledger", KhataIcons.Ledger),
+    Income("income", KhataIcons.Income),
+    Budget("budget", KhataIcons.Budget),
+    ;
+
+    companion object {
+        fun fromPath(path: String?): Route = entries.firstOrNull { it.path == path } ?: Dashboard
+    }
+}
+
+/**
+ * The single `NavHost` — 04 §7.
+ *
+ * Screen transitions are a 150 ms fade through, with no slide and no shared
+ * element (05 §7). That is not minimalism for its own sake: a slide animates
+ * layout on every frame of the transition, and on the target hardware the
+ * cheapest transition that still signals a change is the correct one.
+ */
+@Composable
+fun KhataApp(container: AppContainer) {
+    val navController = rememberNavController()
+    val backStackEntry by navController.currentBackStackEntryAsState()
+    val current = Route.fromPath(backStackEntry?.destination?.route)
+
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    // The Quick Add sheet is state, not a route: it must be openable from all
+    // four primary screens without pushing a back-stack entry that the system
+    // back gesture would then have to unwind twice.
+    var quickAddOpen by rememberSaveable { mutableStateOf(false) }
+
+    Scaffold(
+        containerColor = KhataTheme.colors.paper,
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            KhataBottomBar(
+                current = current,
+                onSelect = { navController.navigateTop(it) },
+                onQuickAdd = { quickAddOpen = true },
+            )
+        },
+    ) { padding ->
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(KhataTheme.colors.paper)
+                .padding(padding),
+        ) {
+            NavHost(
+                navController = navController,
+                startDestination = Route.Dashboard.path,
+                enterTransition = { fadeIn(tween(Motion.SCREEN)) },
+                exitTransition = { fadeOut(tween(Motion.SCREEN)) },
+                popEnterTransition = { fadeIn(tween(Motion.SCREEN)) },
+                popExitTransition = { fadeOut(tween(Motion.SCREEN)) },
+            ) {
+                composable(Route.Dashboard.path) { DashboardScreen() }
+                composable(Route.Ledger.path) { LedgerScreen(container, snackbarHostState) }
+                composable(Route.Income.path) { IncomeScreen() }
+                composable(Route.Budget.path) { BudgetScreen() }
+            }
+        }
+    }
+
+    if (quickAddOpen) {
+        QuickAddSheet(
+            container = container,
+            onDismiss = { quickAddOpen = false },
+            onSaved = { message ->
+                quickAddOpen = false
+                scope.launch {
+                    // 05 §6: five seconds, and every delete gets one.
+                    snackbarHostState.showSnackbar(message)
+                }
+            },
+        )
+    }
+}
+
+/**
+ * Switching tabs replaces rather than stacks, and restores the state of the tab
+ * being returned to — so scrolling deep into the ledger, glancing at the
+ * dashboard and coming back does not drop the user at the top again.
+ */
+private fun NavHostController.navigateTop(route: Route) {
+    if (currentDestination?.route == route.path) return
+    navigate(route.path) {
+        popUpTo(graph.startDestinationId) { saveState = true }
+        launchSingleTop = true
+        restoreState = true
+    }
+}
+

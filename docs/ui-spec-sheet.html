@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Khata — Visual Spec Sheet</title>
+<style>
+  :root{
+    --paper:#F6F5F1; --card:#FFFFFF; --rule:#E4E1D8;
+    --ink:#141C28; --ink-soft:#5D6675;
+    --indigo:#25407A; --vermilion:#B23A22; --moss:#3F6B4A; --amber:#8A5D10;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"IBM Plex Mono","SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--paper);color:var(--ink);font-family:var(--sans);
+       -webkit-font-smoothing:antialiased;padding:48px 24px 96px;line-height:1.5}
+  .wrap{max-width:1080px;margin:0 auto}
+
+  .masthead{border-bottom:2px solid var(--ink);padding-bottom:20px;margin-bottom:8px}
+  .eyebrow{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+           color:var(--ink-soft)}
+  h1{font-size:38px;font-weight:600;letter-spacing:-.02em;margin:10px 0 6px}
+  .sub{color:var(--ink-soft);font-size:14px;max-width:62ch}
+
+  h2{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+     color:var(--ink-soft);margin:56px 0 18px;padding-bottom:8px;border-bottom:1px solid var(--rule)}
+  h3{font-size:13px;font-weight:600;margin:0 0 10px}
+  p.note{font-size:13px;color:var(--ink-soft);max-width:66ch;margin-top:12px}
+
+  /* palette */
+  .sw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
+  .sw{border:1px solid var(--rule);border-radius:4px;overflow:hidden;background:var(--card)}
+  .sw .chip{height:64px}
+  .sw .meta{padding:8px 10px;font-size:11px;line-height:1.45}
+  .sw .nm{font-weight:600}
+  .sw .hex{font-family:var(--mono);color:var(--ink-soft);font-size:10.5px}
+  .sw .cr{font-family:var(--mono);font-size:10px;color:var(--moss)}
+
+  /* type */
+  .type-row{display:flex;align-items:baseline;gap:20px;padding:14px 0;border-bottom:1px solid var(--rule)}
+  .type-row .lbl{flex:0 0 190px;font-size:11px;color:var(--ink-soft);font-family:var(--mono)}
+  .money{font-family:var(--mono);font-weight:500;font-variant-numeric:tabular-nums}
+  .taka{font-size:.7em;color:var(--ink-soft);margin-right:.12em}
+
+  /* phones */
+  .phones{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .phone{width:288px;background:var(--card);border:1px solid var(--rule);border-radius:14px;
+         overflow:hidden;box-shadow:0 1px 3px rgba(20,28,40,.07)}
+  .phone .cap{font-size:11px;color:var(--ink-soft);text-align:center;margin-top:10px;font-family:var(--mono)}
+  .scr{background:var(--paper);min-height:520px;display:flex;flex-direction:column}
+
+  .topbar{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;
+          border-bottom:1px solid var(--rule);background:var(--card)}
+  .topbar .per{font-size:14px;font-weight:600}
+  .topbar .ic{color:var(--ink-soft);font-size:14px}
+
+  .hero{padding:22px 16px 14px;background:var(--card);border-bottom:1px solid var(--rule)}
+  .hero .k{font-size:10px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;
+           color:var(--ink-soft);margin-bottom:8px}
+  .hero .v{font-family:var(--mono);font-weight:500;font-size:40px;letter-spacing:-.02em;
+           font-variant-numeric:tabular-nums;line-height:1}
+
+  /* the signature: month ribbon */
+  .ribbon{display:flex;align-items:flex-end;gap:2px;height:34px;margin:16px 0 5px}
+  .ribbon i{flex:1;background:var(--indigo);border-radius:1px;min-height:2px;opacity:.85}
+  .ribbon i.today{background:var(--vermilion);opacity:1}
+  .ribbon i.fut{background:var(--rule);height:2px!important;opacity:1}
+  .ribbon-ax{display:flex;justify-content:space-between;font-family:var(--mono);
+             font-size:9px;color:var(--ink-soft)}
+
+  .strip{padding:11px 16px;border-bottom:1px solid var(--rule);background:var(--card);
+         display:flex;justify-content:space-between;font-size:12px}
+  .strip .money{font-size:13px}
+
+  .sect{font-size:10px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;
+        color:var(--ink-soft);padding:16px 16px 7px}
+
+  /* the core component: ledger row */
+  .row{padding:9px 16px 11px;border-bottom:1px solid var(--rule)}
+  .row .l1{display:flex;align-items:baseline;gap:6px;font-size:14px}
+  .row .nm{white-space:nowrap}
+  .row .dots{flex:1;border-bottom:1.5px dotted var(--rule);transform:translateY(-3px)}
+  .row .amt{font-family:var(--mono);font-weight:500;font-size:15px;font-variant-numeric:tabular-nums}
+  .track{height:6px;background:var(--rule);border-radius:3px;margin-top:7px;overflow:hidden}
+  .fill{height:100%;border-radius:3px}
+  .fill.ok{background:var(--moss)}
+  .fill.warn{background:repeating-linear-gradient(115deg,var(--amber),var(--amber) 5px,rgba(255,255,255,.42) 5px,rgba(255,255,255,.42) 8px)}
+  .fill.over{background:var(--vermilion)}
+  .row .l2{display:flex;justify-content:space-between;font-size:11px;color:var(--ink-soft);margin-top:5px}
+  .row.alert{border-left:3px solid var(--vermilion);padding-left:13px}
+  .st{font-weight:600}
+  .st.over{color:var(--vermilion)} .st.warn{color:var(--amber)} .st.ok{color:var(--moss)}
+
+  .nav{margin-top:auto;display:flex;justify-content:space-around;align-items:center;
+       padding:9px 0 11px;border-top:1px solid var(--rule);background:var(--card)}
+  .nav div{font-size:9.5px;color:var(--ink-soft);text-align:center;flex:1}
+  .nav div .g{display:block;font-size:16px;margin-bottom:2px}
+  .nav div.on{color:var(--indigo);font-weight:600}
+  .fab{width:46px;height:46px;border-radius:15px;background:var(--indigo);color:#fff;
+       display:flex;align-items:center;justify-content:center;font-size:24px;
+       margin-top:-20px;box-shadow:0 2px 6px rgba(37,64,122,.34)}
+
+  /* quick add */
+  .qa{background:var(--card);flex:1;display:flex;flex-direction:column;padding:0 16px}
+  .handle{width:34px;height:4px;background:var(--rule);border-radius:2px;margin:9px auto 16px}
+  .qa .amt-in{font-family:var(--mono);font-weight:500;font-size:38px;
+              border-bottom:2px solid var(--indigo);padding-bottom:7px;font-variant-numeric:tabular-nums}
+  .chips{display:flex;flex-wrap:wrap;gap:7px;margin:16px 0 13px}
+  .chip2{font-size:12px;padding:6px 12px;border:1px solid var(--rule);border-radius:15px;
+         background:var(--card)}
+  .chip2.on{background:var(--indigo);color:#fff;border-color:var(--indigo);font-weight:600}
+  .inline{font-size:12.5px;color:var(--ink-soft)}
+  .inline b{color:var(--indigo);font-weight:600}
+  .btn{background:var(--indigo);color:#fff;text-align:center;padding:14px;border-radius:8px;
+       font-size:15px;font-weight:600;margin:16px 0 12px}
+  .pad{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;padding-bottom:14px}
+  .pad span{background:var(--paper);border:1px solid var(--rule);border-radius:5px;
+            text-align:center;padding:11px 0;font-family:var(--mono);font-size:16px}
+
+  /* income */
+  .bars{display:flex;align-items:flex-end;gap:4px;height:56px;margin:14px 0 5px}
+  .bars i{flex:1;background:var(--moss);border-radius:1px;min-height:2px;opacity:.9}
+  .bars-ax{display:flex;justify-content:space-between;font-family:var(--mono);
+           font-size:8.5px;color:var(--ink-soft)}
+  .bars-ax span{flex:1;text-align:center}
+  .dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-left:5px;
+       vertical-align:middle}
+  .dot.stable{background:var(--ink)}
+  .dot.var{border:1.5px solid var(--ink-soft);background:transparent}
+  .insight{padding:14px 16px;font-size:12.5px;color:var(--ink-soft);
+           border-top:1px solid var(--rule);background:var(--card)}
+  .insight b{color:var(--ink);font-weight:600}
+
+  /* dark strip */
+  .darkbox{background:#12151A;border-radius:8px;padding:18px 20px;margin-top:16px}
+  .darkbox .sw{border-color:#2A2F38;background:#1A1E25}
+  .darkbox .sw .nm{color:#E8E6E0} .darkbox .sw .hex{color:#98A0AC}
+  .darkbox .sw .cr{color:#7FB98E}
+
+  table{border-collapse:collapse;width:100%;font-size:13px;margin-top:6px}
+  th{text-align:left;font-size:10px;letter-spacing:.11em;text-transform:uppercase;
+     color:var(--ink-soft);padding:7px 10px 7px 0;border-bottom:1px solid var(--ink);font-weight:600}
+  td{padding:9px 10px 9px 0;border-bottom:1px solid var(--rule);vertical-align:top}
+  td.mono{font-family:var(--mono);font-size:12px;white-space:nowrap}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:36px}
+  @media(max-width:760px){.two{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="masthead">
+    <div class="eyebrow">Personal Finance Manager · Android · v1.0</div>
+    <h1>Khata — visual spec</h1>
+    <p class="sub">Direction borrowed from the ruled ledger book: blue-black ink records, red ink
+    demands attention, and the rule is the grid. Rendered here in a browser as a reference sheet;
+    the app itself is Jetpack Compose.</p>
+  </div>
+
+  <h2>Colour — light theme (default)</h2>
+  <div class="sw-grid">
+    <div class="sw"><div class="chip" style="background:#F6F5F1;border-bottom:1px solid #E4E1D8"></div>
+      <div class="meta"><div class="nm">paper</div><div class="hex">#F6F5F1</div><div class="cr">background</div></div></div>
+    <div class="sw"><div class="chip" style="background:#FFFFFF;border-bottom:1px solid #E4E1D8"></div>
+      <div class="meta"><div class="nm">card</div><div class="hex">#FFFFFF</div><div class="cr">raised</div></div></div>
+    <div class="sw"><div class="chip" style="background:#E4E1D8"></div>
+      <div class="meta"><div class="nm">rule</div><div class="hex">#E4E1D8</div><div class="cr">hairline</div></div></div>
+    <div class="sw"><div class="chip" style="background:#141C28"></div>
+      <div class="meta"><div class="nm">ink</div><div class="hex">#141C28</div><div class="cr">15.7:1 ✓</div></div></div>
+    <div class="sw"><div class="chip" style="background:#5D6675"></div>
+      <div class="meta"><div class="nm">ink-soft</div><div class="hex">#5D6675</div><div class="cr">5.31:1 ✓</div></div></div>
+    <div class="sw"><div class="chip" style="background:#25407A"></div>
+      <div class="meta"><div class="nm">indigo</div><div class="hex">#25407A</div><div class="cr">9.20:1 ✓</div></div></div>
+    <div class="sw"><div class="chip" style="background:#B23A22"></div>
+      <div class="meta"><div class="nm">vermilion</div><div class="hex">#B23A22</div><div class="cr">5.47:1 ✓</div></div></div>
+    <div class="sw"><div class="chip" style="background:#3F6B4A"></div>
+      <div class="meta"><div class="nm">moss</div><div class="hex">#3F6B4A</div><div class="cr">5.64:1 ✓</div></div></div>
+    <div class="sw"><div class="chip" style="background:#8A5D10"></div>
+      <div class="meta"><div class="nm">amber</div><div class="hex">#8A5D10</div><div class="cr">5.27:1 ✓</div></div></div>
+  </div>
+  <p class="note">Ratios measured against <b>paper</b>. All nine clear WCAG AA at 4.5:1 for body text.
+  Amber was darkened from an initial #9A6B12, which measured 4.29:1 and would have failed.</p>
+
+  <h2>Colour — dark theme</h2>
+  <div class="darkbox">
+    <div class="sw-grid">
+      <div class="sw"><div class="chip" style="background:#12151A"></div>
+        <div class="meta"><div class="nm">paper</div><div class="hex">#12151A</div></div></div>
+      <div class="sw"><div class="chip" style="background:#1A1E25"></div>
+        <div class="meta"><div class="nm">card</div><div class="hex">#1A1E25</div></div></div>
+      <div class="sw"><div class="chip" style="background:#2A2F38"></div>
+        <div class="meta"><div class="nm">rule</div><div class="hex">#2A2F38</div></div></div>
+      <div class="sw"><div class="chip" style="background:#E8E6E0"></div>
+        <div class="meta"><div class="nm">ink</div><div class="hex">#E8E6E0</div><div class="cr">14.7:1 ✓</div></div></div>
+      <div class="sw"><div class="chip" style="background:#98A0AC"></div>
+        <div class="meta"><div class="nm">ink-soft</div><div class="hex">#98A0AC</div><div class="cr">6.93:1 ✓</div></div></div>
+      <div class="sw"><div class="chip" style="background:#8FAEE8"></div>
+        <div class="meta"><div class="nm">indigo</div><div class="hex">#8FAEE8</div><div class="cr">8.18:1 ✓</div></div></div>
+      <div class="sw"><div class="chip" style="background:#E88A72"></div>
+        <div class="meta"><div class="nm">vermilion</div><div class="hex">#E88A72</div><div class="cr">7.24:1 ✓</div></div></div>
+      <div class="sw"><div class="chip" style="background:#7FB98E"></div>
+        <div class="meta"><div class="nm">moss</div><div class="hex">#7FB98E</div><div class="cr">8.04:1 ✓</div></div></div>
+      <div class="sw"><div class="chip" style="background:#D9AE5A"></div>
+        <div class="meta"><div class="nm">amber</div><div class="hex">#D9AE5A</div><div class="cr">8.84:1 ✓</div></div></div>
+    </div>
+  </div>
+  <p class="note">Not an inversion. Neither end reaches pure black or pure white — halation on
+  low-cost LCD panels makes maximum contrast harder to read, not easier.</p>
+
+  <h2>Type scale</h2>
+  <div class="type-row"><div class="lbl">hero · mono 44/48</div>
+    <div class="money" style="font-size:44px;letter-spacing:-.02em"><span class="taka">৳</span>1,240</div></div>
+  <div class="type-row"><div class="lbl">section figure · 28</div>
+    <div class="money" style="font-size:28px"><span class="taka">৳</span>5,84,000</div></div>
+  <div class="type-row"><div class="lbl">row figure · 17</div>
+    <div class="money" style="font-size:17px"><span class="taka">৳</span>7,280</div></div>
+  <div class="type-row"><div class="lbl">screen title · 22/600</div>
+    <div style="font-size:22px;font-weight:600">August 2026</div></div>
+  <div class="type-row"><div class="lbl">section header · 13/600</div>
+    <div style="font-size:13px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)">Variable expenses</div></div>
+  <div class="type-row"><div class="lbl">body · 15/400</div>
+    <div style="font-size:15px">Grocery · গ্রোসারি</div></div>
+  <div class="type-row"><div class="lbl">caption · 12</div>
+    <div style="font-size:12px;color:var(--ink-soft)">6 days left in this period</div></div>
+  <p class="note">Money is set in a monospace face with tabular figures so digits hold their column
+  while scrolling. Only twelve glyphs are bundled — <span class="money">0–9 ৳ , . −</span> — at roughly
+  15 KB. Everything else uses the system Roboto and Noto Sans Bengali, at zero cost to the APK.</p>
+
+  <h2>Budget states — legible without colour</h2>
+  <div class="two">
+    <div>
+      <div style="border:1px solid var(--rule);border-radius:6px;overflow:hidden;background:var(--card)">
+        <div class="row"><div class="l1"><span class="nm">Transport</span><span class="dots"></span>
+          <span class="amt"><span class="taka">৳</span>2,100</span></div>
+          <div class="track"><div class="fill ok" style="width:61%"></div></div>
+          <div class="l2"><span class="st ok">61% · on track</span><span>৳1,400 left</span></div></div>
+        <div class="row"><div class="l1"><span class="nm">Dining out</span><span class="dots"></span>
+          <span class="amt"><span class="taka">৳</span>2,720</span></div>
+          <div class="track"><div class="fill warn" style="width:87%"></div></div>
+          <div class="l2"><span class="st warn">87% · slow down</span><span>৳380 left</span></div></div>
+        <div class="row alert"><div class="l1"><span class="nm">Grocery</span><span class="dots"></span>
+          <span class="amt"><span class="taka">৳</span>7,280</span></div>
+          <div class="track"><div class="fill over" style="width:100%"></div></div>
+          <div class="l2"><span class="st over">104% · over</span><span>৳280 over</span></div></div>
+        <div class="row"><div class="l1"><span class="nm">Repairs</span><span class="dots"></span>
+          <span class="amt"><span class="taka">৳</span>1,900</span></div>
+          <div class="track" style="background:transparent;border:1px dashed var(--rule)"></div>
+          <div class="l2"><span>No limit set</span><span style="color:var(--indigo);font-weight:600">Set one</span></div></div>
+      </div>
+    </div>
+    <div>
+      <div style="border:1px solid var(--rule);border-radius:6px;overflow:hidden;background:var(--card);filter:grayscale(1)">
+        <div class="row"><div class="l1"><span class="nm">Transport</span><span class="dots"></span>
+          <span class="amt"><span class="taka">৳</span>2,100</span></div>
+          <div class="track"><div class="fill ok" style="width:61%"></div></div>
+          <div class="l2"><span class="st ok">61% · on track</span><span>৳1,400 left</span></div></div>
+        <div class="row"><div class="l1"><span class="nm">Dining out</span><span class="dots"></span>
+          <span class="amt"><span class="taka">৳</span>2,720</span></div>
+          <div class="track"><div class="fill warn" style="width:87%"></div></div>
+          <div class="l2"><span class="st warn">87% · slow down</span><span>৳380 left</span></div></div>
+        <div class="row alert"><div class="l1"><span class="nm">Grocery</span><span class="dots"></span>
+          <span class="amt"><span class="taka">৳</span>7,280</span></div>
+          <div class="track"><div class="fill over" style="width:100%"></div></div>
+          <div class="l2"><span class="st over">104% · over</span><span>৳280 over</span></div></div>
+        <div class="row"><div class="l1"><span class="nm">Repairs</span><span class="dots"></span>
+          <span class="amt"><span class="taka">৳</span>1,900</span></div>
+          <div class="track" style="background:transparent;border:1px dashed var(--rule)"></div>
+          <div class="l2"><span>No limit set</span><span style="font-weight:600">Set one</span></div></div>
+      </div>
+      <p class="note" style="margin-top:10px">Same rows, colour removed. The hatched fill, the left
+      rule on the over-budget row, the dashed empty track, and the written state all survive. This is
+      the test every state has to pass.</p>
+    </div>
+  </div>
+
+  <h2>Screens</h2>
+  <div class="phones">
+
+    <div>
+    <div class="phone"><div class="scr">
+      <div class="topbar"><span class="ic">‹</span><span class="per">August 2026</span><span class="ic">› &nbsp;⚙</span></div>
+      <div class="hero">
+        <div class="k">Safe to spend today</div>
+        <div class="v"><span class="taka">৳</span>1,240</div>
+        <div class="ribbon">
+          <i style="height:22%"></i><i style="height:38%"></i><i style="height:14%"></i>
+          <i style="height:61%"></i><i style="height:29%"></i><i style="height:8%"></i>
+          <i style="height:45%"></i><i style="height:72%"></i><i style="height:19%"></i>
+          <i style="height:33%"></i><i style="height:88%"></i><i style="height:26%"></i>
+          <i style="height:12%"></i><i style="height:52%"></i><i style="height:41%"></i>
+          <i style="height:67%"></i><i style="height:23%"></i><i class="today" style="height:35%"></i>
+          <i class="fut"></i><i class="fut"></i><i class="fut"></i><i class="fut"></i><i class="fut"></i>
+          <i class="fut"></i><i class="fut"></i><i class="fut"></i><i class="fut"></i><i class="fut"></i>
+          <i class="fut"></i><i class="fut"></i><i class="fut"></i>
+        </div>
+        <div class="ribbon-ax"><span>1</span><span>today · 13 days left</span><span>31</span></div>
+      </div>
+      <div class="strip">
+        <span style="color:var(--ink-soft)">Earned <b class="money" style="color:var(--moss)">৳48,000</b></span>
+        <span style="color:var(--ink-soft)">Spent <b class="money" style="color:var(--ink)">৳31,600</b></span>
+      </div>
+      <div class="sect" style="color:var(--vermilion)">Needs attention</div>
+      <div class="row alert" style="background:var(--card)">
+        <div class="l1"><span class="nm">Grocery</span><span class="dots"></span>
+          <span class="amt" style="color:var(--vermilion)"><span class="taka">৳</span>280 over</span></div>
+        <div class="l2"><span>At this pace you'll finish at ৳8,900</span></div></div>
+      <div class="sect">Variable expenses &nbsp;·&nbsp; ৳12,400 / 18,000</div>
+      <div class="row" style="background:var(--card)"><div class="l1"><span class="nm">Transport</span>
+        <span class="dots"></span><span class="amt"><span class="taka">৳</span>2,100</span></div>
+        <div class="track"><div class="fill ok" style="width:61%"></div></div></div>
+      <div class="row" style="background:var(--card)"><div class="l1"><span class="nm">Dining out</span>
+        <span class="dots"></span><span class="amt"><span class="taka">৳</span>2,720</span></div>
+        <div class="track"><div class="fill warn" style="width:87%"></div></div></div>
+      <div class="nav">
+        <div class="on"><span class="g">▣</span>Home</div>
+        <div><span class="g">▤</span>Ledger</div>
+        <div><div class="fab">+</div></div>
+        <div><span class="g">▥</span>Income</div>
+        <div><span class="g">▦</span>Budget</div>
+      </div>
+    </div></div>
+    <div class="cap">Dashboard</div>
+    </div>
+
+    <div>
+    <div class="phone"><div class="scr">
+      <div class="qa">
+        <div class="handle"></div>
+        <div class="amt-in"><span class="taka">৳</span>250</div>
+        <div class="chips">
+          <span class="chip2 on">Grocery</span><span class="chip2">Transport</span>
+          <span class="chip2">Rickshaw</span><span class="chip2">Dining</span>
+          <span class="chip2">Recharge</span><span class="chip2">More…</span>
+        </div>
+        <div class="inline"><b>Today</b> · <b>Cash</b> · Add note</div>
+        <div class="btn">Save expense</div>
+        <div class="pad">
+          <span>1</span><span>2</span><span>3</span><span>⌫</span>
+          <span>4</span><span>5</span><span>6</span><span>00</span>
+          <span>7</span><span>8</span><span>9</span><span>.</span>
+          <span style="grid-column:span 2">0</span><span>−</span><span>✓</span>
+        </div>
+      </div>
+    </div></div>
+    <div class="cap">Quick add · 3 taps</div>
+    </div>
+
+    <div>
+    <div class="phone"><div class="scr">
+      <div class="topbar"><span class="ic">‹</span><span class="per">2026</span><span class="ic">› &nbsp;Month ▾</span></div>
+      <div class="hero">
+        <div class="k">Earned this year</div>
+        <div class="v"><span class="taka">৳</span>5,84,000</div>
+        <div class="bars">
+          <i style="height:36%"></i><i style="height:36%"></i><i style="height:100%"></i>
+          <i style="height:36%"></i><i style="height:36%"></i><i style="height:36%"></i>
+          <i style="height:36%"></i><i style="height:78%"></i><i style="height:36%"></i>
+          <i style="height:36%"></i><i style="height:92%"></i><i style="height:36%"></i>
+        </div>
+        <div class="bars-ax"><span>J</span><span>F</span><span>M</span><span>A</span><span>M</span>
+          <span>J</span><span>J</span><span>A</span><span>S</span><span>O</span><span>N</span><span>D</span></div>
+      </div>
+      <div class="sect">By source</div>
+      <div class="row" style="background:var(--card)"><div class="l1">
+        <span class="nm">Salary<span class="dot stable"></span></span><span class="dots"></span>
+        <span class="amt"><span class="taka">৳</span>3,60,000</span></div>
+        <div class="l2"><span>Stable · every month</span><span>62%</span></div></div>
+      <div class="row" style="background:var(--card)"><div class="l1">
+        <span class="nm">Real estate<span class="dot var"></span></span><span class="dots"></span>
+        <span class="amt"><span class="taka">৳</span>1,44,000</span></div>
+        <div class="l2"><span>Variable · 4 entries</span><span>25%</span></div></div>
+      <div class="row" style="background:var(--card)"><div class="l1">
+        <span class="nm">Farming<span class="dot var"></span></span><span class="dots"></span>
+        <span class="amt"><span class="taka">৳</span>80,000</span></div>
+        <div class="l2"><span>Variable · 2 entries</span><span>14%</span></div></div>
+      <div class="insight">Stable income covers <b>71%</b> of your spending this year.</div>
+      <div class="nav">
+        <div><span class="g">▣</span>Home</div>
+        <div><span class="g">▤</span>Ledger</div>
+        <div><div class="fab">+</div></div>
+        <div class="on"><span class="g">▥</span>Income</div>
+        <div><span class="g">▦</span>Budget</div>
+      </div>
+    </div></div>
+    <div class="cap">Income · defaults to year</div>
+    </div>
+
+  </div>
+
+  <h2>Why these, and not the obvious alternatives</h2>
+  <table>
+    <tr><th style="width:29%">Decision</th><th style="width:26%">Rejected</th><th>Reason</th></tr>
+    <tr><td>Safe-to-spend as the hero</td><td class="mono">total balance</td>
+      <td>It is the only figure that answers the question the user has while standing at a shop counter.</td></tr>
+    <tr><td>Month ribbon</td><td class="mono">category donut</td>
+      <td>Encodes spending rhythm, position in the month, and remaining runway at once. A donut shows category share, which the user already knows. Also ~31 draw calls, no library.</td></tr>
+    <tr><td>Ruled rows</td><td class="mono">elevated cards</td>
+      <td>Less overdraw per frame, and it matches the object the app replaces.</td></tr>
+    <tr><td>Light theme default</td><td class="mono">dark default</td>
+      <td>The target device is LCD, so dark saves no battery, and it is harder to read outdoors.</td></tr>
+    <tr><td>Custom numeric keypad</td><td class="mono">system IME</td>
+      <td>Removes 150–300 ms of keyboard inflation from the most frequent action in the app.</td></tr>
+    <tr><td>Income defaults to the year</td><td class="mono">month, for consistency</td>
+      <td>A farming month showing ৳0 is alarming and meaningless. The year is the honest unit for this income.</td></tr>
+    <tr><td>Fixed tweens, 80–200 ms</td><td class="mono">M3 Expressive springs</td>
+      <td>Spring settle tails are variable-length; on a Cortex-A53 that is where frames drop.</td></tr>
+  </table>
+
+</div>
+</body>
+</html>

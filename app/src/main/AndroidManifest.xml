@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      There is deliberately no <uses-permission> element in this file, and there
+      must never be one for INTERNET.
+
+      04-system-architecture.md §2.5 / FR-APP-01: the offline-only guarantee is
+      structural rather than a promise. Verify against the MERGED release
+      manifest, not this source file — a library can contribute a permission.
+    -->
+
+    <application
+        android:name=".FinanceApp"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Khata">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|fontScale"
+            android:theme="@style/Theme.Khata">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+          04 §6: no ContentProvider-based library initialisers. Each auto-
+          initialised provider runs before the first Activity, directly on the
+          cold-start path that NFR-PERF-01 budgets at 800 ms.
+        -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            tools:node="remove" />
+    </application>
+
+</manifest>

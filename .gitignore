@@ -1,0 +1,23 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+
+# Build outputs
+**/build/
+
+# Font subsetting workspace (the subsetted .ttf under app/src/main/res/font is
+# committed; the full upstream face it was cut from is not)
+/tools/fonts/upstream/
+
+# Kotlin incremental compilation state
+.kotlin/
+
+# Machine-local Claude Code overrides
+.claude/settings.local.json

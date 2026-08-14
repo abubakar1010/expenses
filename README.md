@@ -10,8 +10,8 @@ Three budgets drive every decision:
 
 | Budget | Target | Current |
 |---|---|---|
-| APK size (NFR-SIZE-01) | ≤ 6 MB | **1.13 MB** |
-| Dex methods (NFR-SIZE-03) | ≤ 40,000, single dex | **13,687** |
+| APK size (NFR-SIZE-01) | ≤ 6 MB | **1.41 MB** |
+| Dex methods (NFR-SIZE-03) | ≤ 40,000, single dex | **16,628** |
 | Cold start (NFR-PERF-01) | ≤ 800 ms on a Cortex-A53 | not yet measured — needs the reference device |
 
 The app declares **no permissions at all**, INTERNET included. That is verified
@@ -112,12 +112,16 @@ which `04` §2.2 makes mandatory rather than optional.
 Two caveats:
 
 - Profile generation **needs root**, so it requires an AOSP or `google_apis`
-  emulator image. The AVDs on this machine are all `google_apis_playstore`,
-  which cannot be rooted.
+  emulator image — a `google_apis_playstore` one cannot be rooted. The
+  `Khata_API35` AVD created for the test suite is `google_apis` and works.
 - The SRS is explicit that "targets measured on a flagship device are not
   evidence of compliance". Numbers from an x86_64 emulator say nothing about a
   1.4 GHz Cortex-A53 with eMMC storage. `04` §2.2 defines the fallback if the
   real device misses 800 ms: XML views for the entry and ledger screens only.
+
+To benchmark on a physical Xiaomi/MIUI device, enable **Install via USB** in
+developer options first — without it the instrumentation APK is refused with
+`INSTALL_FAILED_USER_RESTRICTED`, even though the app APK installs fine.
 
 ## Toolchain
 

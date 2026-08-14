@@ -57,14 +57,21 @@ M2"* — plus the complete persistence layer and design system that M2–M4 rest
 Every number below was measured, not estimated. Reproduce with the commands in
 §9.
 
+Figures are after the completion pass (§11); the scaffold's are in brackets.
+
 | Constraint | Target | Measured |
 |---|---|---|
-| NFR-SIZE-01 APK download size | ≤ 6 MB | **1.13 MB** (1,180,041 bytes) |
-| NFR-SIZE-03 dex methods, single dex | ≤ 40,000 | **13,687** (2,539 classes) |
+| NFR-SIZE-01 APK download size | ≤ 6 MB | **1.41 MB** (1,478,481 bytes) [1.13 MB] |
+| NFR-SIZE-03 dex methods, single dex | ≤ 40,000 | **16,628** in 3,122 classes [13,687] |
 | FR-APP-01 no `INTERNET` permission | none declared | **confirmed on the merged release manifest** |
 | Font budget (`05` §4.1) | ~12–18 KB | **5,316 bytes** |
+| Android lint, release | no errors | **0 errors, 7 warnings** [3 errors, 27 warnings] |
 | JVM unit tests | ≥ 90% on `core/` | **53 passing** |
-| DAO / trigger assertions (`03` §10.1) | 19 ported | **31 passing** |
+| Instrumented tests | — | **94 passing** [31] |
+
+Closing all of FR-EXP cost 280 KB and 2,941 methods — the date and filter
+pickers, the note field, `SwipeToDismissBox`, and the M3 `DatePicker` that comes
+with them. That leaves 4.6 MB of the ceiling for M2–M5.
 
 The only permission in the merged manifest is
 `com.app.finance.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`, a signature-level
@@ -123,7 +130,7 @@ requires justification for, the replacement is a hand-rolled host: the specified
 transition is a 150 ms fade-through with no slide and no shared element, which
 is a `Crossfade` and a saved back stack. Only `AppNav.kt` changes.
 
-Current headroom makes this a non-issue today — 1.13 MB against a 6 MB ceiling.
+Current headroom makes this a non-issue today — 1.41 MB against a 6 MB ceiling.
 
 ### 4.3 Architecture rules as a Gradle task, not a lint module
 
@@ -458,3 +465,46 @@ The suite therefore runs on an **API 35 `google_apis` emulator**, created for
 this purpose. That image is also rootable, which is what finally made Baseline
 Profile generation possible — the Play Store images this project started with
 cannot be rooted, and §8 recorded that as a blocker.
+
+### 11.7 The release build, finally run
+
+The scaffold shipped a release APK that had **never been installed**. R8 full
+mode is exactly where Room's generated code and kotlinx.serialization break at
+runtime rather than at compile time, so an unrun release build is an untested
+one.
+
+It was signed with a throwaway key, installed, and driven through the full M1
+loop — add an expense, read it back from the ledger. No crash, no missing class,
+no `-keep` rule needed beyond those already in `proguard-rules.pro`.
+
+It also surfaced a defect the debug build had hidden: **every ledger row was
+drawn over a red band**. `SwipeToDismissBox` composes its `backgroundContent`
+unconditionally, and the Khata ledger row is deliberately transparent — the rule
+is its structure, not a card — so the delete ground showed through at rest. The
+background is now painted only while a swipe is under way, and the row is opaque
+so the ground slides out from under it rather than through it.
+
+Two notes for whoever ships this for real:
+
+- `signingConfigs` reads a gitignored `keystore.properties`; with none present,
+  `assembleRelease` still succeeds and produces an unsigned APK, so a fresh
+  clone can run the size and shrinking checks. Supply a real key before
+  distributing.
+- Baseline Profile generation is now *possible* — the `android-35 google_apis`
+  AVD is rootable, and the benchmark module's runner was wrong
+  (`AndroidBenchmarkRunner` ships with the microbenchmark artifact, not
+  Macrobenchmark, so it failed with `ClassNotFoundException` before any test
+  ran). That is fixed, but the generation run was not completed in this session.
+  `./gradlew :app:generateBaselineProfile` against that AVD is the command.
+
+### 11.8 Still not done
+
+Unchanged from §8: **every NFR-PERF target remains unmeasured.** A physical
+Xiaomi Redmi 13C (8 × 1.8 GHz, 6 GB, Android 15) was connected during this pass
+and is far closer to the reference device than any emulator — but MIUI blocks
+installing the instrumentation APK over USB (`INSTALL_FAILED_USER_RESTRICTED`),
+which needs "Install via USB" enabled in developer options before the benchmark
+suite can run there. The app APK itself installs and runs on it fine.
+
+Also outstanding: Bengali translations (every string is extracted and `bn` is
+deliberately not declared), the category manager, and M2–M5.

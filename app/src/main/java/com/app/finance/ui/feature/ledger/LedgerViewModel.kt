@@ -34,7 +34,13 @@ data class LedgerUiState(
     val days: List<LedgerDay> = emptyList(),
     val filters: LedgerFilters = LedgerFilters.NONE,
     val tree: List<CategoryNode> = emptyList(),
-    val today: LocalDate = LocalDate.EPOCH,
+    /**
+     * `LocalDate.ofEpochDay(0)`, not `LocalDate.EPOCH` — that constant was only
+     * added in API 34 and this app ships to API 26, so it would have thrown
+     * `NoSuchFieldError` on every device below Android 14. Caught by lint,
+     * which is the reason the lint block exists.
+     */
+    val today: LocalDate = LocalDate.ofEpochDay(0),
     /** True only until the first page arrives — drives the skeleton, not a spinner. */
     val initialLoad: Boolean = true,
     val loadingMore: Boolean = false,

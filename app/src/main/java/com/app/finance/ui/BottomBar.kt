@@ -1,5 +1,6 @@
 package com.app.finance.ui
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.semantics.Role
@@ -33,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
+import com.app.finance.R
 import com.app.finance.ui.common.KhataIcons
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Sizes
@@ -80,15 +83,15 @@ fun KhataBottomBar(
                 .height(Sizes.navBar),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            NavItem(Route.Dashboard, "Dashboard", current, onSelect, Modifier.weight(1f))
-            NavItem(Route.Ledger, "Ledger", current, onSelect, Modifier.weight(1f))
+            NavItem(Route.Dashboard, R.string.nav_dashboard, current, onSelect, Modifier.weight(1f))
+            NavItem(Route.Ledger, R.string.nav_ledger, current, onSelect, Modifier.weight(1f))
 
             // The FAB's slot in the row. The button itself is drawn above, so
             // it can overlap the bar's top edge.
             Box(Modifier.weight(1f))
 
-            NavItem(Route.Income, "Income", current, onSelect, Modifier.weight(1f))
-            NavItem(Route.Budget, "Budget", current, onSelect, Modifier.weight(1f))
+            NavItem(Route.Income, R.string.nav_income, current, onSelect, Modifier.weight(1f))
+            NavItem(Route.Budget, R.string.nav_budget, current, onSelect, Modifier.weight(1f))
         }
 
         QuickAddFab(
@@ -105,7 +108,7 @@ fun KhataBottomBar(
 @Composable
 private fun NavItem(
     route: Route,
-    label: String,
+    @StringRes label: Int,
     current: Route,
     onSelect: (Route) -> Unit,
     modifier: Modifier = Modifier,
@@ -132,7 +135,7 @@ private fun NavItem(
             modifier = Modifier.size(Sizes.navIcon),
         )
         Text(
-            text = label,
+            text = stringResource(label),
             style = KhataTheme.type.caption.copy(fontSize = 11.sp),
             color = tint,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -150,6 +153,7 @@ private fun NavItem(
 @Composable
 private fun QuickAddFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
     val colors = KhataTheme.colors
+    val addExpense = stringResource(R.string.add_expense)
     val shape: Shape = CircleShape
 
     Box(
@@ -161,7 +165,7 @@ private fun QuickAddFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
             .clickable(onClick = onClick)
             .semantics {
                 role = Role.Button
-                contentDescription = "Add expense"
+                contentDescription = addExpense
             },
         contentAlignment = Alignment.Center,
     ) {

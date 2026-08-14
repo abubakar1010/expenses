@@ -7,9 +7,6 @@
 -->
 <resources>
     <color name="paper">#F6F5F1</color>
-    <color name="ink">#141C28</color>
-    <color name="indigo">#25407A</color>
-
     <!--
       Deliberately separate from @color/indigo, which has a values-night
       variant. A launcher icon that changed colour with the system theme would

@@ -24,8 +24,6 @@
     <string name="add_expense">Add expense</string>
 
     <!-- Quick Add -->
-    <string name="new_expense">New expense</string>
-    <string name="edit_expense">Edit expense</string>
     <string name="save_expense">Save expense</string>
     <string name="expense_saved">Expense saved</string>
     <string name="delete_expense">Delete expense</string>
@@ -38,11 +36,9 @@
     <string name="more_categories">More…</string>
     <string name="choose_category">Choose a category</string>
     <string name="choose_method">How did you pay?</string>
-    <string name="choose_date">When was it?</string>
 
     <!-- Amount field and keypad. These are spoken, not shown. -->
     <string name="amount_empty">Amount, nothing entered yet</string>
-    <string name="amount_field">Amount</string>
     <string name="key_backspace">Delete last digit</string>
     <string name="key_double_zero">Double zero</string>
     <string name="key_decimal">Decimal point</string>
@@ -57,7 +53,6 @@
     <string name="method_other">Other</string>
 
     <!-- Ledger -->
-    <string name="ledger_title">Ledger</string>
     <string name="expense_deleted">Expense deleted</string>
     <string name="undo">Undo</string>
     <string name="day_total">%1$s spent</string>
@@ -73,14 +68,11 @@
     <string name="filter_from">From</string>
     <string name="filter_to">To</string>
     <string name="apply_filters">Show matching expenses</string>
-    <string name="row_actions">%1$s, %2$s. Double tap to edit.</string>
     <string name="loading_ledger">Loading your ledger</string>
 
     <!-- Empty states: an invitation, plus the control that starts the fix. -->
     <string name="empty_ledger">Nothing logged yet. Tap + to add your first expense.</string>
     <string name="empty_search">Nothing matches that. Try a different note or amount.</string>
-    <string name="empty_budget">No limits set yet. Set one to see how the month is going.</string>
-    <string name="empty_income">Nothing recorded yet. Add what came in and it will show here.</string>
     <string name="empty_categories">Every category is archived. Restore one to log an expense.</string>
 
     <!-- Errors: problem, then fix. No apology, no "oops". -->

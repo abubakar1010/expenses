@@ -2,7 +2,7 @@
 # Implementation Log — M1 Scaffold
 **Product:** Khata — Personal Finance Manager (Android)
 **Covers:** initial scaffold through milestone M1
-**Date:** 14 August 2026
+**Date:** 14 August 2026 — revised the same day after the completion pass (§11)
 
 This document records what was built from `01`–`05`, every place the
 implementation departs from those documents and why, and the evidence behind
@@ -34,21 +34,21 @@ structural privacy guarantee rather than a promise.
 Milestone **M1** as `01` §8 defines it — *"Ship M1 to yourself before building
 M2"* — plus the complete persistence layer and design system that M2–M4 rest on.
 
-| Area | State |
-|---|---|
-| Build configuration, R8 full mode, release APK | complete |
-| Schema: 9 tables, 14 indices, 14 triggers, seed, PRAGMAs | complete |
-| `Money`, `Period`, `NameKey` | complete |
-| *Khata* design system, light and dark | complete |
-| Navigation shell, bottom bar, centre FAB | complete |
-| Quick Add — custom keypad, chips, inline sentence | complete |
-| Ledger — keyset paging, day grouping, undo | complete |
-| Dashboard, Income, Budget | placeholder routes (M2–M4) |
-| Category manager, Reports, Settings | not started |
-| Export/import, recurring rules | not started (M5, P1) |
+| Area | State | Requirement |
+|---|---|---|
+| Build configuration, R8 full mode, signed release | complete | NFR-SIZE-* |
+| Schema: 9 tables, 14 indices, 14 triggers, seed, PRAGMAs | complete | DR-01…06 |
+| `Money`, `Period`, `NameKey` | complete | NFR-MAIN-01 |
+| *Khata* design system, light and dark | complete | `05` §3–§7 |
+| Navigation shell, bottom bar, centre FAB | complete | NFR-USE-01/06 |
+| Quick Add — keypad, chips, date, method, note, full picker | complete | FR-EXP-01…06 |
+| Ledger — paging, day groups, edit, delete+undo, filter, search | complete | FR-EXP-07…10 |
+| Crash log, recovery screen, rollup drift check | complete | `04` §8, NFR-REL-02 |
+| Dashboard, Income, Budget | placeholder routes (M2–M4) | |
+| Category manager, Reports, Settings | not started | |
+| Export/import, recurring rules | not started (M5, P1) | |
 
-**Size:** 45 main source files (5,255 lines), 7 test files (1,198 lines),
-85 files committed.
+**Size:** 51 main source files (7,104 lines), 13 test files (2,519 lines).
 
 ---
 
@@ -336,3 +336,125 @@ The commit message on `2e9de85` and an earlier progress summary both state
 `PeriodTest` 18, `NameKeyTest` 8). The README has been corrected; the commit
 message is left as written rather than rewriting history over a miscount. No
 other reported figure changed on re-verification.
+
+---
+
+## 11. The completion pass
+
+The sections above describe the **scaffold**. An audit of that scaffold against
+`02-SRS.md` found that five of the ten FR-EXP requirements were unimplemented,
+so M1 as `01` §8 defines it had not actually been reached. This section records
+closing that gap.
+
+### 11.1 What was missing
+
+Before this pass you could not change an expense's date, add a note, reach a
+category outside the first six chips, edit anything, filter, or search. Tapping
+a ledger row **deleted** it — the only interaction the screen offered was
+destructive. Nothing outside `core/` had a single test.
+
+| Requirement | Was | Now |
+|---|---|---|
+| FR-EXP-02 date overridable | date fixed to today | date picker, capped at today |
+| FR-EXP-03 MRU categories | six chips, no way past them | `More…` opens the full picker |
+| FR-EXP-04 leaves only | enforced by trigger only | roots render as non-selectable group headers |
+| FR-EXP-05 note and method | neither reachable | note field; method picker replacing a six-tap cycle |
+| FR-EXP-07 edit and delete | neither | tap to edit, swipe to delete |
+| FR-EXP-08 filter and search | neither | date range, root, leaf, method; note substring or exact amount |
+
+### 11.2 Decisions taken
+
+**Future dates are refused.** FR-EXP-02 says the date must be user-overridable
+and the SRS is silent on whether a future one is legal. It matters: a
+future-dated row posts straight into the period rollup, inflating this month's
+spend and deflating safe-to-spend with money that has not left the user's hand.
+The schema already has the right mechanism for money that has not happened —
+`status = pending` — and that arrives with recurring rules at P1.
+
+**Editing reuses the entry sheet.** One component means one set of validation
+rules, one keypad, and one surface to keep accessible, rather than a second
+screen that drifts from the first.
+
+**Bengali is not shipped.** Every user-facing string was extracted to
+`strings.xml`, including the content descriptions TalkBack speaks — but `"bn"`
+was *removed* from `localeFilters` rather than left declaring a locale with no
+resources behind it. Financial vocabulary is the wrong place to guess at
+register, and the extraction is the part that needed doing.
+
+### 11.3 Defects found and fixed
+
+Nine, all in code the previous pass had already reported as working.
+
+| Defect | Consequence |
+|---|---|
+| The entry sheet's ViewModel resolves to the **Activity** store | Type ৳250, dismiss, reopen — ৳250 was still there |
+| Undo used `SnackbarDuration.Short` ≈ 4 s | NFR-USE-03 requires "at least 5 seconds", which the surrounding comment claimed |
+| Screen transitions used a raw `tween` | Animator scale 0 still animated — the one place a reduced-motion user notices most |
+| Three bare `LocalDate.now()` | Bypassed the injected `Clock`; two also re-ran on every recomposition |
+| `AppContainer.clock` was a hardcoded field | Its KDoc promised tests could pin "today"; nothing could |
+| The last-used category was validated against a tree that had not loaded | Silently fell back to the first chip on a cold open |
+| `filesDir` resolved during `Application.onCreate` | **30 ms of main-thread disk** on the tightest budget in the app |
+| `LocalDate.EPOCH` as a default | API 34+; this app ships to API 26, so `NoSuchFieldError` on every device below Android 14 |
+| Locale read non-observably in a composable | Grouping and the spoken form would keep the old locale after a language change |
+
+The last two were found by Android lint, which this pass enabled. That is the
+argument for enabling it: the `EPOCH` constant would have crashed on the entire
+API 26–33 range, which no device in this project's test fleet covers.
+
+### 11.4 StrictMode had to learn to discriminate
+
+NFR-PERF-09 asks for zero main-thread database access "enforced by StrictMode in
+debug builds", and the scaffold armed `penaltyDeath` to do it. On the Xiaomi test
+device that killed the app on launch — for a disk read inside MediaTek's
+game-detection heuristic, which stats the APK during activity start and is
+attributed to this process because StrictMode charges Binder-inbound work to the
+callee.
+
+The policy now inspects each violation's stack: anything containing app frames
+is fatal, anything originating entirely in vendor or framework code is logged.
+The guarantee is exactly as strong for the code this project controls, which is
+what the requirement is about. It immediately caught a real one — the `filesDir`
+violation above.
+
+### 11.5 Tests
+
+From 53 JVM + 31 instrumented to **53 JVM + 94 instrumented**. The repository and
+ViewModel layers had no coverage at all, including `insert()`, which every
+expense in the product goes through.
+
+| Suite | Tests | Covers |
+|---|---|---|
+| `SchemaAssertionsTest` | 29 | the 19 assertions of `03` §10.1, plus the six added triggers and two query plans |
+| `SchemaValidationTest` | 2 | Room accepts the canonical schema across a close/reopen |
+| `ExpenseRepositoryTest` | 16 | the write path, refunds, cross-period re-file, filters, keyset paging |
+| `CategoryRepositoryTest` | 11 | FR-CAT rules mapped to typed errors; archiving cascades |
+| `QuickAddViewModelTest` | 15 | keypad, defaults, date clamp, save, edit, reset |
+| `LedgerViewModelTest` | 11 | day grouping, filters, search, undo, paging, live refresh |
+| `AccessibilityTest` | 10 | money as words, named controls, 48 dp targets, font scale 0.85×/1.3× |
+
+Three things were learned writing them, each of which changed production code:
+
+- **ViewModels needed an injectable dispatcher.** With a hardcoded
+  `Dispatchers.IO`, cancelling a ViewModel in teardown raced the query it was
+  still running, and the resulting crash was attributed to whichever test ran
+  next — a suite that failed differently every run.
+- **`runTest` is the wrong tool here.** Room dispatches onto its own executor, so
+  these are integration tests over real threads; `runTest`'s virtual clock
+  expires every timeout instantly while the database is still answering.
+- **The entry state needed a `seeded` flag.** The category tree and the chip row
+  settle from their own flow and can arrive *before* the form is seeded, so
+  there was a window showing a chip selection but the default payment method
+  rather than the last-used one.
+
+### 11.6 Test-environment finding
+
+The Compose UI tests **cannot run on API 37**. Espresso 3.7.0 — the newest
+release — calls `android.hardware.input.InputManager.getInstance()`, which no
+longer exists, and every Compose test fails in `Espresso.onIdle()` before
+reaching an assertion. The repository and ViewModel suites are unaffected because
+they never touch Espresso.
+
+The suite therefore runs on an **API 35 `google_apis` emulator**, created for
+this purpose. That image is also rootable, which is what finally made Baseline
+Profile generation possible — the Play Store images this project started with
+cannot be rooted, and §8 recorded that as a blocker.

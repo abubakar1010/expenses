@@ -19,21 +19,25 @@ against the merged release manifest, not the source one.
 
 ## State
 
-Milestone **M1** of the five in `01-PRD.md` §8, plus the full design system and
-persistence layer.
+Milestone **M1** of the five in `01-PRD.md` §8 — *schema, expense quick-add,
+ledger* — complete, plus the full design system and persistence layer.
 
 | Area | State |
 |---|---|
-| Build, R8 full mode, release APK | done |
-| Schema, 14 triggers, seed, PRAGMAs | done — 31 instrumented assertions |
-| `Money`, `Period`, `NameKey` | done — 53 JVM tests |
+| Build, R8 full mode, signed release, lint | done |
+| Schema, 14 triggers, seed, PRAGMAs | done |
+| `Money`, `Period`, `NameKey` | done |
 | Khata design system, light + dark | done |
 | Navigation shell, bottom bar, FAB | done |
-| **Quick Add** — custom keypad, chips, undo | done |
-| **Ledger** — keyset paging, day grouping | done |
+| **Quick Add** — keypad, chips, date, method, note, full category picker | done |
+| **Ledger** — paging, day groups, edit, swipe-delete + undo, filters, search | done |
+| Crash log, recovery screen, debug rollup-drift check | done |
 | Dashboard, Income, Budget | placeholder routes (M2–M4) |
 | Category manager, Reports, Settings | not started |
 | Export/import, recurring rules | not started (M5, P1) |
+
+**53 JVM tests + 94 instrumented tests.** See `docs/06-implementation-log.md`
+§11 for what the completion pass changed and why.
 
 ## Getting started
 
@@ -41,10 +45,19 @@ Requires JDK 17 and the Android SDK (platform 37, build-tools 36).
 
 ```bash
 ./gradlew :app:installDebug          # build and install
+./gradlew :app:architectureCheck     # the two structural rules
 ./gradlew :app:testDebugUnitTest     # 53 JVM tests — domain and core
-./gradlew :app:connectedAndroidTest  # 31 schema/trigger assertions, needs a device
+./gradlew :app:connectedAndroidTest  # 94 tests, needs a device — see below
+./gradlew :app:lintRelease
 ./gradlew :app:assembleRelease       # R8 full mode
 ```
+
+**Run the instrumented tests on API 35 or below.** Espresso 3.7.0 — the newest
+release — calls `android.hardware.input.InputManager.getInstance()`, which no
+longer exists on API 37, so every Compose test dies in `Espresso.onIdle()`
+before reaching an assertion. The repository and ViewModel suites are
+unaffected. An `android-35;google_apis` AVD works, and being rootable is also
+what makes `generateBaselineProfile` possible.
 
 Layouts are designed against **288 dp of content on a 320 dp phone**. To check
 that on a 720 px emulator:

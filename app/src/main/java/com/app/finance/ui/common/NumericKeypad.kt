@@ -19,7 +19,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.app.finance.R
 import com.app.finance.core.money.Money
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Space
@@ -68,21 +70,21 @@ fun NumericKeypad(
     ) {
         KeyRow {
             Digit('1', onKey); Digit('2', onKey); Digit('3', onKey)
-            Key("⌫", "Delete last digit") { onKey(KeypadKey.Backspace) }
+            Key("⌫", stringResource(R.string.key_backspace)) { onKey(KeypadKey.Backspace) }
         }
         KeyRow {
             Digit('4', onKey); Digit('5', onKey); Digit('6', onKey)
-            Key("00", "Double zero") { onKey(KeypadKey.DoubleZero) }
+            Key("00", stringResource(R.string.key_double_zero)) { onKey(KeypadKey.DoubleZero) }
         }
         KeyRow {
             Digit('7', onKey); Digit('8', onKey); Digit('9', onKey)
-            Key(".", "Decimal point") { onKey(KeypadKey.Decimal) }
+            Key(".", stringResource(R.string.key_decimal)) { onKey(KeypadKey.Decimal) }
         }
         KeyRow {
             // 0 spans two columns, matching the spec sheet — after the digits
             // above it, it is the most pressed key on the pad.
             Digit('0', onKey, weight = 2f)
-            Key(Money.MINUS, "Make this a refund") { onKey(KeypadKey.Negate) }
+            Key(Money.MINUS, stringResource(R.string.key_negate)) { onKey(KeypadKey.Negate) }
             Box(Modifier.weight(1f))
         }
     }

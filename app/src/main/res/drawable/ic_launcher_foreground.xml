@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The khata itself: four ruled lines with a short vermilion correction stroke on
+  the third. Blue-black ink records, red ink demands attention
+  (05-ui-ux-guide.md §2) — the whole product in one mark.
+
+  A vector, not a set of density-bucketed PNGs. minSdk 26 means every target
+  device supports adaptive icons, so mipmap-anydpi-v26 alone is sufficient and
+  the app ships no raster launcher assets at all.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Ruled lines, inset into the 72dp adaptive-icon safe zone. -->
+    <path
+        android:fillColor="#F6F5F1"
+        android:pathData="M34,40 h40 a2,2 0 0 1 0,4 h-40 a2,2 0 0 1 0,-4 z" />
+    <path
+        android:fillColor="#F6F5F1"
+        android:pathData="M34,52 h40 a2,2 0 0 1 0,4 h-40 a2,2 0 0 1 0,-4 z" />
+    <path
+        android:fillColor="#F6F5F1"
+        android:pathData="M34,64 h22 a2,2 0 0 1 0,4 h-22 a2,2 0 0 1 0,-4 z" />
+
+    <!-- The correction stroke. -->
+    <path
+        android:fillColor="#E88A72"
+        android:pathData="M60,64 h14 a2,2 0 0 1 0,4 h-14 a2,2 0 0 1 0,-4 z" />
+</vector>

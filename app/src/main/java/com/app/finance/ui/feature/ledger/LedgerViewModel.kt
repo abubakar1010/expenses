@@ -5,8 +5,14 @@ import androidx.lifecycle.viewModelScope
 import com.app.finance.core.money.Money
 import com.app.finance.data.db.dao.ExpenseWithCategory
 import com.app.finance.data.db.entity.ExpenseEntity
+import com.app.finance.data.repo.CategoryRepository
 import com.app.finance.data.repo.ExpenseRepository
+import com.app.finance.domain.model.CategoryNode
+import com.app.finance.domain.model.LedgerFilters
+import com.app.finance.domain.model.PaymentMethod
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,6 +20,7 @@ import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Clock
 import java.time.LocalDate
 
 /** A day's expenses with its subtotal — the ledger is grouped by day (FR-EXP-09). */
@@ -25,70 +32,114 @@ data class LedgerDay(
 
 data class LedgerUiState(
     val days: List<LedgerDay> = emptyList(),
-    val loading: Boolean = true,
+    val filters: LedgerFilters = LedgerFilters.NONE,
+    val tree: List<CategoryNode> = emptyList(),
+    val today: LocalDate = LocalDate.EPOCH,
+    /** True only until the first page arrives — drives the skeleton, not a spinner. */
+    val initialLoad: Boolean = true,
+    val loadingMore: Boolean = false,
     val endReached: Boolean = false,
+    val filterSheetOpen: Boolean = false,
     /** Held for the five seconds the undo snackbar is on screen. */
     val lastDeleted: ExpenseEntity? = null,
 ) {
-    val isEmpty: Boolean get() = !loading && days.isEmpty()
+    val isEmpty: Boolean get() = !initialLoad && days.isEmpty()
+
+    /** An empty result means something different when a filter is applied. */
+    val isFilteredEmpty: Boolean get() = isEmpty && !filters.isDefault
 }
 
 /**
- * The paged ledger.
+ * The paged, filtered ledger.
  *
- * Pagination is keyset, not offset (03 §5.5) and not `androidx.paging` — the
- * library is not in the dependency budget and would earn its ~200 KB only for
- * behaviour this screen does not need. What it does need is forty lines: a
- * cursor, a page count, and a reload that respects how far the user has
- * already scrolled.
+ * Pagination is keyset, not offset (03 §5.5), and not `androidx.paging` — the
+ * library is not in the dependency budget and would earn its weight only for
+ * behaviour this screen does not need. What it does need is a cursor, a page
+ * count, and a reload that respects how far the user has already scrolled.
  *
- * Nothing here polls or refreshes. `observeRevision()` is a Room-invalidated
- * flow, so an expense saved from the Quick Add sheet — on any screen — causes
- * this list to re-emit on its own (04 §5.1).
+ * Nothing here polls. `observeRevision()` is Room-invalidated, so an expense
+ * saved from the Quick Add sheet — on any screen — causes this list to re-emit
+ * on its own (04 §5.1).
  */
 class LedgerViewModel(
     private val repo: ExpenseRepository,
+    categories: CategoryRepository,
+    private val clock: Clock,
+    /**
+     * Injected so tests can run on a single deterministic dispatcher. With a
+     * hardcoded `Dispatchers.IO`, cancelling a ViewModel in teardown races the
+     * query it is still running, and the failure lands in whichever test runs
+     * next.
+     */
+    private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(LedgerUiState())
+    private val _state = MutableStateFlow(LedgerUiState(today = LocalDate.now(clock)))
     val state: StateFlow<LedgerUiState> = _state.asStateFlow()
 
     private var rows = emptyList<ExpenseWithCategory>()
     private var pagesLoaded = 1
+    private var loadJob: Job? = null
 
     init {
-        viewModelScope.launch { reload() }
+        reload()
         viewModelScope.launch {
             // drop(1): the first emission is the initial query result, which
-            // reload() above is already handling.
+            // reload() above already covers.
             repo.observeRevision().drop(1).collect { reload() }
         }
+        viewModelScope.launch {
+            categories.observeTree().collect { tree -> _state.update { it.copy(tree = tree) } }
+        }
     }
+
+    // --- filtering (FR-EXP-08) ---------------------------------------------
+
+    fun setQuery(query: String) = applyFilters(_state.value.filters.copy(query = query))
+
+    fun applyFilters(filters: LedgerFilters) {
+        _state.update { it.copy(filters = filters, filterSheetOpen = false) }
+        // A filter change invalidates every loaded page, so paging restarts.
+        pagesLoaded = 1
+        reload()
+    }
+
+    fun clearFilters() = applyFilters(LedgerFilters(query = _state.value.filters.query))
+
+    fun openFilters() = _state.update { it.copy(filterSheetOpen = true) }
+
+    fun dismissFilters() = _state.update { it.copy(filterSheetOpen = false) }
+
+    // --- paging (FR-EXP-10) -------------------------------------------------
 
     fun loadMore() {
         val current = _state.value
-        if (current.loading || current.endReached) return
+        if (current.initialLoad || current.loadingMore || current.endReached) return
         val cursor = rows.lastOrNull() ?: return
 
-        _state.update { it.copy(loading = true) }
+        _state.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
-            val next = withContext(Dispatchers.IO) { repo.pageAfter(cursor) }
+            val next = withContext(io) {
+                repo.filteredPage(current.filters, after = cursor)
+            }
             rows = rows + next
             if (next.isNotEmpty()) pagesLoaded++
-            publish(endReached = next.size < repo.pageSize)
+            publish(endReached = next.size < repo.pageSize, loadingMore = false)
         }
     }
+
+    // --- deletion (FR-EXP-07, NFR-USE-03) -----------------------------------
 
     /**
      * Deletes immediately and keeps the row for Undo.
      *
-     * 05 §8: no confirmation dialog. "A dialog interrupts before the fact and
-     * is dismissed reflexively; a snackbar corrects after it and costs nothing
-     * when the action was intended."
+     * 05 §8: no confirmation dialog. "A dialog interrupts before the fact and is
+     * dismissed reflexively; a snackbar corrects after it and costs nothing when
+     * the action was intended."
      */
     fun delete(id: Long) {
         viewModelScope.launch {
-            val removed = withContext(Dispatchers.IO) { repo.delete(id) }
+            val removed = withContext(io) { repo.delete(id) }
             _state.update { it.copy(lastDeleted = removed) }
         }
     }
@@ -96,38 +147,49 @@ class LedgerViewModel(
     fun undoDelete() {
         val row = _state.value.lastDeleted ?: return
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { repo.restore(row) }
+            withContext(io) { repo.restore(row) }
             _state.update { it.copy(lastDeleted = null) }
         }
     }
 
     fun clearUndo() = _state.update { it.copy(lastDeleted = null) }
 
+    // --- internals ----------------------------------------------------------
+
     /**
      * Re-reads exactly as many pages as were loaded before, so an edit made
      * while the user is scrolled deep into 2023 does not snap them back to
-     * today. The alternative — reloading page one — is simpler and wrong.
+     * today. Reloading page one would be simpler and wrong.
+     *
+     * Cancels any in-flight load: a rapid sequence of edits should produce one
+     * final list, not a race between several.
      */
-    private suspend fun reload() {
-        _state.update { it.copy(loading = true) }
-        val fresh = withContext(Dispatchers.IO) {
-            buildList {
-                addAll(repo.firstPage())
-                var page = 1
-                while (page < pagesLoaded) {
-                    val cursor = lastOrNull() ?: break
-                    val next = repo.pageAfter(cursor)
-                    if (next.isEmpty()) break
-                    addAll(next)
-                    page++
+    private fun reload() {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
+            val filters = _state.value.filters
+            val fresh = withContext(io) {
+                buildList {
+                    addAll(repo.filteredPage(filters))
+                    var page = 1
+                    while (page < pagesLoaded) {
+                        val cursor = lastOrNull() ?: break
+                        val next = repo.filteredPage(filters, after = cursor)
+                        if (next.isEmpty()) break
+                        addAll(next)
+                        page++
+                    }
                 }
             }
+            rows = fresh
+            publish(
+                endReached = fresh.size < repo.pageSize * pagesLoaded,
+                loadingMore = false,
+            )
         }
-        rows = fresh
-        publish(endReached = fresh.size < repo.pageSize * pagesLoaded)
     }
 
-    private fun publish(endReached: Boolean) {
+    private fun publish(endReached: Boolean, loadingMore: Boolean) {
         val grouped = rows
             .groupBy { LocalDate.ofEpochDay(it.expense.spentOn) }
             .toSortedMap(compareByDescending { it })
@@ -139,7 +201,16 @@ class LedgerViewModel(
                 )
             }
         _state.update {
-            it.copy(days = grouped, loading = false, endReached = endReached)
+            it.copy(
+                days = grouped,
+                initialLoad = false,
+                loadingMore = loadingMore,
+                endReached = endReached,
+                today = LocalDate.now(clock),
+            )
         }
     }
 }
+
+/** The payment methods offered in the filter sheet, plus "any". */
+val FILTERABLE_METHODS: List<PaymentMethod?> = listOf(null) + PaymentMethod.SELECTABLE

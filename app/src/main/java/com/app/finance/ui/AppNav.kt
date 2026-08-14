@@ -1,6 +1,5 @@
 package com.app.finance.ui
 
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -12,13 +11,15 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
+import com.app.finance.R
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -33,6 +34,7 @@ import com.app.finance.ui.feature.income.IncomeScreen
 import com.app.finance.ui.feature.ledger.LedgerScreen
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Motion
+import com.app.finance.ui.theme.khataTween
 import kotlinx.coroutines.launch
 
 /** The four bottom-bar destinations. Everything else is a detail route or sheet. */
@@ -68,7 +70,10 @@ fun KhataApp(container: AppContainer) {
     // The Quick Add sheet is state, not a route: it must be openable from all
     // four primary screens without pushing a back-stack entry that the system
     // back gesture would then have to unwind twice.
-    var quickAddOpen by rememberSaveable { mutableStateOf(false) }
+    //
+    // NOT_OPEN / NEW_ENTRY / an expense id — one value covers all three states,
+    // and `rememberSaveable` carries it through process death (FR-APP-03).
+    var sheetTarget by rememberSaveable { mutableLongStateOf(SHEET_CLOSED) }
 
     Scaffold(
         containerColor = KhataTheme.colors.paper,
@@ -77,7 +82,7 @@ fun KhataApp(container: AppContainer) {
             KhataBottomBar(
                 current = current,
                 onSelect = { navController.navigateTop(it) },
-                onQuickAdd = { quickAddOpen = true },
+                onQuickAdd = { sheetTarget = SHEET_NEW },
             )
         },
     ) { padding ->
@@ -87,36 +92,57 @@ fun KhataApp(container: AppContainer) {
                 .background(KhataTheme.colors.paper)
                 .padding(padding),
         ) {
+            // 05 §7 — a 150 ms fade through, and *no* animation at all when the
+            // system animator scale is zero. `khataTween` is what enforces the
+            // second half; a raw `tween` would still animate.
+            val screenFade = khataTween<Float>(Motion.SCREEN, Motion.FastOutSlowIn)
+
             NavHost(
                 navController = navController,
                 startDestination = Route.Dashboard.path,
-                enterTransition = { fadeIn(tween(Motion.SCREEN)) },
-                exitTransition = { fadeOut(tween(Motion.SCREEN)) },
-                popEnterTransition = { fadeIn(tween(Motion.SCREEN)) },
-                popExitTransition = { fadeOut(tween(Motion.SCREEN)) },
+                enterTransition = { fadeIn(screenFade) },
+                exitTransition = { fadeOut(screenFade) },
+                popEnterTransition = { fadeIn(screenFade) },
+                popExitTransition = { fadeOut(screenFade) },
             ) {
                 composable(Route.Dashboard.path) { DashboardScreen() }
-                composable(Route.Ledger.path) { LedgerScreen(container, snackbarHostState) }
+                composable(Route.Ledger.path) {
+                    LedgerScreen(
+                        container = container,
+                        snackbarHostState = snackbarHostState,
+                        onEdit = { id -> sheetTarget = id },
+                        onAdd = { sheetTarget = SHEET_NEW },
+                    )
+                }
                 composable(Route.Income.path) { IncomeScreen() }
                 composable(Route.Budget.path) { BudgetScreen() }
             }
         }
     }
 
-    if (quickAddOpen) {
+    if (sheetTarget != SHEET_CLOSED) {
+        val deletedMessage = stringResource(R.string.expense_deleted)
         QuickAddSheet(
             container = container,
-            onDismiss = { quickAddOpen = false },
+            editingExpenseId = sheetTarget.takeIf { it != SHEET_NEW },
+            onDismiss = { sheetTarget = SHEET_CLOSED },
             onSaved = { message ->
-                quickAddOpen = false
-                scope.launch {
-                    // 05 §6: five seconds, and every delete gets one.
-                    snackbarHostState.showSnackbar(message)
-                }
+                sheetTarget = SHEET_CLOSED
+                scope.launch { snackbarHostState.showSnackbar(message) }
+            },
+            onDeleted = {
+                sheetTarget = SHEET_CLOSED
+                // Deleting from the edit sheet leaves the ledger's undo state
+                // untouched, so this snackbar is informational only. Undo lives
+                // on the swipe gesture, where the row is still in view.
+                scope.launch { snackbarHostState.showSnackbar(deletedMessage) }
             },
         )
     }
 }
+
+private const val SHEET_CLOSED = -1L
+private const val SHEET_NEW = 0L
 
 /**
  * Switching tabs replaces rather than stacks, and restores the state of the tab

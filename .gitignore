@@ -21,3 +21,8 @@ local.properties
 
 # Machine-local Claude Code overrides
 .claude/settings.local.json
+
+# Release signing secrets
+keystore.properties
+*.jks
+*.keystore

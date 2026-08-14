@@ -29,16 +29,20 @@ enum class EntryError {
     /** FR-CAT-05 — the tree is capped at two levels. */
     CATEGORY_TOO_DEEP,
 
+    /**
+     * FR-EXP-02 permits any date the user chooses, but a future one would post
+     * straight into the period rollup and inflate spending that has not
+     * happened. Pending status is the mechanism for future money, and it
+     * arrives with recurring rules at P1.
+     */
+    FUTURE_DATE,
+
     /** FR-BUD-03 — limits attach to leaves; a root's limit is the sum of them. */
     BUDGET_ON_NON_LEAF,
 
     /** A constraint fired that the layer above did not anticipate. */
     CONSTRAINT_VIOLATION,
 }
-
-/** Thrown only across the repository boundary; never propagated to the UI raw. */
-class EntryRejected(val error: EntryError, cause: Throwable? = null) :
-    Exception(error.name, cause)
 
 sealed interface SaveOutcome {
     @JvmInline

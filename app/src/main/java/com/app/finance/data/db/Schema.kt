@@ -442,6 +442,14 @@ internal object Schema {
             "substr('89ab', abs(random()) % 4 + 1, 1) || " +
             "substr(hex(randomblob(2)), 2) || '-' || hex(randomblob(6)))"
 
+    /**
+     * Seed timestamps must be on the same basis as everything the application
+     * later writes, which is `Clock.millis()` — epoch milliseconds, UTC-based.
+     * `strftime('%s','now')` is also UTC, so the two agree; the multiplication
+     * is what converts SQLite's seconds to the milliseconds `created_at`
+     * carries everywhere else. Sub-second precision is not meaningful for a
+     * seed, and is not claimed.
+     */
     private const val NOW = "CAST(strftime('%s','now') AS INTEGER) * 1000"
 
     private fun root(name: String, key: String, nature: Int, sort: Int) = """

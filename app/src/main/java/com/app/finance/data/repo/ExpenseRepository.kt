@@ -10,6 +10,7 @@ import com.app.finance.data.db.dao.ExpenseWithCategory
 import com.app.finance.data.db.entity.AppMetaEntity
 import com.app.finance.data.db.entity.ExpenseEntity
 import com.app.finance.domain.model.EntryError
+import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.domain.model.SaveOutcome
 import kotlinx.coroutines.flow.Flow
@@ -145,6 +146,49 @@ class ExpenseRepository(
     suspend fun pageAfter(last: ExpenseWithCategory): List<ExpenseWithCategory> =
         expenseDao.pageAfter(last.expense.spentOn, last.expense.id, PAGE_SIZE)
 
+    /**
+     * One page of the filtered ledger — FR-EXP-08.
+     *
+     * A root filter is resolved to its leaves here rather than in SQL: the tree
+     * is two levels and a few dozen rows, so one extra indexed read is cheaper
+     * and far clearer than a self-join inside the hot paging query.
+     *
+     * @param after the last row of the previous page, or null for the first.
+     */
+    suspend fun filteredPage(
+        filters: LedgerFilters,
+        after: ExpenseWithCategory? = null,
+    ): List<ExpenseWithCategory> {
+        val categoryIds = resolveCategoryIds(filters)
+
+        return expenseDao.page(
+            noKeyset = if (after == null) 1 else 0,
+            lastDay = after?.expense?.spentOn ?: 0L,
+            lastId = after?.expense?.id ?: 0L,
+            fromDay = filters.from?.toEpochDay() ?: EPOCH_DAY_MIN,
+            toDay = filters.to?.toEpochDay() ?: EPOCH_DAY_MAX,
+            anyCategory = if (categoryIds == null) 1 else 0,
+            // Never empty: SQLite tolerates `IN ()` but most engines do not,
+            // and a sentinel that matches nothing is clearer than relying on it.
+            categoryIds = categoryIds ?: NO_CATEGORY_SENTINEL,
+            anyMethod = if (filters.method == null) 1 else 0,
+            method = filters.method?.code ?: -1,
+            noQuery = if (filters.hasQuery) 0 else 1,
+            query = filters.query.trim(),
+            hasAmount = if (filters.exactAmount != null) 1 else 0,
+            exactAmount = filters.exactAmount?.paisa ?: Long.MIN_VALUE,
+            limit = PAGE_SIZE,
+        )
+    }
+
+    /** Null means "no category filter"; a list means "these leaves only". */
+    private suspend fun resolveCategoryIds(filters: LedgerFilters): List<Long>? = when {
+        filters.leafId != null -> listOf(filters.leafId)
+        filters.rootId != null -> categoryDao.children(filters.rootId).map { it.id }
+            .ifEmpty { NO_CATEGORY_SENTINEL }
+        else -> null
+    }
+
     /** Ticks whenever the ledger changes, so screens re-read without an event bus. */
     fun observeRevision(): Flow<Int> = expenseDao.observePostedCount()
 
@@ -192,5 +236,15 @@ class ExpenseRepository(
 
     private companion object {
         const val PAGE_SIZE = 50
+
+        /**
+         * Wide enough to mean "no date filter" without a nullable column
+         * comparison: roughly 1970 ± 2700 years in epoch days.
+         */
+        const val EPOCH_DAY_MIN = -1_000_000L
+        const val EPOCH_DAY_MAX = 1_000_000L
+
+        /** No category has a negative id, so this matches nothing. */
+        val NO_CATEGORY_SENTINEL = listOf(-1L)
     }
 }

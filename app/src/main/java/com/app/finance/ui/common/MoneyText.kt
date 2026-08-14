@@ -1,6 +1,5 @@
 package com.app.finance.ui.common
 
-import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -67,23 +66,6 @@ fun MoneyText(
         style = style,
         modifier = modifier.clearAndSetSemantics { contentDescription = spoken },
     )
-}
-
-/** A figure with its label, laid out as one accessible unit. */
-@Composable
-fun LabelledMoney(
-    label: String,
-    money: Money,
-    modifier: Modifier = Modifier,
-    style: TextStyle = KhataTheme.type.rowFigure,
-    color: Color? = null,
-) {
-    val locale = LocalConfiguration.current.locales[0] ?: Locale.getDefault()
-    val spoken = remember(label, money, locale) { "$label, ${money.spokenForm(locale)}" }
-    Row(modifier.clearAndSetSemantics { contentDescription = spoken }) {
-        Text(label, style = KhataTheme.type.body, color = KhataTheme.colors.inkSoft)
-        MoneyText(money, style = style, color = color)
-    }
 }
 
 private const val KHATA_SYMBOL_SCALE = 0.7f

@@ -117,15 +117,3 @@ fun EmptyState(
         action?.invoke()
     }
 }
-
-/** A plain horizontal rule, for the few places not covered by a row separator. */
-@Composable
-fun KhataRule(modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .fillMaxWidth()
-            .padding(horizontal = 0.dp)
-            .background(KhataTheme.colors.rule)
-            .defaultMinSize(minHeight = Sizes.hairline),
-    )
-}

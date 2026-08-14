@@ -41,16 +41,10 @@ class AppMetaRepository(
      * the keypad without pushing the Save button out of the thumb arc.
      */
     fun observeRecentCategoryIds(): Flow<List<Long>> =
-        dao.observe(AppMetaDao.KEY_RECENT_CATEGORIES).map { raw ->
-            raw?.split(',')
-                ?.mapNotNull(String::toLongOrNull)
-                ?.take(AppMetaDao.RECENT_CATEGORY_LIMIT)
-                .orEmpty()
-        }
+        dao.observe(AppMetaDao.KEY_RECENT_CATEGORIES).map(::parseIds)
 
-    suspend fun recentCategoryIds(): List<Long> =
-        dao.get(AppMetaDao.KEY_RECENT_CATEGORIES)
-            ?.split(',')
+    private fun parseIds(raw: String?): List<Long> =
+        raw?.split(',')
             ?.mapNotNull(String::toLongOrNull)
             ?.take(AppMetaDao.RECENT_CATEGORY_LIMIT)
             .orEmpty()

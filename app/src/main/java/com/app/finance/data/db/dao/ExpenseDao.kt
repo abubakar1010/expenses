@@ -99,27 +99,54 @@ interface ExpenseDao {
     @Query("SELECT IFNULL(SUM(amount_minor), 0) FROM expense WHERE status = 0 AND spent_on BETWEEN :fromDay AND :toDay")
     suspend fun totalInRange(fromDay: Long, toDay: Long): Long
 
-    /** FR-EXP-08 — search by note substring or by exact amount. */
+    /**
+     * The filtered, keyset-paged ledger — FR-EXP-08 and FR-EXP-10 in one query.
+     *
+     * One statement serves both the first page and every page after it:
+     * [firstPage] passes `noKeyset = 1`, later pages pass the last row's
+     * `(spent_on, id)`. That keeps a single query plan to document for
+     * NFR-MAIN-03 rather than a family of near-identical ones.
+     *
+     * Every filter is expressed as `(<disabled flag> OR <predicate>)`, which
+     * lets the whole thing stay a compile-time-verified `@Query` instead of a
+     * `@RawQuery` assembled from strings. [categoryIds] is never empty — the
+     * caller passes a non-matching sentinel when no category filter is active.
+     *
+     * The `ORDER BY` matches `ix_expense_date` exactly, so even with a `LIKE`
+     * over notes the read is an index walk with no temp B-tree.
+     */
     @Query(
         """
         SELECT e.*, c.name AS categoryName, c.nature AS categoryNature
           FROM expense e JOIN category c ON c.id = e.category_id
          WHERE e.status = 0
-           AND (:query = '' OR e.note LIKE '%' || :query || '%' OR e.amount_minor = :exactAmount)
-           AND (:categoryId IS NULL OR e.category_id = :categoryId)
-           AND (:method IS NULL OR e.payment_method = :method)
+           AND (:noKeyset = 1 OR (e.spent_on, e.id) < (:lastDay, :lastId))
            AND e.spent_on BETWEEN :fromDay AND :toDay
+           AND (:anyCategory = 1 OR e.category_id IN (:categoryIds))
+           AND (:anyMethod = 1 OR e.payment_method = :method)
+           AND (
+                :noQuery = 1
+                OR e.note LIKE '%' || :query || '%'
+                OR (:hasAmount = 1 AND e.amount_minor = :exactAmount)
+               )
          ORDER BY e.spent_on DESC, e.id DESC
          LIMIT :limit
         """,
     )
-    suspend fun search(
-        query: String,
-        exactAmount: Long,
-        categoryId: Long?,
-        method: Int?,
+    suspend fun page(
+        noKeyset: Int,
+        lastDay: Long,
+        lastId: Long,
         fromDay: Long,
         toDay: Long,
+        anyCategory: Int,
+        categoryIds: List<Long>,
+        anyMethod: Int,
+        method: Int,
+        noQuery: Int,
+        query: String,
+        hasAmount: Int,
+        exactAmount: Long,
         limit: Int,
     ): List<ExpenseWithCategory>
 

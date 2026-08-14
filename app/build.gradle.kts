@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -25,8 +27,29 @@ android {
 
     // 04 §10 — restrict language resources to shipped locales; removes a
     // surprising amount of AndroidX translation weight from the APK.
+    //
+    // "bn" is deliberately absent until `values-bn/` exists. Declaring a locale
+    // with no resources ships a build that advertises Bengali and renders
+    // English, and financial vocabulary is the wrong place to guess.
     androidResources {
-        localeFilters += listOf("en", "bn")
+        localeFilters += listOf("en")
+    }
+
+    signingConfigs {
+        // Release signing comes from a gitignored keystore.properties. Absent
+        // one — a fresh clone, or CI without secrets — assembleRelease still
+        // succeeds and simply produces an unsigned APK, so the shrinking and
+        // size checks stay runnable by anyone.
+        val props = rootProject.file("keystore.properties")
+        if (props.exists()) {
+            create("release") {
+                val config = Properties().apply { props.inputStream().use { load(it) } }
+                storeFile = rootProject.file(config.getProperty("storeFile"))
+                storePassword = config.getProperty("storePassword")
+                keyAlias = config.getProperty("keyAlias")
+                keyPassword = config.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
@@ -37,7 +60,26 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
+        debug {
+            // So a debug build and a release build can sit on the same device
+            // without one uninstalling the other — which matters when the exit
+            // criterion is "the author uses it daily for a week".
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+        }
+    }
+
+    lint {
+        // The audit that prompted this pass found ten unused string resources
+        // and a dozen hardcoded ones; UnusedResources and HardcodedText would
+        // both have caught them. A baseline records what exists today so new
+        // issues fail the build without a flag day.
+        abortOnError = true
+        warningsAsErrors = false
+        checkReleaseBuilds = true
+        baseline = file("lint-baseline.xml")
     }
 
     buildFeatures {

@@ -65,18 +65,31 @@ enum class Nature(val code: Int) {
  * FR-EXP-05 lists the first five; the database enum in 03 §3 adds `Other`, and
  * the wider set is used here so that stored data can never fall outside the
  * `CHECK` constraint.
+ *
+ * No display label lives here. "bKash" and "Nagad" are proper nouns and will
+ * not change, but "Cash", "Bank" and "Card" are ordinary words that a Bengali
+ * build has to translate — and this enum sits in `domain/`, which the
+ * architecture check forbids from importing Android at all. The label lookup is
+ * in the UI layer, in `PaymentMethodLabels.kt`.
  */
-enum class PaymentMethod(val code: Int, val label: String) {
-    CASH(0, "Cash"),
-    BKASH(1, "bKash"),
-    NAGAD(2, "Nagad"),
-    BANK(3, "Bank"),
-    CARD(4, "Card"),
-    OTHER(5, "Other"),
+enum class PaymentMethod(val code: Int) {
+    CASH(0),
+    BKASH(1),
+    NAGAD(2),
+    BANK(3),
+    CARD(4),
+    OTHER(5),
     ;
 
     companion object {
         val DEFAULT = CASH
+
+        /**
+         * The five FR-EXP-05 names the user picks from. `OTHER` exists so the
+         * database `CHECK` can never be violated by imported data, but it is
+         * not offered in the picker.
+         */
+        val SELECTABLE = listOf(CASH, BKASH, NAGAD, BANK, CARD)
 
         fun fromCode(code: Int): PaymentMethod = entries.firstOrNull { it.code == code }
             ?: error("unknown payment_method: $code")

@@ -26,17 +26,12 @@ value class Money(val paisa: Long) : Comparable<Money> {
 
     operator fun unaryMinus() = Money(-paisa)
 
-    operator fun times(n: Int) = Money(paisa * n)
-
     override fun compareTo(other: Money): Int = paisa.compareTo(other.paisa)
 
     val isZero: Boolean get() = paisa == 0L
     val isNegative: Boolean get() = paisa < 0L
 
     val absoluteValue: Money get() = Money(paisa.absoluteValue)
-
-    /** Whole taka, truncated toward zero. For ratio maths, prefer [paisa]. */
-    val taka: Long get() = paisa / 100
 
     /**
      * Divides into [parts] equal shares, rounding toward zero.

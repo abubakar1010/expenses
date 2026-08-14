@@ -22,5 +22,6 @@ fun EntryError.messageRes(): Int = when (this) {
     EntryError.BLANK_NAME -> R.string.error_blank_name
     EntryError.CATEGORY_TOO_DEEP -> R.string.error_category_too_deep
     EntryError.BUDGET_ON_NON_LEAF -> R.string.error_budget_non_leaf
+    EntryError.FUTURE_DATE -> R.string.error_future_date
     EntryError.CONSTRAINT_VIOLATION -> R.string.error_not_saved
 }

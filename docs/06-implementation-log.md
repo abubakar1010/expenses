@@ -1,3 +1,4 @@
+
 # Implementation Log — M1 Scaffold
 **Product:** Khata — Personal Finance Manager (Android)
 **Covers:** initial scaffold through milestone M1

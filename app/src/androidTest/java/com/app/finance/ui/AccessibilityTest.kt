@@ -4,8 +4,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.SemanticsProperties
-import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsAtLeast
@@ -243,8 +241,4 @@ class AccessibilityTest {
         }
     }
 
-    /** Guards against a control losing its name in a refactor. */
-    private fun hasContentDescription() = SemanticsMatcher.keyIsDefined(
-        SemanticsProperties.ContentDescription,
-    )
 }

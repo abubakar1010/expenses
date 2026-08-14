@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -165,10 +166,7 @@ fun LedgerScreen(
                         key = { i -> day.rows[i].expense.id },
                     ) { i ->
                         val row = day.rows[i]
-                        SwipeableRow(
-                            onDelete = { vm.delete(row.expense.id) },
-                            onClick = { onEdit(row.expense.id) },
-                        ) {
+                        SwipeableRow(onDelete = { vm.delete(row.expense.id) }) {
                             LedgerRow(
                                 label = row.categoryName,
                                 amount = Money(row.expense.amountMinor),
@@ -271,7 +269,6 @@ private fun SearchBar(
 @Composable
 private fun SwipeableRow(
     onDelete: () -> Unit,
-    onClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
     val colors = KhataTheme.colors
@@ -286,25 +283,39 @@ private fun SwipeableRow(
         },
     )
 
+    // Only paint the ground while a swipe is actually under way. A
+    // `backgroundContent` that draws unconditionally sits behind every row
+    // forever, and since the ledger row is deliberately transparent — the rule
+    // is its structure, not a card — the red showed through at rest on every
+    // row in the list.
+    val swiping = dismissState.targetValue != SwipeToDismissBoxValue.Settled ||
+        dismissState.progress !in SETTLED_RANGE
+
     SwipeToDismissBox(
         state = dismissState,
         backgroundContent = {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(colors.vermilion)
+                    .background(if (swiping) colors.vermilion else Color.Transparent)
                     .padding(horizontal = Space.gutter)
                     .clearAndSetSemantics {},
                 contentAlignment = Alignment.CenterEnd,
             ) {
-                Text(
-                    text = stringResource(R.string.delete_expense),
-                    style = KhataTheme.type.caption,
-                    color = colors.card,
-                )
+                if (swiping) {
+                    Text(
+                        text = stringResource(R.string.delete_expense),
+                        style = KhataTheme.type.caption,
+                        color = colors.card,
+                    )
+                }
             }
         },
-        content = { content() },
+        // The row itself must be opaque, or the ground shows through it during
+        // the swipe instead of sliding out from under it.
+        content = {
+            Box(Modifier.background(colors.paper)) { content() }
+        },
     )
 }
 
@@ -383,3 +394,6 @@ private const val SKELETON_ROWS = 8
 
 /** NFR-USE-03 — "at least 5 seconds". */
 private const val UNDO_WINDOW_MS = 5_000L
+
+/** `progress` sits at 0 or 1 when a row is at rest, and between while swiping. */
+private val SETTLED_RANGE = 0.999f..1.001f

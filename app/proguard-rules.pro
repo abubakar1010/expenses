@@ -32,3 +32,16 @@
 # app-private log file, so line numbers must survive shrinking to be useful.
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# The five-year seeder, for the `benchmarkRelease` variant only.
+#
+# It lives in `src/debug/java` so it is absent from `release`, and is compiled
+# into `benchmarkRelease` as well because NFR-PERF's corpus has to exist on the
+# variant the targets are defined against. Nothing in `main` calls it and the
+# receiver is reached only through the manifest, so R8 full mode would strip
+# both and the benchmark would measure an empty database while reporting
+# success.
+#
+# This rule sits in the shared file rather than a variant-specific one because
+# the class is simply not present in `release`, where the rule is a no-op.
+-keep class com.app.finance.dev.** { *; }

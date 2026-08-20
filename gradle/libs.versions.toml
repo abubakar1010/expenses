@@ -21,6 +21,12 @@ serializationJson = "1.11.0"
 # supported android module"). 1.5.0-rc01 is the first line that recognises them.
 benchmark = "1.5.0-rc01"
 
+
+# FR-APP-04's gate delegates to the OS rather than storing a secret of its own,
+# which is what NFR-SEC-05's reasoning already implies. 1.1.0 is the stable line
+# and the first with `setAllowedAuthenticators`; the alphas add nothing needed here.
+biometric = "1.1.0"
+
 junit = "4.13.2"
 testRunner = "1.7.0"
 testExtJunit = "1.3.0"
@@ -53,6 +59,7 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 androidx-benchmark-macro-junit4 = { group = "androidx.benchmark", name = "benchmark-macro-junit4", version.ref = "benchmark" }
 androidx-profileinstaller = { group = "androidx.profileinstaller", name = "profileinstaller", version = "1.4.1" }
 
+androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "biometric" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "testRunner" }
 androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "testExtJunit" }

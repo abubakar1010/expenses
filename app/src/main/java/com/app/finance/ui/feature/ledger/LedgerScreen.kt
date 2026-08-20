@@ -29,6 +29,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -39,6 +40,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.input.ImeAction
@@ -60,6 +62,7 @@ import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -83,7 +86,12 @@ fun LedgerScreen(
 ) {
     val vm: LedgerViewModel = viewModel(
         factory = viewModelFactory {
-            LedgerViewModel(container.expenseRepo, container.categoryRepo, container.clock)
+            LedgerViewModel(
+                repo = container.expenseRepo,
+                categories = container.categoryRepo,
+                recurring = container.recurringRepo,
+                clock = container.clock,
+            )
         },
     )
     val state by vm.state.collectAsStateWithLifecycle()
@@ -100,7 +108,10 @@ fun LedgerScreen(
         snapshotFlow { shouldLoadMore }.collect { if (it) vm.loadMore() }
     }
 
+    val scope = rememberCoroutineScope()
     val deletedMessage = stringResource(R.string.expense_deleted)
+    val dismissedMessage = stringResource(R.string.entry_dismissed)
+    val confirmedMessage = stringResource(R.string.entry_confirmed)
     val undoLabel = stringResource(R.string.undo)
 
     // NFR-USE-03: "undoable for at least 5 seconds". Material offers ~4 s
@@ -119,6 +130,22 @@ fun LedgerScreen(
         if (result == SnackbarResult.ActionPerformed) vm.undoDelete() else vm.clearUndo()
     }
 
+    // Dismissing a pending entry is a delete, so NFR-USE-03 applies to it too —
+    // and here the usual escape hatch is closed: the rule has already advanced
+    // past that due date and will never generate it again.
+    LaunchedEffect(state.lastDismissed) {
+        if (state.lastDismissed == null) return@LaunchedEffect
+        val result = withTimeoutOrNull(UNDO_WINDOW_MS) {
+            snackbarHostState.showSnackbar(
+                message = dismissedMessage,
+                actionLabel = undoLabel,
+                withDismissAction = false,
+                duration = SnackbarDuration.Indefinite,
+            )
+        }
+        if (result == SnackbarResult.ActionPerformed) vm.undoDismiss() else vm.clearDismissed()
+    }
+
     Column(Modifier.fillMaxSize()) {
         SearchBar(
             query = state.filters.query,
@@ -126,6 +153,28 @@ fun LedgerScreen(
             onQuery = vm::setQuery,
             onFilters = vm::openFilters,
         )
+
+        // FR-REC-02, above the day groups and above the empty states.
+        //
+        // Outside the `when` deliberately: a first-run user whose only rows are
+        // unconfirmed would otherwise read "nothing logged yet" with two
+        // entries waiting for them just out of sight. Absent when empty, like
+        // every other section in the app.
+        if (state.pendingCount > 0) {
+            PendingEntries(
+                state = state,
+                onConfirmExpense = {
+                    vm.confirmExpense(it)
+                    scope.launch { snackbarHostState.showSnackbar(confirmedMessage) }
+                },
+                onDismissExpense = vm::dismissExpense,
+                onConfirmIncome = {
+                    vm.confirmIncome(it)
+                    scope.launch { snackbarHostState.showSnackbar(confirmedMessage) }
+                },
+                onDismissIncome = vm::dismissIncome,
+            )
+        }
 
         when {
             // 05 §8: "A skeleton for 80 ms is better than a spinner for 300 ms,
@@ -187,6 +236,7 @@ fun LedgerScreen(
         LedgerFilterSheet(
             current = state.filters,
             tree = state.tree,
+            present = state.categoriesPresent,
             today = state.today,
             onApply = vm::applyFilters,
             onClear = vm::clearFilters,
@@ -253,7 +303,7 @@ private fun SearchBar(
             label = if (activeFilters == 0) {
                 stringResource(R.string.filter)
             } else {
-                stringResource(R.string.filters_active, activeFilters)
+                pluralStringResource(R.plurals.filters_active, activeFilters, activeFilters)
             },
             selected = activeFilters > 0,
             onClick = onFilters,
@@ -397,3 +447,51 @@ private const val UNDO_WINDOW_MS = 5_000L
 
 /** `progress` sits at 0 or 1 when a row is at rest, and between while swiping. */
 private val SETTLED_RANGE = 0.999f..1.001f
+
+/**
+ * FR-REC-02's confirmations — the rows a recurring rule generated.
+ *
+ * A plain `Column` rather than part of the `LazyColumn`: the list below is
+ * paged and keyed on expense ids, and threading a second, differently-typed
+ * source through it would mean either a shared key space or a discriminator on
+ * every row. There are never many of these — one per rule per missed period.
+ */
+@Composable
+private fun PendingEntries(
+    state: LedgerUiState,
+    onConfirmExpense: (Long) -> Unit,
+    onDismissExpense: (Long) -> Unit,
+    onConfirmIncome: (Long) -> Unit,
+    onDismissIncome: (Long) -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        SectionHeader(
+            text = stringResource(R.string.waiting_to_confirm),
+            trailing = {
+                Text(
+                    text = state.pendingCount.toString(),
+                    style = KhataTheme.type.caption,
+                    color = KhataTheme.colors.inkSoft,
+                )
+            },
+        )
+        state.pendingExpenses.forEach { row ->
+            PendingRow(
+                label = row.categoryName,
+                amount = Money(row.expense.amountMinor),
+                date = LocalDate.ofEpochDay(row.expense.spentOn),
+                onConfirm = { onConfirmExpense(row.expense.id) },
+                onDismiss = { onDismissExpense(row.expense.id) },
+            )
+        }
+        state.pendingIncome.forEach { row ->
+            PendingRow(
+                label = row.sourceName,
+                amount = Money(row.entry.amountMinor),
+                date = LocalDate.ofEpochDay(row.entry.earnedOn),
+                onConfirm = { onConfirmIncome(row.entry.id) },
+                onDismiss = { onDismissIncome(row.entry.id) },
+            )
+        }
+    }
+}

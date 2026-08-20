@@ -61,6 +61,8 @@ import java.time.format.DateTimeFormatter
 fun LedgerFilterSheet(
     current: LedgerFilters,
     tree: List<CategoryNode>,
+    /** Leaf ids with expenses in the loaded ledger — see [leaves]. */
+    present: Set<Long>,
     today: LocalDate,
     onApply: (LedgerFilters) -> Unit,
     onClear: () -> Unit,
@@ -124,12 +126,28 @@ fun LedgerFilterSheet(
                 }
             }
 
-            val leaves = remember(tree, draft.rootId) {
-                if (draft.rootId != null) {
+            // Active leaves **plus any leaf with expenses on screen**.
+            //
+            // FR-CAT-08 keeps an archived category out of *entry pickers*; a
+            // filter is not one, and the same requirement leaves it "visible
+            // in historical reports". Archive Grocery and a year of grocery
+            // rows stay in the ledger with "Grocery" printed on each of them
+            // — unfilterable, on a screen FR-EXP-08 says must be filterable
+            // by leaf. The same "active ∪ present" shape
+            // `IncomeUiState.filterSources` uses, so both filters answer the
+            // question the same way.
+            val leaves = remember(tree, present, draft.rootId) {
+                val active = if (draft.rootId != null) {
                     tree.firstOrNull { it.id == draft.rootId }?.activeChildren.orEmpty()
                 } else {
                     tree.flatMap { it.activeChildren }
                 }
+                val seen = active.mapTo(HashSet()) { it.id }
+                val extra = tree
+                    .filter { draft.rootId == null || it.id == draft.rootId }
+                    .flatMap { it.children }
+                    .filter { it.id in present && it.id !in seen }
+                active + extra
             }
             if (leaves.isNotEmpty()) {
                 FlowRow(

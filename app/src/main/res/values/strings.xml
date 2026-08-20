@@ -60,7 +60,14 @@
     <string name="yesterday_prefix">Yesterday · %1$s</string>
     <string name="search_ledger">Search notes or an amount</string>
     <string name="filter">Filter</string>
-    <string name="filters_active">%1$d filters</string>
+    <!-- Quantified copy uses <plurals>, not a %d in a sentence. English needs
+         two forms; Bengali needs the same two but agrees differently, and this
+         is the only structure that survives the translation the product is
+         eventually for. -->
+    <plurals name="filters_active">
+        <item quantity="one">%1$d filter</item>
+        <item quantity="other">%1$d filters</item>
+    </plurals>
     <string name="clear_filters">Clear</string>
     <string name="filter_any_category">Any category</string>
     <string name="filter_any_method">Any payment method</string>
@@ -84,8 +91,159 @@
     <string name="error_blank_name">Enter a name.</string>
     <string name="error_category_too_deep">Categories go two levels deep. Add this under a group instead.</string>
     <string name="error_budget_non_leaf">Set the limit on a subcategory. The group adds them up.</string>
+    <string name="error_zero_limit">Enter a limit above zero, or clear it instead.</string>
     <string name="error_future_date">That date hasn\'t happened yet. Pick today or earlier.</string>
+    <string name="error_non_positive_income">Enter an amount above zero.</string>
+    <string name="error_source_has_entries">This source has entries. Archive it instead.</string>
+    <string name="error_source_has_rules">A repeating entry uses this source. Archive it instead.</string>
+    <string name="error_source_not_found">That source no longer exists. Pick another.</string>
     <string name="error_not_saved">That didn\'t save. Check the amount and category, then try again.</string>
+
+    <!-- Period switcher. Shared by Budget, and by Dashboard and Income later. -->
+    <string name="previous_period">Previous month</string>
+    <string name="next_period">Next month</string>
+
+    <!-- Budget (FR-BUD-01…08). Note §9: "Spending limit", not "budget
+         allocation" — name things by what the user controls. -->
+    <string name="needs_attention">Needs attention</string>
+    <string name="manage_categories">Categories</string>
+    <string name="copy_last_month">Copy last month</string>
+    <plurals name="copied_limits">
+        <item quantity="one">Copied %1$d limit</item>
+        <item quantity="other">Copied %1$d limits</item>
+    </plurals>
+    <string name="nothing_to_copy">No limits set last month</string>
+    <string name="set_limit">Set a limit</string>
+    <string name="set_one">Set one</string>
+    <string name="no_limit_set">No limit set</string>
+    <string name="save_limit">Save limit</string>
+    <string name="clear_limit">Clear limit</string>
+    <string name="limit_cleared">Limit cleared</string>
+    <string name="limit_saved">Limit saved</string>
+    <!-- The text half of the three-signal state (05 §3.3). -->
+    <string name="amount_left">%1$s left</string>
+    <string name="amount_over">%1$s over</string>
+    <string name="amount_of_limit">%1$s of %2$s</string>
+    <!--
+      Spending exactly the limit is the over-budget state (FR-BUD-06 puts the
+      boundary at >= 100%), but the overspend is zero — so "0 over" is what the
+      general copy would produce, and it says nothing. This is the one case that
+      needs its own sentence.
+    -->
+    <string name="limit_reached">Limit reached</string>
+    <plurals name="left_with_days">
+        <item quantity="one">%1$s left · %2$d day to go</item>
+        <item quantity="other">%1$s left · %2$d days to go</item>
+    </plurals>
+    <string name="group_total">%1$s of %2$s</string>
+    <!--
+      FR-BUD-05 requires spent, limit, remaining and percentage for every
+      budgeted category. Spent is the figure on the row, remaining is opposite
+      this, and the limit rides along with the percentage rather than taking a
+      line of its own — 288 dp of content does not have one to spare. A bare
+      "104%" left the limit nowhere on the row: the group total above it is a
+      sum across every leaf under the root, not this leaf's limit.
+    -->
+    <string name="percent_of_limit">%1$d%% of %2$s</string>
+    <string name="empty_budgets">No limits set for this month. Set one and the bars fill as you spend.</string>
+
+    <!-- Category manager (FR-CAT-03…10) -->
+    <string name="categories_title">Categories</string>
+    <string name="add_group">Add a group</string>
+    <string name="add_category">Add a category</string>
+    <string name="add_to_group">Add to %1$s</string>
+    <string name="rename_category">Rename</string>
+    <string name="archive_category">Archive</string>
+    <string name="restore_category">Restore</string>
+    <string name="category_archived">%1$s archived</string>
+    <string name="category_restored">%1$s restored</string>
+    <string name="archived_section">Archived</string>
+    <string name="category_name_hint">What do you call it?</string>
+    <string name="choose_nature">What kind of spending is this?</string>
+    <string name="nature_fixed">Fixed</string>
+    <string name="nature_variable">Variable</string>
+    <string name="nature_unpredictable">Unpredictable</string>
+    <string name="nature_fixed_hint">Committed before the month starts — rent, fees</string>
+    <string name="nature_variable_hint">Day-to-day choices — food, transport</string>
+    <string name="nature_unpredictable_hint">Real but not plannable — medical, repairs</string>
+    <string name="save_category">Save</string>
+
+    <!--
+      Income (FR-IS-01…05, FR-IE-01…08).
+
+      05 §5.7: the income screen defaults to a *year* while every other screen
+      defaults to a month, "a farming month showing ৳0 is alarming and
+      meaningless in isolation". The copy follows — "earned this year", not
+      "this period".
+    -->
+    <string name="add_income">Add income</string>
+    <string name="edit_income">Edit income</string>
+    <string name="earned_this_year">EARNED THIS YEAR</string>
+    <string name="earned_this_month">EARNED THIS MONTH</string>
+    <string name="earned_in_range">EARNED IN THIS RANGE</string>
+    <string name="scope_year">Year</string>
+    <string name="scope_month">Month</string>
+    <string name="scope_range">Range</string>
+    <string name="choose_scope">Choose a period</string>
+    <string name="previous_year">Previous year</string>
+    <string name="next_year">Next year</string>
+    <!-- In Range scope the arrows shift the range by its own length rather
+         than stepping the shared period, so they say so. -->
+    <string name="previous_range">Previous range</string>
+    <string name="next_range">Next range</string>
+    <!-- 05 §5.7 marks stable and variable with a filled and a hollow dot — a
+         shape difference, so it survives greyscale and colour blindness. These
+         are what TalkBack says in place of the shape. -->
+    <string name="kind_stable">Stable</string>
+    <string name="kind_variable">Variable</string>
+    <string name="percent_share">%1$d%%</string>
+    <string name="share_of_total">%1$d%% of the total</string>
+    <string name="filter_any_source">Any source</string>
+    <!-- 05 §5.7 calls this "the insight that matters". Absent, not zeroed,
+         when there is no spending to cover. One per scope, because "your
+         spending" names no window on its own and the scope decides which. -->
+    <string name="stable_coverage_year">Stable income covers %1$d%% of your spending this year.</string>
+    <string name="stable_coverage_month">Stable income covers %1$d%% of your spending this month.</string>
+    <string name="stable_coverage_range">Stable income covers %1$d%% of your spending in this range.</string>
+    <string name="trend_description">Income by month, %1$s in total</string>
+    <string name="income_entries">ENTRIES</string>
+    <string name="empty_income">Nothing recorded here yet. Add what you earned and the months fill in.</string>
+    <string name="empty_income_filtered">Nothing matches these filters. Widen them to see the rest.</string>
+    <!-- 05 §9's zero-income month line, which "refuses to render an empty month
+         as a failure, and immediately reframes to the unit that is meaningful
+         for this user". The same accommodation as the year-first default. -->
+    <string name="empty_income_month">Nothing recorded in %1$s. Your year is at %2$s.</string>
+    <!-- The filter sheet's section header. Not income_source_hint: that asks
+         the question the entry sheet asks, and this is not that screen. -->
+    <string name="filter_sources">Sources</string>
+    <string name="income_source_hint">Where did it come from?</string>
+    <string name="new_source">New source: %1$s</string>
+    <string name="save_income">Save income</string>
+    <string name="income_saved">Income saved</string>
+    <string name="income_deleted">Income deleted</string>
+    <string name="delete_income">Delete</string>
+
+    <!-- Income sources (FR-IS-01…06). The one screen in the app with a real
+         delete, because FR-IS-06 requires it for a source with no entries. -->
+    <string name="sources_title">Income sources</string>
+    <string name="manage_sources">Sources</string>
+    <string name="add_source">Add a source</string>
+    <string name="rename_source">Rename</string>
+    <string name="archive_source">Archive</string>
+    <string name="restore_source">Restore</string>
+    <string name="delete_source">Delete</string>
+    <string name="source_archived">%1$s archived</string>
+    <string name="source_restored">%1$s restored</string>
+    <string name="source_deleted">%1$s deleted</string>
+    <string name="source_name_hint">What do you call it?</string>
+    <string name="choose_kind">Does this arrive on a rhythm?</string>
+    <string name="kind_stable_hint">Salary, a pension — predictable timing</string>
+    <string name="kind_variable_hint">Farming, property, freelance — arrives in bursts</string>
+    <string name="save_source">Save</string>
+    <plurals name="source_entry_count">
+        <item quantity="one">%1$d entry</item>
+        <item quantity="other">%1$d entries</item>
+    </plurals>
 
     <!-- Recovery. Shown only when the database cannot be opened. -->
     <string name="recovery_title">Your data needs attention</string>
@@ -94,9 +252,171 @@
     <string name="recovery_saved">Copy saved</string>
     <string name="recovery_failed">That copy didn\'t save. Try a different location.</string>
 
-    <!-- Placeholder screens for M2-M4. Each states what it will hold rather
-         than pretending to be finished. -->
-    <string name="coming_dashboard">Safe to spend, the month ribbon and budget bars land here.</string>
-    <string name="coming_income">Income by source, and the year view that makes lumpy income readable.</string>
-    <string name="coming_budget">Monthly limits per subcategory, and copy from last month.</string>
+    <!--
+      Dashboard (FR-AN-01…10). 05 §5.4 is the layout, and its three notes are
+      the reasoning: the hero is a decision rather than a balance, a section
+      with nothing to say is absent rather than empty, and fixed spending sits
+      below variable because rent is not a decision.
+    -->
+    <string name="safe_to_spend_today">SAFE TO SPEND TODAY</string>
+    <!-- A finished month has no "today" to spend in; it has a balance. -->
+    <string name="left_this_period">LEFT IN THIS MONTH</string>
+    <string name="safe_to_spend_over">%1$s over across your day-to-day budgets</string>
+    <string name="ribbon_first_day">1</string>
+    <string name="ribbon_today">today</string>
+    <string name="earned_label">Earned %1$s</string>
+    <string name="spent_label">Spent %1$s</string>
+    <string name="net_with_saving">Net %1$s · saving %2$d%%</string>
+    <string name="net_alone">Net %1$s</string>
+    <!-- 05 §4.3 keeps figures unabbreviated, but a positive net reads as an
+         increase only if it carries its sign. -->
+    <string name="positive_prefix">+%1$s</string>
+
+    <string name="on_pace_header">On pace to overspend</string>
+    <string name="projected_by_month_end">Projected by month end · limit %1$s</string>
+    <string name="projected_spoken">%1$s, on pace for %2$s by month end against a limit of %3$s</string>
+
+    <string name="biggest_changes">Biggest changes</string>
+    <string name="delta_versus_usual">%1$s more than usual</string>
+    <string name="delta_spoken">%1$s, %2$s, %3$s more than the last three months</string>
+
+    <string name="where_it_goes">Where it goes</string>
+    <string name="largest_expenses">Largest expenses</string>
+    <string name="six_month_trend">Six-month trend</string>
+    <plurals name="trend_line_description">
+        <item quantity="one">Six months of spending, %1$s in total, %2$d month over budget</item>
+        <item quantity="other">Six months of spending, %1$s in total, %2$d months over budget</item>
+    </plurals>
+    <string name="trend_all_within_budget">Six months of spending, %1$s in total, none over budget</string>
+    <!-- FR-AN-10 — the window is the requirement, so the copy names it. -->
+    <string name="monthly_average_income">Monthly average income over 12 months: %1$s</string>
+    <string name="empty_dashboard">Nothing logged this month. Tap + to add your first expense.</string>
+
+    <!--
+      Settings (FR-DAT-01…06, 03 §6, 04 §7). Export is P0 for the reason PRD
+      §6.6 gives: "users do not trust an app with their financial history until
+      they have proof they can extract it", and it is the only backup mechanism
+      in a product with no server.
+    -->
+    <string name="settings_title">Settings</string>
+    <string name="open_settings">Settings</string>
+    <string name="settings_data">Your data</string>
+    <string name="export_json">Save everything as JSON</string>
+    <string name="export_json_hint">One file, every record, ready to import back</string>
+    <string name="export_csv">Save everything as CSV</string>
+    <string name="export_csv_hint">A zip with one spreadsheet per table</string>
+    <string name="import_backup">Restore from a backup</string>
+    <string name="import_backup_hint">Replace what is here, or merge it in</string>
+    <plurals name="export_done">
+        <item quantity="one">Saved %1$d record</item>
+        <item quantity="other">Saved %1$d records</item>
+    </plurals>
+    <string name="export_failed">That didn\'t save. Try a different location.</string>
+
+    <string name="import_choose_mode">How should this be brought in?</string>
+    <string name="import_replace">Replace everything</string>
+    <string name="import_replace_hint">What is on this phone is deleted first</string>
+    <string name="import_merge">Merge with what is here</string>
+    <string name="import_merge_hint">Rows already here are matched and left alone</string>
+    <string name="import_done">Added: %1$d · Updated: %2$d · Unchanged: %3$d</string>
+    <string name="import_newer">That file is from a newer version of the app. Update, then import again.</string>
+    <string name="import_unreadable">That file isn\'t a Khata backup. Nothing was changed.</string>
+    <string name="import_dangling">That backup refers to a category or source it doesn\'t contain. Nothing was changed.</string>
+    <string name="import_rejected">That backup couldn\'t be read to the end. Nothing was changed.</string>
+
+    <string name="settings_maintenance">Maintenance</string>
+    <string name="rebuild_aggregates">Rebuild the totals</string>
+    <string name="rebuild_aggregates_hint">Recalculates every figure from the ledger</string>
+    <string name="rebuild_done">Totals rebuilt</string>
+
+    <string name="settings_appearance">Appearance</string>
+    <string name="theme_system">Follow the phone</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+
+    <string name="delete_all">Delete all data</string>
+    <string name="delete_all_hint">There is no undo for this one</string>
+    <!-- 05 §8: the one action in the app that takes a typed confirmation,
+         "because there is no undo for it". -->
+    <string name="delete_all_body">This erases every expense, income entry, budget and rule on this phone. Your categories come back as they were on day one. Type DELETE to confirm.</string>
+    <string name="delete_all_hint_field">Type DELETE</string>
+    <string name="delete_all_done">Everything deleted</string>
+
+    <!--
+      Recurring rules (FR-REC-01…05). PRD §6.5: auto-posting is off by default
+      "because silently generated transactions that didn\'t actually happen
+      destroy trust in the ledger faster than any other bug".
+    -->
+    <string name="recurring_title">Repeating entries</string>
+    <string name="manage_recurring">Repeating entries</string>
+    <string name="add_rule">Add a repeating entry</string>
+    <string name="rule_expense">Spending</string>
+    <string name="rule_income">Money coming in</string>
+    <string name="frequency_monthly">Every month</string>
+    <string name="frequency_weekly">Every week</string>
+    <string name="frequency_yearly">Every year</string>
+    <!-- Its own string, not the income filter's "Choose a period": the chips
+         under it are Every month / Every week / Every year. -->
+    <string name="choose_frequency">How often</string>
+    <string name="anchor_day">Day of the month</string>
+    <string name="auto_post">Add it without asking</string>
+    <string name="auto_post_hint">Off by default. An entry you didn\'t check is one you can\'t trust.</string>
+    <string name="rule_next_due">Next on %1$s</string>
+    <string name="rule_paused">Paused</string>
+    <string name="rule_target_archived">Archived — nothing is being added</string>
+    <string name="pause_rule">Pause</string>
+    <string name="resume_rule">Resume</string>
+    <string name="delete_rule">Delete</string>
+    <string name="rule_deleted">%1$s deleted</string>
+    <string name="save_rule">Save</string>
+    <string name="empty_rules">Nothing repeats yet. Add rent or a salary and it appears here each month.</string>
+    <string name="choose_rule_target">What does it go to?</string>
+
+    <!-- FR-REC-02's one-tap confirmation, at the top of the ledger. -->
+    <string name="waiting_to_confirm">Waiting to confirm</string>
+    <string name="confirm_entry">Confirm</string>
+    <string name="dismiss_entry">Dismiss</string>
+    <string name="entry_confirmed">Added to the ledger</string>
+    <string name="entry_dismissed">Dismissed</string>
+
+    <!-- FR-CAT-11 / FR-IS-07. The name is in the description because a screen
+         reader user arrives at these one row at a time. -->
+    <string name="move_up_of">Move %1$s up</string>
+    <string name="move_down_of">Move %1$s down</string>
+
+    <!-- NFR-SEC-04 and FR-APP-04 (§20.3). Both requirements say "optional",
+         so both read as settings rather than as promises. -->
+    <string name="settings_privacy">Privacy</string>
+    <string name="secure_screen">Hide from screenshots</string>
+    <string name="secure_screen_hint">Blocks screenshots and hides Khata in the recents list.</string>
+    <string name="app_lock">Require unlock</string>
+    <string name="app_lock_hint">Ask for your phone\'s PIN or fingerprint when Khata opens.</string>
+    <string name="app_lock_no_credential">Set a screen lock on your phone first.</string>
+    <string name="app_lock_unsupported">This phone cannot lock individual apps.</string>
+    <string name="toggle_on">On</string>
+    <string name="toggle_off">Off</string>
+
+    <string name="lock_title">Unlock Khata</string>
+    <string name="lock_subtitle">Use your phone\'s screen lock.</string>
+    <string name="lock_body">Your ledger is locked.</string>
+    <string name="lock_retry">Not unlocked. Try again.</string>
+    <string name="lock_unlock">Unlock</string>
+
+    <!-- Reports (04 §7). The one screen in the inventory that no FR-* requires,
+         built last for exactly that reason. -->
+    <string name="reports_title">Reports</string>
+    <string name="reports_total">Spent in this range</string>
+    <string name="reports_empty">Nothing recorded in these dates.</string>
+    <string name="open_reports">Reports</string>
+    <string name="open_reports_hint">Totals and the split over any dates you choose.</string>
+    <string name="range_from">From</string>
+    <string name="range_to">To</string>
+    <string name="range_this_month">This month</string>
+    <string name="range_last_month">Last month</string>
+    <string name="range_last_three">Last 3 months</string>
+    <string name="range_this_year">This year</string>
+    <plurals name="reports_transaction_count">
+        <item quantity="one">%1$d transaction</item>
+        <item quantity="other">%1$d transactions</item>
+    </plurals>
 </resources>

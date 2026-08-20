@@ -10,7 +10,9 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -25,13 +27,19 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.app.finance.core.time.Period
 import com.app.finance.di.AppContainer
 import com.app.finance.ui.common.KhataIcons
 import com.app.finance.ui.feature.budget.BudgetScreen
+import com.app.finance.ui.feature.category.CategoryManagerScreen
 import com.app.finance.ui.feature.dashboard.DashboardScreen
 import com.app.finance.ui.feature.entry.QuickAddSheet
 import com.app.finance.ui.feature.income.IncomeScreen
+import com.app.finance.ui.feature.income.SourceManagerScreen
 import com.app.finance.ui.feature.ledger.LedgerScreen
+import com.app.finance.ui.feature.settings.RecurringScreen
+import com.app.finance.ui.feature.settings.SettingsScreen
+import com.app.finance.ui.feature.reports.ReportsScreen
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Motion
 import com.app.finance.ui.theme.khataTween
@@ -75,6 +83,28 @@ fun KhataApp(container: AppContainer) {
     // and `rememberSaveable` carries it through process death (FR-APP-03).
     var sheetTarget by rememberSaveable { mutableLongStateOf(SHEET_CLOSED) }
 
+    // The viewed period is owned here, not in any one screen: Budget needs it
+    // now, and Dashboard (M4) and Income (M3) will need the *same* one — a user
+    // who steps back to July on one screen has not asked to be on August
+    // everywhere else.
+    //
+    // rememberSaveable survives rotation and process death; app_meta carries it
+    // across launches, which is the "period" half of FR-APP-03.
+    var periodYm by rememberSaveable { mutableIntStateOf(Period.now(container.clock).ym) }
+    val period = remember(periodYm) { Period(periodYm) }
+
+    LaunchedEffect(Unit) {
+        // A stored value from a future schema, or a corrupted one, would throw
+        // out of Period's init and take the app down on launch for the sake of
+        // remembering a month.
+        runCatching { container.appMetaRepo.lastViewedPeriod() }
+            .getOrNull()
+            ?.let { periodYm = it.ym }
+    }
+    LaunchedEffect(period) {
+        runCatching { container.appMetaRepo.setLastViewedPeriod(period) }
+    }
+
     Scaffold(
         containerColor = KhataTheme.colors.paper,
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -105,7 +135,21 @@ fun KhataApp(container: AppContainer) {
                 popEnterTransition = { fadeIn(screenFade) },
                 popExitTransition = { fadeOut(screenFade) },
             ) {
-                composable(Route.Dashboard.path) { DashboardScreen() }
+                composable(Route.Dashboard.path) {
+                    DashboardScreen(
+                        container = container,
+                        period = period,
+                        onPeriodChange = { periodYm = it.ym },
+                        // 05 §5.4's gear, deferred at M4 to the milestone that
+                        // owns Settings.
+                        onOpenSettings = { navController.navigate(ROUTE_SETTINGS) },
+                        // Every actionable row on the dashboard is about a
+                        // limit, and the limit editor is one tab away. Switching
+                        // tabs rather than pushing a detail route keeps the back
+                        // gesture meaning what it means everywhere else.
+                        onOpenBudget = { navController.navigateTop(Route.Budget) },
+                    )
+                }
                 composable(Route.Ledger.path) {
                     LedgerScreen(
                         container = container,
@@ -114,8 +158,62 @@ fun KhataApp(container: AppContainer) {
                         onAdd = { sheetTarget = SHEET_NEW },
                     )
                 }
-                composable(Route.Income.path) { IncomeScreen() }
-                composable(Route.Budget.path) { BudgetScreen() }
+                composable(Route.Income.path) {
+                    IncomeScreen(
+                        container = container,
+                        period = period,
+                        onPeriodChange = { periodYm = it.ym },
+                        snackbarHostState = snackbarHostState,
+                        onManageSources = { navController.navigate(ROUTE_SOURCES) },
+                    )
+                }
+                composable(Route.Budget.path) {
+                    BudgetScreen(
+                        container = container,
+                        period = period,
+                        onPeriodChange = { periodYm = it.ym },
+                        snackbarHostState = snackbarHostState,
+                        onManageCategories = { navController.navigate(ROUTE_CATEGORIES) },
+                    )
+                }
+                composable(ROUTE_CATEGORIES) {
+                    CategoryManagerScreen(
+                        container = container,
+                        snackbarHostState = snackbarHostState,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(ROUTE_SOURCES) {
+                    SourceManagerScreen(
+                        container = container,
+                        snackbarHostState = snackbarHostState,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(ROUTE_SETTINGS) {
+                    SettingsScreen(
+                        container = container,
+                        snackbarHostState = snackbarHostState,
+                        onManageRecurring = { navController.navigate(ROUTE_RECURRING) },
+                        onOpenReports = { navController.navigate(ROUTE_REPORTS) },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                // 04 §7 fixes the bottom bar at four destinations, so
+                // Reports is reached from Settings rather than added to it.
+                composable(ROUTE_REPORTS) {
+                    ReportsScreen(
+                        container = container,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                composable(ROUTE_RECURRING) {
+                    RecurringScreen(
+                        container = container,
+                        snackbarHostState = snackbarHostState,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
             }
         }
     }
@@ -140,6 +238,13 @@ fun KhataApp(container: AppContainer) {
         )
     }
 }
+
+/** Detail routes, not tabs — the four nav slots are taken. */
+private const val ROUTE_CATEGORIES = "categories"
+private const val ROUTE_SOURCES = "sources"
+private const val ROUTE_SETTINGS = "settings"
+private const val ROUTE_RECURRING = "recurring"
+private const val ROUTE_REPORTS = "reports"
 
 private const val SHEET_CLOSED = -1L
 private const val SHEET_NEW = 0L

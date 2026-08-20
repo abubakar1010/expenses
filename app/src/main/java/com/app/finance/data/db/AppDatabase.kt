@@ -7,10 +7,12 @@ import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.app.finance.BuildConfig
 import com.app.finance.data.db.dao.AppMetaDao
+import com.app.finance.data.db.dao.BackupDao
 import com.app.finance.data.db.dao.BudgetDao
 import com.app.finance.data.db.dao.CategoryDao
 import com.app.finance.data.db.dao.ExpenseDao
 import com.app.finance.data.db.dao.IncomeDao
+import com.app.finance.data.db.dao.RecurringDao
 import com.app.finance.data.db.dao.RollupDao
 import com.app.finance.data.db.entity.AppMetaEntity
 import com.app.finance.data.db.entity.BudgetEntity
@@ -45,6 +47,11 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun budgetDao(): BudgetDao
     abstract fun rollupDao(): RollupDao
     abstract fun appMetaDao(): AppMetaDao
+
+    /** Whole-table access, for export, import and delete-all (M5). */
+    abstract fun backupDao(): BackupDao
+
+    abstract fun recurringDao(): RecurringDao
 
     companion object {
         const val NAME = "khata.db"

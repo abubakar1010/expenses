@@ -100,6 +100,17 @@ interface ExpenseDao {
     suspend fun totalInRange(fromDay: Long, toDay: Long): Long
 
     /**
+     * The same figure as a `Flow`, for the income screen's stable-coverage line
+     * over a custom range (FR-AN-06 with FR-IE-04's third total).
+     *
+     * A separate declaration rather than a `Flow`-returning replacement:
+     * `totalInRange` is a one-shot read used by report-style code that does not
+     * want an invalidation subscription, and Room's tracker is not free.
+     */
+    @Query("SELECT IFNULL(SUM(amount_minor), 0) FROM expense WHERE status = 0 AND spent_on BETWEEN :fromDay AND :toDay")
+    fun observeTotalInRange(fromDay: Long, toDay: Long): Flow<Long>
+
+    /**
      * The filtered, keyset-paged ledger — FR-EXP-08 and FR-EXP-10 in one query.
      *
      * One statement serves both the first page and every page after it:
@@ -161,6 +172,49 @@ interface ExpenseDao {
         """,
     )
     fun observeLargest(period: Int, limit: Int): Flow<List<ExpenseWithCategory>>
+
+    /**
+     * The same top-N over an arbitrary range, for Reports.
+     *
+     * A separate declaration rather than a generalisation of [observeLargest]:
+     * that one is keyed on `period_ym` and rides `ix_expense_period`, this one
+     * is a bounded scan of `ix_expense_date`, and collapsing them would cost
+     * the dashboard its index for the sake of one shared signature.
+     */
+    @Query(
+        """
+        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature
+          FROM expense e JOIN category c ON c.id = e.category_id
+         WHERE e.status = 0 AND e.spent_on BETWEEN :fromDay AND :toDay
+         ORDER BY e.amount_minor DESC
+         LIMIT :limit
+        """,
+    )
+    fun observeLargestInRange(fromDay: Long, toDay: Long, limit: Int): Flow<List<ExpenseWithCategory>>
+
+    /**
+     * Spend per nature over an arbitrary range — FR-AN-07's split, off the
+     * ledger rather than off the rollups.
+     *
+     * 03 §5.3 licenses exactly this: "Range queries are a deliberate exception
+     * to the rollup strategy: they are invoked from the reports screen on
+     * explicit user action, not on every dashboard render, so a bounded index
+     * scan is acceptable there."
+     */
+    @Query(
+        """
+        SELECT c.nature AS nature,
+               SUM(e.amount_minor) AS totalMinor,
+               COUNT(*) AS txnCount
+          FROM expense e JOIN category c ON c.id = e.category_id
+         WHERE e.status = 0 AND e.spent_on BETWEEN :fromDay AND :toDay
+         GROUP BY c.nature
+        """,
+    )
+    fun observeNatureTotalsInRange(fromDay: Long, toDay: Long): Flow<List<NatureTotal>>
 }
+
+/** One nature's spend over a range. */
+data class NatureTotal(val nature: Int, val totalMinor: Long, val txnCount: Int)
 
 data class DayTotal(val day: Long, val total: Long)

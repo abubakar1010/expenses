@@ -494,24 +494,229 @@ class SchemaAssertionsTest {
     }
 
     @Test
-    fun the_dashboard_query_never_touches_the_expense_table() {
-        val plan = db.openHelper.writableDatabase.query(
+    fun the_budget_bar_query_never_touches_the_expense_table() {
+        // NFR-MAIN-03 requires a documented EXPLAIN QUERY PLAN for every
+        // hot-path query. This is `RollupDao.observeBudgetBars` verbatim — the
+        // budget screen's only read — with the bound parameter substituted, so
+        // the assertion cannot drift away from the query it is about.
+        val plan = queryPlan(
             """
-            EXPLAIN QUERY PLAN
-            SELECT c.id, c.name, c.nature, IFNULL(b.limit_minor,0), IFNULL(r.total_minor,0)
+            SELECT c.id                      AS id,
+                   c.parent_id               AS parentId,
+                   c.name                    AS name,
+                   c.nature                  AS nature,
+                   IFNULL(b.limit_minor, 0)  AS limitMinor,
+                   IFNULL(r.total_minor, 0)  AS spentMinor
               FROM category c
-              LEFT JOIN budget b ON b.category_id = c.id AND b.period_ym = 202608
-              LEFT JOIN rollup_expense_month r ON r.category_id = c.id AND r.period_ym = 202608
-             WHERE c.parent_id IS NOT NULL AND (c.is_archived = 0 OR r.total_minor IS NOT NULL)
+              LEFT JOIN budget b
+                     ON b.category_id = c.id AND b.period_ym = $aug
+              LEFT JOIN rollup_expense_month r
+                     ON r.category_id = c.id AND r.period_ym = $aug
+             WHERE c.parent_id IS NOT NULL
+               AND (c.is_archived = 0 OR r.total_minor IS NOT NULL)
              ORDER BY c.sort_order
             """.trimIndent(),
-        ).use {
+        )
+
+        // The property that keeps the screen flat as history grows: cost is
+        // bounded by the leaf count — dozens — not by how many transactions
+        // exist. That is what holds NFR-PERF-04 at 300 ms over five years.
+        assertTrue("must not read the ledger, plan was:\n$plan", !plan.contains("TABLE expense"))
+
+        // Both joins must be index lookups. A scan here would be invisible at
+        // thirteen leaves and quadratic at a hundred.
+        assertTrue("budget join must use ux_budget_cat_period, plan was:\n$plan", plan.contains("ux_budget_cat_period"))
+        assertTrue(
+            "rollup join must be a search, not a scan, plan was:\n$plan",
+            plan.contains("SEARCH r") || plan.contains("SEARCH TABLE rollup_expense_month"),
+        )
+        assertTrue(
+            "rollup must not be scanned end to end, plan was:\n$plan",
+            !plan.contains("SCAN rollup_expense_month") && !plan.contains("SCAN TABLE rollup_expense_month"),
+        )
+    }
+
+    @Test
+    fun the_period_total_queries_read_only_the_rollups() {
+        // 03 §5.1's other two hot reads — the figures the dashboard and the
+        // income screen open with.
+        listOf(
+            "SELECT IFNULL(SUM(total_minor), 0) FROM rollup_expense_month WHERE period_ym = $aug",
+            "SELECT IFNULL(SUM(total_minor), 0) FROM rollup_income_month WHERE period_ym = $aug",
+        ).forEach { sql ->
+            val plan = queryPlan(sql)
+            assertTrue("must not read the ledger, plan was:\n$plan", !plan.contains("TABLE expense"))
+            assertTrue("must not read income_entry, plan was:\n$plan", !plan.contains("TABLE income_entry"))
+        }
+    }
+
+    @Test
+    fun the_income_breakdown_query_never_touches_the_income_ledger() {
+        // NFR-MAIN-03 for M3's hot read. This is `IncomeDao.observeCellsInPeriods`
+        // verbatim — the income screen's only aggregate query, and the one every
+        // figure on the screen is folded from — with the bound parameters
+        // substituted, so the assertion cannot drift away from the query.
+        val plan = queryPlan(
+            """
+            SELECT r.period_ym   AS periodYm,
+                   s.id          AS sourceId,
+                   s.name        AS sourceName,
+                   s.kind        AS kind,
+                   r.total_minor AS totalMinor
+              FROM rollup_income_month r
+              JOIN income_source s ON s.id = r.source_id
+             WHERE r.period_ym BETWEEN 202601 AND 202612
+            """.trimIndent(),
+        )
+
+        // The property that keeps the screen flat as history grows: cost is
+        // bounded by (months × sources) — sixty rows for a year — not by how
+        // many entries exist.
+        assertTrue(
+            "must not read the income ledger, plan was:\n$plan",
+            !plan.contains("TABLE income_entry"),
+        )
+        // `rollup_income_month` is WITHOUT ROWID on (period_ym, source_id), so
+        // a period range is a prefix of the primary key and must be a search.
+        assertTrue(
+            "the rollup must be searched, not scanned, plan was:\n$plan",
+            plan.contains("SEARCH r") || plan.contains("SEARCH TABLE rollup_income_month"),
+        )
+        assertTrue(
+            "the source join must be a lookup, plan was:\n$plan",
+            plan.contains("SEARCH s") || plan.contains("SEARCH TABLE income_source"),
+        )
+    }
+
+    @Test
+    fun the_income_range_fallback_uses_the_date_index() {
+        // 03 §5.3's deliberate exception: a range that does not align to month
+        // boundaries cannot use the rollup, so it falls back to the ledger —
+        // and the fallback must still be a bounded index walk rather than a
+        // full scan of five years of entries.
+        val plan = queryPlan(
+            """
+            SELECT e.period_ym        AS periodYm,
+                   s.id               AS sourceId,
+                   s.name             AS sourceName,
+                   s.kind             AS kind,
+                   SUM(e.amount_minor) AS totalMinor
+              FROM income_entry e
+              JOIN income_source s ON s.id = e.source_id
+             WHERE e.status = 0 AND e.earned_on BETWEEN 20000 AND 20100
+             GROUP BY e.period_ym, s.id
+            """.trimIndent(),
+        )
+
+        assertTrue(
+            "the range must walk ix_income_entry_date, plan was:\n$plan",
+            plan.contains("ix_income_entry_date"),
+        )
+        assertTrue(
+            "and must not scan income_entry, plan was:\n$plan",
+            !plan.contains("SCAN e") && !plan.contains("SCAN TABLE income_entry"),
+        )
+    }
+
+    // ------------------------------------ the dashboard's reads (NFR-MAIN-03)
+
+    /**
+     * NFR-PERF-04 gives the dashboard 300 ms, and 03 §5.1 says why that holds
+     * as the ledger grows: "row count is bounded by the number of leaf
+     * categories — dozens, not thousands — **independent of transaction history
+     * size**."
+     *
+     * That is a claim about which tables the screen reads, so these four
+     * assertions are the claim itself rather than a proxy for it. Each is the
+     * DAO query verbatim with its bound parameters substituted, so an assertion
+     * cannot drift away from the statement it is about.
+     */
+    @Test
+    fun the_category_delta_query_never_touches_the_expense_table() {
+        val plan = queryPlan(
+            """
+            SELECT r.period_ym    AS periodYm,
+                   c.id           AS categoryId,
+                   c.name         AS name,
+                   r.total_minor  AS totalMinor
+              FROM rollup_expense_month r
+              JOIN category c ON c.id = r.category_id
+             WHERE r.period_ym BETWEEN ${aug - 3} AND $aug
+               AND r.txn_count > 0
+            """.trimIndent(),
+        )
+        assertTrue(
+            "the delta query must not read the ledger, plan was:\n" + plan,
+            !plan.contains("expense ") && !plan.contains("TABLE expense"),
+        )
+        // SQLite names the *alias* in a query plan, not the table, so this
+        // asked for a string the planner never emits: the real plan reads
+        // "SEARCH r USING PRIMARY KEY (period_ym>? AND period_ym<?)", which is
+        // a stronger statement than the one the assertion was making.
+        assertTrue(
+            "and must search the rollup by its primary key, plan was:\n" + plan,
+            plan.contains("SEARCH") && plan.contains("PRIMARY KEY"),
+        )
+    }
+
+    @Test
+    fun the_budget_reference_query_reads_only_budget_and_category() {
+        val plan = queryPlan(
+            """
+            SELECT b.period_ym AS periodYm, SUM(b.limit_minor) AS total
+              FROM budget b
+              JOIN category c ON c.id = b.category_id
+             WHERE b.period_ym BETWEEN ${aug - 5} AND $aug
+               AND c.is_archived = 0
+             GROUP BY b.period_ym
+            """.trimIndent(),
+        )
+        assertTrue(
+            "the reference line must not read the ledger, plan was:\n" + plan,
+            !plan.contains("TABLE expense"),
+        )
+    }
+
+    @Test
+    fun the_trend_series_query_never_touches_the_expense_table() {
+        val plan = queryPlan(
+            """
+            SELECT period_ym AS periodYm, SUM(total_minor) AS total
+              FROM rollup_expense_month
+             WHERE period_ym BETWEEN ${aug - 5} AND $aug
+             GROUP BY period_ym ORDER BY period_ym
+            """.trimIndent(),
+        )
+        assertTrue(
+            "plan was:\n" + plan,
+            !plan.contains("TABLE expense") && plan.contains("rollup_expense_month"),
+        )
+    }
+
+    @Test
+    fun the_largest_expenses_query_is_the_one_read_that_touches_the_ledger() {
+        // FR-AN-08 asks for the five largest *transactions*, which no rollup
+        // can answer — a bucket has no largest row. It is bounded instead: an
+        // indexed equality on the period, then LIMIT 5.
+        val plan = queryPlan(
+            """
+            SELECT e.*, c.name AS categoryName, c.nature AS categoryNature
+              FROM expense e JOIN category c ON c.id = e.category_id
+             WHERE e.status = 0 AND e.period_ym = $aug
+             ORDER BY e.amount_minor DESC
+             LIMIT 5
+            """.trimIndent(),
+        )
+        assertTrue(
+            "it must search ix_expense_period rather than scan, plan was:\n" + plan,
+            plan.contains("ix_expense_period") && !plan.contains("SCAN e"),
+        )
+    }
+
+    private fun queryPlan(sql: String): String =
+        db.openHelper.writableDatabase.query("EXPLAIN QUERY PLAN\n$sql").use {
             buildString { while (it.moveToNext()) append(it.getString(it.columnCount - 1)).append('\n') }
         }
-        // This is the property that keeps the dashboard flat as history grows:
-        // cost depends on the leaf count, not on the number of transactions.
-        assertTrue("dashboard must not scan expense, plan was:\n$plan", !plan.contains("TABLE expense"))
-    }
 
     @Test
     fun seeded_uuids_are_present_and_distinct() = runBlocking {

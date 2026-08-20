@@ -16,6 +16,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.app.finance.core.money.Money
@@ -51,6 +54,14 @@ fun LedgerRow(
         modifier
             .fillMaxWidth()
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            // `clickable` alone exposes the action but not the role, so this
+            // row announced itself differently from every other tappable
+            // surface in the app — on four screens, since the ledger, the
+            // dashboard, the income screen and the largest-expenses list all
+            // use it.
+            .then(
+                if (onClick != null) Modifier.semantics { role = Role.Button } else Modifier,
+            )
             .defaultMinSize(minHeight = if (status != null) Sizes.rowWithBar else Sizes.rowPlain)
             .drawBehind {
                 // The hairline separator. This single line is what replaces the
@@ -74,30 +85,7 @@ fun LedgerRow(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            // Leader dots: the direct borrowing from a printed ledger. They
-            // carry the eye across the gap, which is exactly the job they do on
-            // a paper page — and they cost one dashed drawLine.
-            if (showLeaderDots) {
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .height(Sizes.hairline * 2)
-                        .padding(horizontal = Space.s2)
-                        .drawBehind {
-                            drawLine(
-                                color = colors.rule,
-                                start = Offset(0f, size.height / 2f),
-                                end = Offset(size.width, size.height / 2f),
-                                strokeWidth = LEADER_STROKE,
-                                pathEffect = PathEffect.dashPathEffect(
-                                    floatArrayOf(LEADER_DOT, LEADER_GAP),
-                                ),
-                            )
-                        },
-                )
-            } else {
-                Box(Modifier.weight(1f))
-            }
+            if (showLeaderDots) LeaderDots(Modifier.weight(1f)) else Box(Modifier.weight(1f))
 
             MoneyText(amount, style = type.rowFigure)
         }
@@ -127,7 +115,43 @@ fun LedgerRow(
     }
 }
 
-/** `SECTION HEADER` — tracked and uppercase, like a printed column heading. */
+/**
+ * The dotted gap between a label and its figure — `05` §5.3.
+ *
+ * "The direct borrowing from a printed ledger — they carry the eye across the
+ * gap, which is exactly the job they do on a paper page." §6 lists them in the
+ * ledger-row specification, so every row that puts a label on the left and a
+ * figure on the right gets them, including the budget screen's.
+ *
+ * One dashed `drawLine`, no layout cost.
+ */
+@Composable
+fun LeaderDots(modifier: Modifier = Modifier) {
+    val rule = KhataTheme.colors.rule
+    Box(
+        modifier
+            .height(Sizes.hairline * 2)
+            .padding(horizontal = Space.s2)
+            .drawBehind {
+                drawLine(
+                    color = rule,
+                    start = Offset(0f, size.height / 2f),
+                    end = Offset(size.width, size.height / 2f),
+                    strokeWidth = LEADER_STROKE,
+                    pathEffect = PathEffect.dashPathEffect(floatArrayOf(LEADER_DOT, LEADER_GAP)),
+                )
+            },
+    )
+}
+
+/**
+ * `SECTION HEADER` — tracked and uppercase, like a printed column heading.
+ *
+ * The case conversion takes the composition's locale. `uppercase()` with no
+ * argument is `Locale.ROOT`, which turns Turkish "i" into "I" rather than
+ * "İ" — the same defect C6 fixed for `String.format` (§19.6), in a call that
+ * sweep did not think to look at because it was hunting format strings.
+ */
 @Composable
 fun SectionHeader(
     text: String,
@@ -147,7 +171,7 @@ fun SectionHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
         Text(
-            text = text.uppercase(),
+            text = text.uppercase(rememberJavaLocale()),
             style = KhataTheme.type.sectionHeader,
             color = KhataTheme.colors.inkSoft,
         )

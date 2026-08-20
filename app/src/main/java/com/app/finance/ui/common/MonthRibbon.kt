@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.dp
 import com.app.finance.core.money.Money
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Sizes
+import java.util.Locale
 
 /**
  * The month ribbon — 05-ui-ux-guide.md §5.5, "the one element the app should be
@@ -38,16 +39,22 @@ import com.app.finance.ui.theme.Sizes
  * @param dailyTotals paisa per day, indexed from day 1. Length is the number of
  *   days in the period.
  * @param todayIndex zero-based index of today, or -1 when viewing another month.
+ * @param locale the composition's locale, not `Locale.getDefault()`. The spoken
+ *   total picks its numbering scale from it — lakh and crore rather than
+ *   thousands — and reading the system locale here would announce this one
+ *   figure on a different scale from every other figure on the screen. The same
+ *   correction §15.7 made to [YearBars].
  */
 @Composable
 fun MonthRibbon(
     dailyTotals: LongArray,
     todayIndex: Int,
+    locale: Locale,
     modifier: Modifier = Modifier,
 ) {
     val colors = KhataTheme.colors
     val peak = dailyTotals.maxOrNull()?.coerceAtLeast(1L) ?: 1L
-    val spokenTotal = Money(dailyTotals.sum()).spokenForm()
+    val spokenTotal = Money(dailyTotals.sum()).spokenForm(locale)
 
     Canvas(
         modifier

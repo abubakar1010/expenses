@@ -14,6 +14,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.isSpecified
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
 import com.app.finance.core.money.Money
@@ -57,14 +58,14 @@ fun MoneyText(
     // Negative means a refund, and refunds read as corrections — the red pen.
     val figureColor = color ?: if (money.isNegative) colors.vermilion else colors.ink
 
-    val text = remember(money, locale, showSymbol, figureColor, colors.inkSoft, style.fontSize) {
+    val text = remember(money, locale, showSymbol, figureColor, colors.inkSoft) {
         buildMoneyString(
             money = money,
             locale = locale,
             showSymbol = showSymbol,
             figureColor = figureColor,
             symbolColor = colors.inkSoft,
-            symbolSize = style.fontSize.scaleBy(KHATA_SYMBOL_SCALE),
+            symbolSize = KHATA_SYMBOL_SCALE,
         )
     }
 
@@ -82,21 +83,28 @@ fun MoneyText(
 /**
  * The device locale as a `java.util.Locale`, read observably.
  *
- * `Money` lives in `core/` and takes a `java.util.Locale`, because it must stay
- * free of Compose as well as of Android. Compose's own `Locale.current` is the
- * observable read, so this bridges the two and re-derives only when the locale
- * actually changes.
+ * `Money` and `Period` both live in `core/` and take a `java.util.Locale`,
+ * because they must stay free of Compose as well as of Android. Compose's own
+ * `Locale.current` is the observable read, so this bridges the two and
+ * re-derives only when the locale actually changes.
  */
 @Composable
-private fun rememberJavaLocale(): Locale {
+fun rememberJavaLocale(): Locale {
     val composeLocale = ComposeLocale.current
     return remember(composeLocale) { Locale.forLanguageTag(composeLocale.toLanguageTag()) }
 }
 
-private const val KHATA_SYMBOL_SCALE = 0.7f
-
-private fun TextUnit.scaleBy(factor: Float): TextUnit =
-    if (isSpecified) (value * factor).sp else 12.sp
+/**
+ * The ৳ is set smaller than the figure, in **em** rather than sp.
+ *
+ * Relative on purpose. As an absolute size — 0.7 x whatever the style happened
+ * to be — the symbol stopped tracking the text the moment anything rescaled it:
+ * `autoShrink` would shrink the digits while the symbol stayed pinned, so the
+ * measured width never converged and the last digit was dropped. §20.7 caught
+ * that rendering as `৳12,25`, which is a ledger losing a digit. An em is
+ * defined against the span's inherited size, so it follows by construction.
+ */
+private val KHATA_SYMBOL_SCALE = 0.7.em
 
 private fun buildMoneyString(
     money: Money,

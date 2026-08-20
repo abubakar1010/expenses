@@ -3,8 +3,16 @@ package com.app.finance
 import androidx.test.core.app.ApplicationProvider
 import com.app.finance.data.db.AppDatabase
 import com.app.finance.data.repo.AppMetaRepository
+import com.app.finance.data.repo.BudgetRepository
 import com.app.finance.data.repo.CategoryRepository
+import com.app.finance.data.export.Exporter
+import com.app.finance.data.export.Importer
+import com.app.finance.data.repo.DashboardRepository
 import com.app.finance.data.repo.ExpenseRepository
+import com.app.finance.data.repo.IncomeRepository
+import com.app.finance.data.repo.ReportsRepository
+import com.app.finance.data.repo.RecurringRepository
+import com.app.finance.data.repo.SettingsRepository
 import com.app.finance.di.AppContainer
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
@@ -42,6 +50,14 @@ class TestFixture(
 
     val expenses = ExpenseRepository(db, clock)
     val categories = CategoryRepository(db, clock)
+    val budgets = BudgetRepository(db, clock)
+    val income = IncomeRepository(db, clock)
+    val reports = ReportsRepository(db)
+    val dashboard = DashboardRepository(db)
+    val recurring = RecurringRepository(db, clock)
+    val settings = SettingsRepository(db, clock)
+    val exporter = Exporter(db)
+    val importer = Importer(db)
     val meta = AppMetaRepository(db, clock)
 
     /** For Compose tests, which drive the real screens through the real graph. */

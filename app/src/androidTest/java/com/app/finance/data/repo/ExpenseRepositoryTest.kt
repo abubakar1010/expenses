@@ -93,7 +93,7 @@ class ExpenseRepositoryTest {
     fun insert_rejects_an_archived_category() = runBlocking {
         // FR-CAT-08 — archived categories are hidden from entry.
         val grocery = fx.leafId("Grocery")
-        fx.categories.setArchived(grocery, archived = true)
+        fx.categories.archive(grocery)
         assertEquals(
             SaveOutcome.Rejected(EntryError.CATEGORY_ARCHIVED),
             fx.expenses.insert(Money.ofTaka(100), grocery),

@@ -49,6 +49,23 @@ import com.app.finance.ui.theme.khataTween
 fun BudgetBar(
     status: BudgetStatus,
     modifier: Modifier = Modifier,
+    /**
+     * FR-BUD-07 — a category of nature `unpredictable`.
+     *
+     * PRD §6.2: "Unpredictable Expenses is a buffer, not a plan. Under-spending
+     * it is a win, not an unused allocation. It therefore gets a distinct
+     * visual treatment and is excluded from 'under budget' nagging."
+     *
+     * §3.3's table has four states and none of them is this one, so the
+     * treatment is invented: a **ticked track** rather than a solid fill.
+     * Progress reads as marks against a scale instead of a bar filling toward
+     * a target, which is the difference between spending a buffer and using up
+     * a plan. It survives greyscale on pattern alone, and the caller pairs it
+     * with "৳2,400 of ৳5,000" rather than "left".
+     *
+     * Going over is still going over: the over-budget treatment is unchanged.
+     */
+    unplanned: Boolean = false,
 ) {
     val colors = KhataTheme.colors
 
@@ -121,6 +138,14 @@ fun BudgetBar(
             )
         }
 
+        // FR-BUD-07's distinct treatment: ticks across the whole width, so an
+        // unpredictable category reads as marks against a scale rather than as
+        // a bar filling toward a target. Drawn over the fill, so the amount is
+        // still legible while the pattern says "this is a buffer, not a plan".
+        if (unplanned) {
+            drawTicks(top = top, height = barHeight, color = colors.paper)
+        }
+
         // The hatched cap on an approaching bar — the third signal.
         if (status.state == BudgetState.NEAR) {
             drawHatchedCap(
@@ -160,9 +185,31 @@ private fun DrawScope.drawHatchedCap(
     }
 }
 
+/**
+ * Vertical ticks the full width of the track — the unplanned treatment.
+ *
+ * Distinct from the NEAR hatch in both angle and extent: hatching is diagonal
+ * and confined to the cap, these are upright and cover everything. The two are
+ * never confusable, including in greyscale.
+ */
+private fun DrawScope.drawTicks(top: Float, height: Float, color: Color) {
+    var x = TICK_SPACING
+    while (x < size.width) {
+        drawLine(
+            color = color.copy(alpha = 0.7f),
+            start = Offset(x, top),
+            end = Offset(x, top + height),
+            strokeWidth = TICK_STROKE,
+        )
+        x += TICK_SPACING
+    }
+}
+
 private val BAR_RADIUS = 3.dp
 private val OVER_RULE_THICKNESS = 2.dp
 private val OVER_RULE_GAP = 6.dp
 private val HATCH_WIDTH = 14.dp
 private const val HATCH_STROKE = 2f
 private const val HATCH_SPACING = 6f
+private const val TICK_STROKE = 1.5f
+private const val TICK_SPACING = 9f

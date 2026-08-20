@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      The `benchmark` variant only. Not merged into debug and not into release.
+
+      This declares the same seeder as src/debug, with one difference:
+      android:exported="true".
+
+      The reason is mechanical rather than a preference. The benchmark variant
+      is deliberately **not debuggable** — a debuggable build disables
+      optimisations wholesale, so an NFR-PERF number taken on one says nothing
+      about what ships. But `am broadcast` from the shell reaches an unexported
+      receiver only in a debuggable package, so the same receiver that works in
+      debug is unreachable here. Exporting it is what makes the corpus seedable
+      on the build the targets are actually defined against.
+
+      What that costs: any app on the device could broadcast this and rewrite
+      the ledger. Acceptable, and only here — this variant is a measuring
+      instrument that is never published, carries a `.benchmark` application id
+      so it cannot replace a real install, and is signed with the debug key.
+      `release` has neither this manifest nor the class it names.
+    -->
+    <application>
+
+        <receiver
+            android:name="com.app.finance.dev.SeedReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.app.finance.SEED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

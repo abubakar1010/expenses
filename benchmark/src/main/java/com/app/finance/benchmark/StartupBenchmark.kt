@@ -12,6 +12,7 @@ import androidx.test.uiautomator.Until
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.test.platform.app.InstrumentationRegistry
 
 /**
  * The performance targets from the SRS, asserted rather than assumed.
@@ -85,7 +86,20 @@ class StartupBenchmark {
     }
 
     private companion object {
-        const val TARGET_PACKAGE = "com.app.finance"
+        /**
+         * The package under measurement.
+         *
+         * Overridable, because the corpus and the measurable build live in
+         * different APKs: `release` deliberately contains no seeder, so the
+         * five-year database is on the `benchmark` variant
+         * (`com.app.finance.benchmark`) instead. Macrobenchmark measures any
+         * installed package by name, so pointing it there costs one argument:
+         *
+         *     -Pandroid.testInstrumentationRunnerArguments.targetPackage=com.app.finance.benchmark
+         */
+        val TARGET_PACKAGE: String =
+            InstrumentationRegistry.getArguments().getString("targetPackage")
+                ?: "com.app.finance"
         const val ITERATIONS = 10
     }
 }

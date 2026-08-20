@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Debug-only. This file is merged into the debug manifest and into nothing
+      else, so the receiver below and the generator it calls are absent from the
+      release APK rather than present-but-disabled.
+
+      Still no <uses-permission>, here or anywhere: FR-APP-01's offline-only
+      guarantee is verified against the merged manifest, and a debug-only
+      permission would show up in the debug one.
+    -->
+    <application>
+
+        <!--
+          adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug
+
+          Puts five years of data on the device so NFR-PERF-04's 300 ms can be
+          measured against the workload M4's exit criterion names. Not exported:
+          `am broadcast` from the shell reaches an unexported receiver in a
+          debuggable package, and nothing outside the shell has any business
+          rewriting the ledger.
+        -->
+        <receiver
+            android:name="com.app.finance.dev.SeedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.app.finance.SEED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+
+</manifest>

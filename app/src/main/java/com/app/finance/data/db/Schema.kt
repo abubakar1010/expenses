@@ -181,6 +181,48 @@ internal object Schema {
         """,
     ).map { it.trimIndent() }
 
+    /**
+     * Every table's contents, children before parents — what a replace-import
+     * and "delete all data" both clear.
+     *
+     * The same ordering [DROP_TABLES] uses and for the same reason: every
+     * reference is `ON DELETE RESTRICT`, so a parent deleted before its children
+     * fails. Declared once because two copies of a nine-element ordering is how
+     * a table added later gets cleared by one caller and left behind by the
+     * other.
+     *
+     * **Complete statements rather than table names**, which is what §20.1 cost
+     * to learn. The rule above is about ordering *between* tables and this list
+     * got that right; `category` fails it *within* one table, because it is the
+     * only table whose foreign key points at itself. Nothing that reads as a
+     * list of table names can express "children first" for that case, so the
+     * list stopped being one.
+     *
+     * The rollups lead: they are derived, both callers regenerate or re-seed
+     * them afterwards, and emptying them first means the delete triggers have
+     * nothing left to decrement.
+     */
+    val WIPE_ORDER: List<String> = listOf(
+        "DELETE FROM rollup_expense_month",
+        "DELETE FROM rollup_income_month",
+        "DELETE FROM recurring_rule",
+        "DELETE FROM expense",
+        "DELETE FROM budget",
+        "DELETE FROM income_entry",
+        // `category` takes two statements, not one, because it is the only
+        // table that references *itself*: `parent_id REFERENCES category(id)
+        // ON DELETE RESTRICT`. A single `DELETE FROM category` walks the table
+        // in rowid order and reaches a root while its children still point at
+        // it, and RESTRICT fires. Two levels is all that is needed, and the
+        // depth trigger is what guarantees it: no category may sit under a
+        // category that already has a parent, so clearing the rows that have a
+        // parent leaves only roots behind.
+        "DELETE FROM category WHERE parent_id IS NOT NULL",
+        "DELETE FROM category",
+        "DELETE FROM income_source",
+        "DELETE FROM app_meta",
+    )
+
     /** Reverse of [TABLES] — children before parents, so drops never violate a FK. */
     val DROP_TABLES: List<String> = listOf(
         "app_meta", "recurring_rule", "rollup_income_month", "rollup_expense_month",

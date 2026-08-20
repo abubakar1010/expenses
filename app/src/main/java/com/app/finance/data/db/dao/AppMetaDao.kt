@@ -33,6 +33,13 @@ interface AppMetaDao {
         const val KEY_RECENT_CATEGORIES = "recent_category_ids"
         const val KEY_SCHEMA_VERSION = "schema_version"
         const val KEY_ONBOARDED = "onboarded"
+        const val KEY_THEME = "theme"
+
+        /** NFR-SEC-04, optional by requirement — so it is stored, not assumed. */
+        const val KEY_SECURE_SCREEN = "secure_screen"
+
+        /** FR-APP-04, likewise optional. */
+        const val KEY_APP_LOCK = "app_lock"
 
         /** Six chips fit the Quick Add sheet two rows deep (05 §5.6). */
         const val RECENT_CATEGORY_LIMIT = 6

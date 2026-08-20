@@ -58,7 +58,7 @@ class LedgerViewModelTest {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                LedgerViewModel(fx.expenses, fx.categories, fx.clock) as T
+                LedgerViewModel(fx.expenses, fx.categories, fx.recurring, fx.clock) as T
         },
     )["vm${seq++}", LedgerViewModel::class.java]
 
@@ -219,5 +219,64 @@ class LedgerViewModelTest {
         val after = vm.state.awaitState { it.days.isNotEmpty() }
         assertEquals(1, after.days.size)
         assertEquals(Money.ofTaka(175), after.days.single().total)
+    }
+
+    // --- C4: an archived category stays filterable ---------------------------
+
+    @Test
+    fun a_category_with_expenses_is_offered_as_a_filter_after_it_is_archived() = runBlocking {
+        // FR-EXP-08 says the ledger is filterable by leaf. FR-CAT-08 takes an
+        // archived category out of *entry pickers* and leaves it "visible in
+        // historical reports" — and a year of grocery rows with "Grocery"
+        // printed on each of them is exactly that. Third time this class of
+        // defect has appeared: §15.6 on the income filter, §18.2 on the
+        // dashboard's figures, and here.
+        val grocery = fx.leafId("Grocery")
+        seed(340, "Grocery")
+
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad && it.days.isNotEmpty() }
+        fx.categories.archive(grocery)
+
+        val state = vm.state.awaitState {
+            it.tree.flatMap { root -> root.activeChildren }.none { leaf -> leaf.id == grocery }
+        }
+        assertTrue(
+            "the rows are still there, so the filter must still reach them",
+            grocery in state.categoriesPresent,
+        )
+    }
+
+    @Test
+    fun a_category_with_no_expenses_on_screen_is_not_offered() = runBlocking {
+        // "Active ∪ present", not "everything ever" — an archived category the
+        // user never spent on has nothing to filter to.
+        seed(340, "Grocery")
+        val state = vm().state.awaitState { !it.initialLoad && it.days.isNotEmpty() }
+
+        assertTrue(fx.leafId("Grocery") in state.categoriesPresent)
+        assertFalse(fx.leafId("Medical") in state.categoriesPresent)
+    }
+
+    @Test
+    fun filtering_to_an_archived_category_returns_its_rows() = runBlocking {
+        val grocery = fx.leafId("Grocery")
+        seed(340, "Grocery")
+        seed(900, "Transport")
+        fx.categories.archive(grocery)
+
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad && it.days.isNotEmpty() }
+        vm.applyFilters(LedgerFilters.NONE.copy(leafId = grocery))
+
+        // The filter lands in state before the reload it triggers finishes,
+        // so waiting on `filters` alone caught the old rows still in place.
+        // Waiting on the reloaded page is the idiom the rest of this class
+        // already uses.
+        val state = vm.state.awaitState {
+            it.filters.leafId == grocery && it.days.sumOf { d -> d.rows.size } == 1
+        }
+        assertEquals(1, state.days.sumOf { it.rows.size })
+        assertEquals("Grocery", state.days.first().rows.first().categoryName)
     }
 }

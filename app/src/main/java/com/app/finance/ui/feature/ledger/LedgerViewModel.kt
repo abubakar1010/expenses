@@ -4,9 +4,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.finance.core.money.Money
 import com.app.finance.data.db.dao.ExpenseWithCategory
+import com.app.finance.data.db.dao.PendingExpense
+import com.app.finance.data.db.dao.PendingIncome
 import com.app.finance.data.db.entity.ExpenseEntity
+import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.repo.CategoryRepository
 import com.app.finance.data.repo.ExpenseRepository
+import com.app.finance.data.repo.RecurringRepository
 import com.app.finance.domain.model.CategoryNode
 import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.domain.model.PaymentMethod
@@ -48,7 +52,30 @@ data class LedgerUiState(
     val filterSheetOpen: Boolean = false,
     /** Held for the five seconds the undo snackbar is on screen. */
     val lastDeleted: ExpenseEntity? = null,
+    /**
+     * FR-REC-02's one-tap confirmations, above the day groups.
+     *
+     * These are the only rows on this screen that are not in any figure
+     * anywhere: `status = 1` is excluded by every rollup trigger and by every
+     * other read in the app.
+     */
+    val pendingExpenses: List<PendingExpense> = emptyList(),
+    val pendingIncome: List<PendingIncome> = emptyList(),
+    /** Held for the five seconds the dismiss snackbar is on screen. */
+    val lastDismissed: DismissedEntry? = null,
 ) {
+    val pendingCount: Int get() = pendingExpenses.size + pendingIncome.size
+
+    /**
+     * Leaf ids the loaded rows actually reference.
+     *
+     * What lets the filter offer an archived category the user still has
+     * expenses under — FR-EXP-08 filters by leaf, and FR-CAT-08 only takes
+     * archived categories out of *entry* pickers.
+     */
+    val categoriesPresent: Set<Long>
+        get() = days.flatMapTo(HashSet()) { day -> day.rows.map { it.expense.categoryId } }
+
     val isEmpty: Boolean get() = !initialLoad && days.isEmpty()
 
     /** An empty result means something different when a filter is applied. */
@@ -70,6 +97,7 @@ data class LedgerUiState(
 class LedgerViewModel(
     private val repo: ExpenseRepository,
     categories: CategoryRepository,
+    private val recurring: RecurringRepository,
     private val clock: Clock,
     /**
      * Injected so tests can run on a single deterministic dispatcher. With a
@@ -97,7 +125,73 @@ class LedgerViewModel(
         viewModelScope.launch {
             categories.observeTree().collect { tree -> _state.update { it.copy(tree = tree) } }
         }
+        // FR-REC-02. Two flows rather than one union query: an expense and an
+        // income entry are different rows with different confirmations, and a
+        // `UNION` would need a discriminator column to tell them apart again.
+        viewModelScope.launch {
+            recurring.observePendingExpenses().collect { rows ->
+                _state.update { it.copy(pendingExpenses = rows) }
+            }
+        }
+        viewModelScope.launch {
+            recurring.observePendingIncome().collect { rows ->
+                _state.update { it.copy(pendingIncome = rows) }
+            }
+        }
     }
+
+    // --- FR-REC-02's one tap -------------------------------------------------
+
+    /**
+     * Confirming is a status change, which is what makes it safe.
+     *
+     * `trg_rollup_exp_upd` sees `OLD.status = 1` and `NEW.status = 0`, skips the
+     * decrement and performs the increment, so the entry joins every aggregate
+     * in the same transaction — without a line here touching a rollup, and
+     * without the ledger needing a reload, because `observeRevision` fires.
+     */
+    fun confirmExpense(id: Long) {
+        viewModelScope.launch { withContext(io) { recurring.confirmExpense(id) } }
+    }
+
+    fun confirmIncome(id: Long) {
+        viewModelScope.launch { withContext(io) { recurring.confirmIncome(id) } }
+    }
+
+    /**
+     * The rule fired but the thing did not happen. Deleted, not posted — and
+     * undoable, because NFR-USE-03 says every destructive action is, and this
+     * one cannot be recovered by waiting: the rule has already moved past that
+     * due date and will not generate it again.
+     */
+    fun dismissExpense(id: Long) {
+        viewModelScope.launch {
+            val row = withContext(io) { recurring.dismissExpense(id) } ?: return@launch
+            _state.update { it.copy(lastDismissed = DismissedEntry.Expense(row)) }
+        }
+    }
+
+    fun dismissIncome(id: Long) {
+        viewModelScope.launch {
+            val row = withContext(io) { recurring.dismissIncome(id) } ?: return@launch
+            _state.update { it.copy(lastDismissed = DismissedEntry.Income(row)) }
+        }
+    }
+
+    fun undoDismiss() {
+        val dismissed = _state.value.lastDismissed ?: return
+        viewModelScope.launch {
+            withContext(io) {
+                when (dismissed) {
+                    is DismissedEntry.Expense -> recurring.restoreExpense(dismissed.row)
+                    is DismissedEntry.Income -> recurring.restoreIncome(dismissed.row)
+                }
+            }
+            _state.update { it.copy(lastDismissed = null) }
+        }
+    }
+
+    fun clearDismissed() = _state.update { it.copy(lastDismissed = null) }
 
     // --- filtering (FR-EXP-08) ---------------------------------------------
 
@@ -220,3 +314,10 @@ class LedgerViewModel(
 
 /** The payment methods offered in the filter sheet, plus "any". */
 val FILTERABLE_METHODS: List<PaymentMethod?> = listOf(null) + PaymentMethod.SELECTABLE
+
+/** A dismissed pending row, held only while its undo snackbar is up. */
+sealed interface DismissedEntry {
+    @JvmInline value class Expense(val row: ExpenseEntity) : DismissedEntry
+
+    @JvmInline value class Income(val row: IncomeEntryEntity) : DismissedEntry
+}

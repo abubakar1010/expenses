@@ -141,3 +141,23 @@ enum class RuleTarget(val code: Int) {
             ?: error("unknown rule_target: $code")
     }
 }
+
+/**
+ * What the app follows for light and dark — 04 §7's "theme" setting.
+ *
+ * Stored as a string rather than a code, because unlike every other enum here
+ * this one is a preference rather than a column with a `CHECK`, and a readable
+ * value in `app_meta` is worth more than two bytes.
+ */
+enum class ThemeChoice(val stored: String) {
+    /** The default. A phone already set to dark has answered the question. */
+    SYSTEM("system"),
+    LIGHT("light"),
+    DARK("dark"),
+    ;
+
+    companion object {
+        fun fromStored(value: String?): ThemeChoice =
+            entries.firstOrNull { it.stored == value } ?: SYSTEM
+    }
+}

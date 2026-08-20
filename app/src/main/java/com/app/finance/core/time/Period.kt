@@ -3,6 +3,8 @@ package com.app.finance.core.time
 import java.time.Clock
 import java.time.LocalDate
 import java.time.YearMonth
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * A calendar month, encoded as the integer `YYYYMM` — August 2026 is `202608`.
@@ -86,6 +88,17 @@ value class Period(val ym: Int) : Comparable<Period> {
     }
 
     fun contains(epochDay: Long): Boolean = epochDay in dayRange()
+
+    /**
+     * `August 2026` — what the period switcher shows.
+     *
+     * Takes a [Locale] rather than reading the default, for the same reason
+     * `Money.format` does: the month name is user-facing text, and a composable
+     * that reads the locale non-observably keeps rendering the old language
+     * after a change. Pure `java.time`, so this stays inside `core/`.
+     */
+    fun label(locale: Locale = Locale.getDefault()): String =
+        toYearMonth().format(DateTimeFormatter.ofPattern("LLLL yyyy", locale))
 
     override fun toString(): String = ym.toString()
 

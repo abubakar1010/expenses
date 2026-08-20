@@ -46,6 +46,18 @@ data class BudgetStatus(
             else -> (spent.paisa.toFloat() / limit.paisa.toFloat()).coerceIn(0f, 1f)
         }
 
+    /**
+     * The percentage FR-BUD-05 requires — **not** clamped.
+     *
+     * [fraction] stops at 1f because a bar wider than its track is a rendering
+     * bug; the label has the opposite need. `104%` is the whole point of the
+     * over-budget row, and a clamped label would read `100%` next to a figure
+     * saying `৳280 over`.
+     */
+    val percentConsumed: Int
+        get() = if (limit.paisa <= 0L) 0
+        else ((spent.paisa.toDouble() / limit.paisa.toDouble()) * 100).toInt().coerceAtLeast(0)
+
     /** Zero once the limit is passed; [overspend] carries the excess. */
     val remaining: Money
         get() = if (limit.paisa <= 0L) Money.ZERO else maxOf(limit - spent, Money.ZERO)

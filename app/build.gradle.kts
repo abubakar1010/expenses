@@ -134,6 +134,12 @@ android {
             kotlin.srcDir("src/debug/java")
             // Named explicitly rather than left to convention.
             manifest.srcFile("src/benchmark/AndroidManifest.xml")
+            // The Baseline Profile plugin wires its output into the variants it
+            // manages; this one it does not know about, so it reads the same
+            // generated profile explicitly. Without it the measurement runs
+            // against library rules only — which is exactly the state §20.6
+            // found NFR-PERF-04 in, and the thing being measured.
+            baselineProfiles.srcDir("src/main/generated/baselineProfiles")
             // The manifest is *not* borrowed: `src/benchmark/AndroidManifest.xml`
             // declares the same receiver exported, because a non-debuggable
             // package cannot be reached by `am broadcast` otherwise. The reason

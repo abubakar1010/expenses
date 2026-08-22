@@ -31,6 +31,17 @@ sealed interface BackupMessage {
     data object PassphraseSet : BackupMessage
     data object PassphraseCleared : BackupMessage
     data object NothingToSend : BackupMessage
+
+    /**
+     * The picker returned a folder and the system would not make the grant
+     * persistable.
+     *
+     * Rare, and silent until now: `persist` returned null, the caller's `?.let`
+     * did nothing, and the user watched themselves choose a folder that was not
+     * saved. On the welcome screen it was worse — they were moved on to the
+     * dashboard believing backups were set up.
+     */
+    data object FolderRefused : BackupMessage
 }
 
 enum class PassphraseError { TOO_SHORT, DIFFERS }
@@ -69,7 +80,22 @@ data class BackupUiState(
     val folderLabel: String? = null,
     /** A folder was chosen and cannot be reached — the card is out, or the grant went. */
     val folderMissing: Boolean = false,
-    val busy: Boolean = false,
+    /**
+     * An action started on this screen — back up now, set a passphrase, restore.
+     */
+    val working: Boolean = false,
+
+    /**
+     * FR-DAT-08's launch-time run, which belongs to no screen and can start
+     * before this one opens and finish after it closes.
+     *
+     * Kept apart from [working] rather than folded into one flag, because the
+     * two have different owners and only one of them can be cleared from here.
+     * Folding them cost a real defect: `busy = busy || running` never went back
+     * down, so the first automatic backup left the progress bar up and every
+     * control on the screen disabled until the ViewModel was recreated.
+     */
+    val autoRunning: Boolean = false,
     val message: BackupMessage? = null,
     val passphrase: PassphraseDraft? = null,
     val restore: RestoreDraft? = null,
@@ -77,6 +103,8 @@ data class BackupUiState(
     val newestId: String? = null,
     val newestName: String? = null,
 ) {
+    val busy: Boolean get() = working || autoRunning
+
     val hasFolder: Boolean get() = settings.treeUri != null
 
     private companion object {
@@ -127,7 +155,7 @@ class BackupViewModel(
         viewModelScope.launch {
             // The automatic run belongs to no screen; if one is in flight when
             // this opens, the bar should already be there.
-            backups.running.collect { on -> _state.update { it.copy(busy = it.busy || on) } }
+            backups.running.collect { on -> _state.update { it.copy(autoRunning = on) } }
         }
     }
 
@@ -160,12 +188,12 @@ class BackupViewModel(
     // --- FR-DAT-08 -----------------------------------------------------------
 
     fun backUpNow() {
-        _state.update { it.copy(busy = true, message = null) }
+        _state.update { it.copy(working = true, message = null) }
         viewModelScope.launch {
             val outcome = withContext(io) { backups.runNow() }
             _state.update {
                 it.copy(
-                    busy = false,
+                    working = false,
                     message = when (outcome) {
                         is BackupOutcome.Done -> BackupMessage.Done(outcome.name)
                         is BackupOutcome.Failure -> BackupMessage.Failed(outcome)
@@ -209,12 +237,12 @@ class BackupViewModel(
             return
         }
 
-        _state.update { it.copy(passphrase = null, busy = true, message = null) }
+        _state.update { it.copy(passphrase = null, working = true, message = null) }
         viewModelScope.launch {
             withContext(io) {
                 settings.setBackupSecret(BackupCodec.secretFrom(draft.first.toCharArray()))
             }
-            _state.update { it.copy(busy = false, message = BackupMessage.PassphraseSet) }
+            _state.update { it.copy(working = false, message = BackupMessage.PassphraseSet) }
         }
     }
 
@@ -258,7 +286,7 @@ class BackupViewModel(
 
     fun confirmRestore(mode: ImportMode) {
         val draft = _state.value.restore ?: return
-        _state.update { it.copy(busy = true, message = null) }
+        _state.update { it.copy(working = true, message = null) }
 
         viewModelScope.launch {
             val pass = draft.typed.takeIf { it.isNotEmpty() }?.toCharArray()
@@ -267,18 +295,18 @@ class BackupViewModel(
             _state.update {
                 when (outcome) {
                     is RestoreOutcome.Done ->
-                        it.copy(busy = false, restore = null, message = BackupMessage.Restored(outcome.counts))
+                        it.copy(working = false, restore = null, message = BackupMessage.Restored(outcome.counts))
 
                     is RestoreOutcome.Refused ->
-                        it.copy(busy = false, restore = null, message = BackupMessage.RestoreRefused(outcome.failure))
+                        it.copy(working = false, restore = null, message = BackupMessage.RestoreRefused(outcome.failure))
 
                     // Both keep the sheet open: the user can fix these, and
                     // closing it would make them find the file again.
                     RestoreOutcome.WrongPassphrase ->
-                        it.copy(busy = false, restore = draft.copy(locked = true, wrong = true))
+                        it.copy(working = false, restore = draft.copy(locked = true, wrong = true))
 
                     RestoreOutcome.NeedsPassphrase ->
-                        it.copy(busy = false, restore = draft.copy(locked = true))
+                        it.copy(working = false, restore = draft.copy(locked = true))
                 }
             }
         }
@@ -288,6 +316,9 @@ class BackupViewModel(
 
     /** Nothing to send is a message, not a disabled button with no explanation. */
     fun reportNothingToSend() = _state.update { it.copy(message = BackupMessage.NothingToSend) }
+
+    /** The grant did not stick. Nothing was stored, and the user is told so. */
+    fun reportFolderRefused() = _state.update { it.copy(message = BackupMessage.FolderRefused) }
 
     private suspend fun refreshFolder() {
         val prefs = _state.value.settings

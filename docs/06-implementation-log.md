@@ -3539,13 +3539,192 @@ its title and its button, and the post-restore prompt used a hint string as a
 button label. All three are 05 §9's "a control says what happens" — small, and
 exactly the kind of thing only a screenshot shows.
 
-### 21.9 Test inventory
+### 21.9 The audit, and nine things it found
+
+Everything above had been built, the suite was green at 517, and the feature had
+been driven end to end on a device. Then it was read again, line by line, on the
+assumption that green and working are not the same claim.
+
+Nine defects — seven in the feature, one in a screen's wiring, one in the
+audit's own new test. None of the first eight would have failed a test that
+existed, which is the part worth sitting with: the suite was not wrong, it was
+aimed elsewhere.
+
+#### A: the progress bar never went away
+
+`BackupUiState.busy` was one flag fed by two owners:
+
+```kotlin
+backups.running.collect { on -> _state.update { it.copy(busy = it.busy || on) } }
+```
+
+The screen's own actions clear `busy` when they finish. The launch-time backup
+cannot — it belongs to no screen. So the first automatic backup drove the flag
+up, and `busy || false` left it there: **a permanent progress bar and every
+control on the Backup screen disabled**, until the ViewModel happened to be
+recreated.
+
+The fix is structural rather than careful. `working` and `autoRunning` are
+separate, each cleared by whoever set it, and `busy` is derived:
+
+```kotlin
+val busy: Boolean get() = working || autoRunning
+```
+
+A derived value cannot disagree with what is happening. A stored one can, and
+did.
+
+There was no `BackupViewModelTest` at all, which is why nothing noticed. There
+is now, and the test that pins this needs a gate: a `StateFlow` conflates, so a
+fast backup finishes before any collector observes it running and the assertion
+passes without testing anything. `GatedStore` holds the backup open until the
+test has seen the flag go up.
+
+#### B: a failed backup left the document open
+
+```kotlin
+val sink = store.write(partial.id) ?: throw IOException(...)
+exporter.writeJson(BackupCodec.encode(sink, settings.backupSecret()), at)
+```
+
+`writeJson` closes what it is given, and that closes the chain down to `sink` —
+but only once `encode` has *returned*. Deriving the key or writing the header
+can throw first, and then nothing closes it: a StrictMode
+`detectLeakedClosableObjects` violation, and on some providers a document that
+stays locked until the process dies. `sink.use { }` is the belt; closing twice
+is a no-op on every stream in the chain.
+
+#### C: a backup nobody could find was reported as a success
+
+If `rename` failed, the code shrugged and carried on with the `.part` file:
+
+```kotlin
+val done = store.rename(partial.id, name) ?: partial
+```
+
+The content is written and valid — and invisible. `isBackupName` does not match
+it, so rotation ignores it, `list()` never shows it, and "Send a copy" cannot
+find it. The user is told they have a backup that nothing in the app can reach,
+and the next rotation counts one generation fewer than it thinks. A backup that
+cannot be named is not a backup; it is deleted and retried next launch.
+
+#### D: a failed backup had nothing to diagnose
+
+`catch (e: Exception) { store.delete(...); return WRITE_FAILED }` — the cause
+discarded. This is §18.7 A12 exactly, reintroduced: *"`ImportOutcome.Failure.REJECTED`
+discarded the exception, leaving a failed restore of five years of data with
+nothing to diagnose."* A failed backup is the same shape. Logged now, as
+`Importer` already does.
+
+#### E: the sink stayed open when sealing failed
+
+`FramedGcmOutputStream.close()` sealed the final block and then closed the sink.
+A card pulled during that last write — which is exactly when sealing throws —
+skipped the close. `try`/`finally`, because the file is lost either way and a
+leaked handle on top of it helps nobody.
+
+#### F: a truncated backup was called a stranger
+
+Past the magic number the file is *ours*. A file that ended before its mode byte
+threw `NotABackup`, which reads to the user as "That file isn't a Khata backup"
+— sending somebody holding a truncated backup off to look for a different file.
+It is `CorruptBackup` now, and `NotABackup` is gone: nothing threw it any more,
+and a dead exception class is a trap for whoever catches it next.
+
+While there: a mode byte this build does not recognise is not damage either. It
+is a backup from a **later release**, and FR-DAT-05 already extends exactly that
+courtesy to a newer schema — "update, then import again". `NewerFormat` says so.
+
+#### G: the distinction never reached the user anyway
+
+The one that justified the whole audit. The codec goes to real trouble to tell a
+damaged Khata file from a file that was never one — and then `Importer` threw it
+away, because `Importer` sees a read that failed and reports every one of them as
+`UNREADABLE`. Damage that only shows up part-way through a file — a failed AEAD
+tag, a truncated gzip stream — is thrown *while the import is reading*, so every
+tampered or truncated backup produced "That file isn't a Khata backup."
+
+Six careful error types upstream, flattened at the last step.
+
+`DamageWatch` wraps the decoded stream and remembers the first `IOException` to
+escape it. When the import fails and something escaped, the verdict is the one
+the codec knew: "That backup couldn't be read to the end. Nothing was changed."
+When nothing escaped, the importer's own reason stands — a dangling reference is
+still a dangling reference.
+
+The test that pins this was written first and was itself wrong: it expected
+`REJECTED` from a truncated *unencrypted* backup and got `UNREADABLE`, which is
+how the flattening was found at all.
+
+#### H: choosing a folder could fail silently
+
+```kotlin
+SafBackupStore.persist(context, tree, state.settings.treeUri)?.let(vm::onFolderChosen)
+```
+
+`persist` returns null when the system refuses to make the grant persistable.
+The `?.let` then did nothing at all: the user watched themselves pick a folder,
+watched the screen not change, and had no idea why.
+
+On `WelcomeScreen` it was worse, because `answered()` ran regardless — somebody
+restoring onto a new phone was moved to the dashboard believing their backups
+were set up, when the grant had never stuck. That is the same failure the screen
+exists to prevent, one step further along.
+
+Both say so now, and the welcome screen stays put.
+
+#### I: the new test leaked a live database into the next one
+
+Not a defect in the feature — a defect in the audit's own work, and the most
+instructive of the nine.
+
+`BackupViewModelTest` constructed its ViewModel directly. `BackupViewModel.init`
+launches two collectors over Room flows that live as long as `viewModelScope`
+does, and nothing ever cancelled it — so they woke on a database that
+`fx.close()` had already shut, and threw on a Room executor thread.
+
+The instrumentation attributes that to whichever test runs **next**.
+`CategoryManagerViewModelTest`, four classes later, is what failed: two
+assertions about a category tree that had nothing to do with backup, in a suite
+that passed 16 out of 16 in isolation every time it was asked.
+
+CLAUDE.md warns about exactly this shape, and the other ViewModel suites in this
+project all build through a `ViewModelStore` and clear it. This one now does
+too, in the order that matters: release anything parked, cancel the collectors,
+*then* drain and close.
+
+Worth recording because of how it presented. A green suite went to two failures
+in a file the change never touched, and the honest first hypothesis — "the new
+five-year restore probe is starving the emulator" — was wrong, and was
+disproved by running the probe and the category suite together and watching all
+21 pass.
+
+#### What the shape of these says
+
+Six of the nine are error and lifecycle paths — what happens when the card is
+pulled, the provider refuses, the file is damaged. The happy path was tested
+thoroughly enough to be driven on a device twice. The unhappy ones were reasoned
+about in comments and never executed.
+
+That is not an accident of this feature. It is what a backup subsystem *is*: a
+thing whose entire value is in the paths nobody takes until the day they have
+to.
+
+### 21.10 Test inventory
 
 | Suite | Where | Tests |
 |---|---|---|
-| `BackupCodecTest` | `test/data/export` | 22 |
-| `BackupRepositoryTest` | `androidTest/data/repo` | 26 |
+| `BackupCodecTest` | `test/data/export` | 24 |
+| `BackupRepositoryTest` | `androidTest/data/repo` | 29 |
 | `BackupRoundTripTest` | `androidTest/data/backup` | 5 |
+| `BackupViewModelTest` | `androidTest/ui/feature/backup` | 9 |
+| `ActivityResultContractTest` | `androidTest/ui` | 3 |
+| `PerformanceProbeTest` | `androidTest` | +1 (NFR-PERF-10) |
+
+The last two did not exist until §21.9, and their absence is most of why that
+section is as long as it is. A screen with no suite hid a stuck progress bar
+through two full green runs and a device walkthrough; a picker with no guard hid
+a crash in shipped code through an entire milestone.
 
 `BackupRoundTripTest` is the exit criterion and is not `ExportImportRoundTripTest`
 through a different door. Two things differ, and both have been real defects:
@@ -3565,7 +3744,7 @@ Both halves of FR-DAT-04's acceptance are asserted: row counts and checksums,
 and every rendered `DashboardViewModel` / `IncomeViewModel` figure, because the
 rollups are rebuilt from the ledger rather than carried in the file.
 
-### 21.10 Measured
+### 21.11 Measured
 
 | | target | before (§20.9) | after |
 |---|---|---|---|
@@ -3594,7 +3773,7 @@ NFR-SEC-01 structural), and a `ContentProvider` would sit on the cold-start path
 recorded that it had not been since the M2 pass and that nothing should be
 assumed about its green-ness. 517 tests in one invocation, zero failures.
 
-### 21.11 Still not done
+### 21.12 Still not done
 
 - **NFR-PERF-10 is unmeasured on the reference device.** The 10 s restore budget
   is new and there was no import budget at all before it — only NFR-PERF-07 for
@@ -3632,12 +3811,13 @@ assumed about its green-ness. 517 tests in one invocation, zero failures.
   `rotation_keeps_the_newest_and_deletes_the_rest` and
   `an_unreachable_folder_reports_and_keeps_the_setting` cover all three against
   a fake folder, and the fake is not a provider.
-- **No test presses a document picker.** §21.7 is the reason this matters:
-  every launcher in the app was throwing and four suites each had a good reason
-  not to notice. `ActivityResultRegistry` cannot be driven to the system picker
-  from an instrumented test without UI Automator against a provider that varies
-  by ROM — but "launching throws nothing" is narrower, assertable, and is what
-  would have caught it.
+- **No test presses a document picker, and one now guards the reason it broke.**
+  `ActivityResultRegistry` still cannot be driven to the system picker without UI
+  Automator against a provider that varies by ROM. What `ActivityResultContractTest`
+  asserts instead is exactly what failed: that nothing between `MainActivity` and
+  `Activity` declares `checkForValidRequestCode`, and that the folder intent still
+  asks for a grant that outlives the process. A dependency bump that undoes §21.7
+  fails there rather than on somebody's phone. The end-to-end tap remains manual.
 - **Cloud backup remains P2.** `04 §11` still records what it would cost, and
   the estimate is smaller than it was: the artifact now exists, is compressed,
   is optionally encrypted, and is already written on a schedule. What is missing

@@ -28,6 +28,8 @@ import java.io.OutputStream
 class FakeBackupStore(
     var reachable: Boolean = true,
     var refuseCreate: Boolean = false,
+    /** A provider that took the file and would not give it its final name. */
+    var refuseRename: Boolean = false,
     /** Bytes to accept before throwing. Null means never fail. */
     var failWriteAfter: Int? = null,
 ) : BackupStore {
@@ -94,7 +96,7 @@ class FakeBackupStore(
 
     override suspend fun rename(id: String, name: String): BackupFile? {
         val entry = entries[id] ?: return null
-        if (!reachable) return null
+        if (!reachable || refuseRename) return null
         entry.name = unique(name)
         return describe(id)
     }

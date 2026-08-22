@@ -9,6 +9,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 import kotlin.random.Random
 
 /**
@@ -202,10 +203,68 @@ class BackupCodecTest {
     }
 
     @Test
-    fun `an unknown mode byte is refused`() {
+    fun `an unknown mode is reported as a newer format, not as damage`() {
+        // The magic matched, so this file *is* ours -- it was simply written by
+        // a release that knows a container this one does not. FR-DAT-05 already
+        // says "update, then import again" for a newer schema, and telling
+        // somebody their perfectly good backup is broken would be both wrong and
+        // unactionable.
         val file = encode(JSON.toByteArray(), null)
-        val tampered = file.copyOf().also { it[BackupCodec.MAGIC.size] = 9 }
-        assertThrows(BackupCodec.CorruptBackup::class.java) { decode(tampered, null) }
+        val newer = file.copyOf().also { it[BackupCodec.MAGIC.size] = 9 }
+        assertThrows(BackupCodec.NewerFormat::class.java) { decode(newer, null) }
+    }
+
+    @Test
+    fun `a file cut off after the magic is damage, not a stranger`() {
+        // Past the magic the file is ours, and saying "this isn't a Khata
+        // backup" would send somebody holding a truncated one off to find a
+        // different file. Both branches below are past that point.
+        val file = encode(JSON.toByteArray(), pass)
+        assertThrows(BackupCodec.CorruptBackup::class.java) {
+            decode(file.copyOf(BackupCodec.MAGIC.size), pass)
+        }
+        assertThrows(BackupCodec.CorruptBackup::class.java) {
+            decode(file.copyOf(BackupCodec.MAGIC.size + 1), pass)
+        }
+    }
+
+    @Test
+    fun `the sink is closed even when sealing the last block fails`() {
+        // A card pulled during the *final* write is exactly when `seal` throws,
+        // and it is the worst moment to also leak the handle: StrictMode's
+        // detectLeakedClosableObjects fires, and some providers keep the
+        // document locked until the process dies.
+        //
+        // The failure is armed after `encode` has written its header and after
+        // the payload has been buffered, so the only thing left to fail is the
+        // last block -- which is written by `close` itself. A throw during an
+        // ordinary `write` leaves the whole chain open and is the caller's to
+        // handle; `BackupRepository` wraps the sink in `use` for that.
+        var closed = false
+        var armed = false
+        val sink = object : ByteArrayOutputStream() {
+            override fun write(b: Int) {
+                if (armed) throw IOException("the card was pulled")
+                super.write(b)
+            }
+
+            override fun write(b: ByteArray, off: Int, len: Int) {
+                if (armed) throw IOException("the card was pulled")
+                super.write(b, off, len)
+            }
+
+            override fun close() {
+                closed = true
+                super.close()
+            }
+        }
+
+        val out = BackupCodec.encode(sink, BackupCodec.secretFrom(pass))
+        out.write(JSON.toByteArray())
+        armed = true
+
+        assertThrows(IOException::class.java) { out.close() }
+        assertTrue("the sink was left open after a failed close", closed)
     }
 
     // --- names ----------------------------------------------------------------

@@ -168,9 +168,6 @@ class SafBackupStore(
     companion object {
         private const val TAG = "Khata"
 
-        /** What a backup file is written as. */
-        const val MIME = "application/octet-stream"
-
         private val EMPTY = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
 
         private val PROJECTION = arrayOf(

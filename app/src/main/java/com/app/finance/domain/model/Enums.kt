@@ -161,3 +161,31 @@ enum class ThemeChoice(val stored: String) {
             entries.firstOrNull { it.stored == value } ?: SYSTEM
     }
 }
+
+
+/**
+ * How often the automatic backup runs — FR-DAT-08.
+ *
+ * [OFF] is the default and is not a disabled state to be styled away: until the
+ * user has nominated a folder there is nowhere to write, and an app that
+ * silently started copying a financial ledger somewhere would be the exact
+ * surprise NFR-SEC-01 exists to prevent.
+ *
+ * The interval is a floor, not a promise. A backup is taken on launch, so a
+ * phone left in a drawer for a week is backed up when it is next opened and not
+ * before — see `BackupRepository`, and the limits recorded in
+ * `06-implementation-log.md` §21.
+ */
+enum class BackupInterval(val stored: String, val days: Int) {
+    OFF("off", 0),
+    DAILY("daily", 1),
+    WEEKLY("weekly", 7),
+    ;
+
+    val isOn: Boolean get() = this != OFF
+
+    companion object {
+        fun fromStored(value: String?): BackupInterval =
+            entries.firstOrNull { it.stored == value } ?: OFF
+    }
+}

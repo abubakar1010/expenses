@@ -124,6 +124,34 @@ class BackupCodecTest {
         assertThrows(BackupCodec.WrongPassphrase::class.java) { decode(patched, pass) }
     }
 
+    @Test
+    fun `a key kept from an earlier derivation opens the same as the passphrase`() {
+        // FR-DAT-08 runs with nobody there to type anything, so a backup is
+        // sealed with a key derived once and stored. What matters is that the
+        // passphrase still opens the result on a phone that never held the key —
+        // otherwise a stored key would be a backup only this device can read,
+        // which is the opposite of the point.
+        val derived = BackupCodec.secretFrom(pass)
+        val kept = BackupCodec.secretFrom(derived.keyBytes, derived.saltBytes, derived.rounds)
+
+        val out = ByteArrayOutputStream()
+        BackupCodec.encode(out, kept).use { it.write(JSON.toByteArray()) }
+
+        assertArrayEquals(JSON.toByteArray(), decode(out.toByteArray(), pass))
+    }
+
+    @Test
+    fun `two backups under one key are different ciphertexts`() {
+        // The key is reused across backups by design; the per-file nonce is what
+        // keeps GCM safe about it. Identical files would mean a repeated IV.
+        val secret = BackupCodec.secretFrom(pass)
+        val first = ByteArrayOutputStream().also { o -> BackupCodec.encode(o, secret).use { it.write(JSON.toByteArray()) } }
+        val second = ByteArrayOutputStream().also { o -> BackupCodec.encode(o, secret).use { it.write(JSON.toByteArray()) } }
+
+        assertFalse(first.toByteArray().contentEquals(second.toByteArray()))
+        assertArrayEquals(JSON.toByteArray(), decode(second.toByteArray(), pass))
+    }
+
     // --- tampering ------------------------------------------------------------
 
     @Test
@@ -204,7 +232,8 @@ class BackupCodecTest {
 
     private fun encode(payload: ByteArray, passphrase: CharArray?): ByteArray {
         val out = ByteArrayOutputStream()
-        BackupCodec.encode(out, passphrase).use { it.write(payload) }
+        val secret = passphrase?.takeIf { it.isNotEmpty() }?.let(BackupCodec::secretFrom)
+        BackupCodec.encode(out, secret).use { it.write(payload) }
         return out.toByteArray()
     }
 

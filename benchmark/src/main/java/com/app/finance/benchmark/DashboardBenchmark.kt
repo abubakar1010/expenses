@@ -1,7 +1,9 @@
 package com.app.finance.benchmark
 
 import androidx.benchmark.macro.CompilationMode
+import androidx.benchmark.macro.ExperimentalMetricApi
 import androidx.benchmark.macro.FrameTimingMetric
+import androidx.benchmark.macro.FrameTimingGfxInfoMetric
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
@@ -77,11 +79,19 @@ class DashboardBenchmark {
         device.wait(Until.hasObject(By.textContains("SAFE TO SPEND")), 5_000)
     }
 
-    /** NFR-PERF-06 — "period switch on dashboard ≤ 150 ms". */
+    /**
+     * NFR-PERF-06 — "period switch on dashboard ≤ 150 ms".
+     *
+     * `FrameTimingGfxInfoMetric` alongside the frame timeline, for the reason
+     * `StartupBenchmark.ledgerScroll` gives: on this device the timeline metric
+     * yields a frame *count* and no durations, and a count cannot answer a
+     * question posed in milliseconds.
+     */
+    @OptIn(ExperimentalMetricApi::class)
     @Test
     fun dashboardPeriodSwitch() = rule.measureRepeated(
         packageName = TARGET_PACKAGE,
-        metrics = listOf(FrameTimingMetric()),
+        metrics = listOf(FrameTimingMetric(), FrameTimingGfxInfoMetric()),
         compilationMode = CompilationMode.Partial(),
         iterations = ITERATIONS,
         startupMode = StartupMode.WARM,

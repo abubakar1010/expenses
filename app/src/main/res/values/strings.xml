@@ -401,6 +401,14 @@
     <string name="welcome_restore">Restore from a backup</string>
     <string name="welcome_fresh">Start fresh</string>
     <string name="welcome_restored">Restored %1$d records</string>
+    <!-- The step after a restore. The file carried the schedule but could not
+         carry the folder grant, so the ledger is back and nothing is backing it
+         up — and the dashboard would look entirely healthy. Not a nag under 05
+         section 12: somebody who has just restored from a backup has said as
+         clearly as anyone can that they want one. -->
+    <string name="welcome_protect_title">Your ledger is back</string>
+    <string name="welcome_protect_body">Nothing is backing it up yet. Choose a folder and Khata keeps copies there from now on.</string>
+    <string name="welcome_later">Not now</string>
 
     <string name="settings_maintenance">Maintenance</string>
     <string name="rebuild_aggregates">Rebuild the totals</string>

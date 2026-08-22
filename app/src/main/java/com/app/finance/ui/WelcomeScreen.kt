@@ -24,6 +24,9 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +35,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.app.finance.R
+import com.app.finance.data.backup.SafBackupStore
 import com.app.finance.data.export.BackupCodec
 import com.app.finance.data.export.ImportMode
 import com.app.finance.di.AppContainer
@@ -100,8 +104,31 @@ fun WelcomeScreen(container: AppContainer) {
     // that failed leaves the offer standing. Being dropped into an empty ledger
     // because the first attempt used the wrong passphrase would be the worst
     // possible moment to hide this screen.
+    //
+    // A restore that worked does not finish here, though. The file carried the
+    // user's schedule -- `backup_interval` travels -- but it could not carry the
+    // folder grant, because that names a permission *this* phone does not hold
+    // (`AppMetaDao.TRANSIENT_KEYS`). So the ledger is back and nothing is
+    // backing it up, and the only person who could notice has just been shown a
+    // dashboard that looks entirely healthy. Asking for a folder here is not a
+    // nag under 05 §12: somebody who has this second restored from a backup has
+    // said as clearly as anyone can that they want one.
+    var restoredUnprotected by remember { mutableStateOf(false) }
+
     LaunchedEffect(state.message) {
-        if (state.message is BackupMessage.Restored) answered()
+        if (state.message is BackupMessage.Restored) {
+            if (state.settings.treeUri == null) restoredUnprotected = true else answered()
+        }
+    }
+
+    val folderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult(),
+    ) { result ->
+        val tree = result.data?.data
+        if (result.resultCode == Activity.RESULT_OK && tree != null) {
+            SafBackupStore.persist(context, tree, null)?.let(vm::onFolderChosen)
+            answered()
+        }
     }
 
     Column(
@@ -112,12 +139,16 @@ fun WelcomeScreen(container: AppContainer) {
         verticalArrangement = Arrangement.spacedBy(Space.s3, Alignment.CenterVertically),
     ) {
         Text(
-            text = stringResource(R.string.welcome_title),
+            text = stringResource(
+                if (restoredUnprotected) R.string.welcome_protect_title else R.string.welcome_title,
+            ),
             style = KhataTheme.type.screenTitle,
             color = colors.ink,
         )
         Text(
-            text = stringResource(R.string.welcome_body),
+            text = stringResource(
+                if (restoredUnprotected) R.string.welcome_protect_body else R.string.welcome_body,
+            ),
             style = KhataTheme.type.body,
             color = colors.inkSoft,
         )
@@ -133,7 +164,8 @@ fun WelcomeScreen(container: AppContainer) {
         Button(
             onClick = {
                 lock.suppressNextBackground()
-                fileLauncher.launch(openBackup())
+                if (restoredUnprotected) folderLauncher.launch(SafBackupStore.pickFolder())
+                else fileLauncher.launch(openBackup())
             },
             enabled = !state.busy,
             shape = RoundedCornerShape(Radius.input),
@@ -145,7 +177,12 @@ fun WelcomeScreen(container: AppContainer) {
             ),
             modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
         ) {
-            Text(stringResource(R.string.welcome_restore), style = KhataTheme.type.body)
+            Text(
+                text = stringResource(
+                    if (restoredUnprotected) R.string.backup_folder_pick else R.string.welcome_restore,
+                ),
+                style = KhataTheme.type.body,
+            )
         }
 
         TextButton(
@@ -153,7 +190,12 @@ fun WelcomeScreen(container: AppContainer) {
             enabled = !state.busy,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            Text(stringResource(R.string.welcome_fresh), color = colors.inkSoft)
+            Text(
+                text = stringResource(
+                    if (restoredUnprotected) R.string.welcome_later else R.string.welcome_fresh,
+                ),
+                color = colors.inkSoft,
+            )
         }
     }
 

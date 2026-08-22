@@ -103,6 +103,32 @@ Not by Budget, Income, or Dashboard. It is `rememberSaveable` for process death 
 
 Quick Add is sheet state (a `Long`: closed / new / expense id), not a route, so back doesn't unwind twice.
 
+### Backup is a wrapper, not a second format
+
+`data/export/BackupCodec.kt` wraps the JSON `Exporter` already writes — magic
+number, gzip, optional AES-256-GCM — and `decode` hands `Importer` the same
+plain JSON it has always read. **Do not teach `Importer` about the container**;
+that separation is what keeps `ImportValidationTest` meaningful.
+
+- The GCM ciphertext is **framed**, and must stay framed. `CipherInputStream`
+  swallows `AEADBadTagException` at end of stream on several Android versions, so
+  a tampered backup would decode partially. Each block goes through `doFinal`,
+  and a last-block marker in the AAD is what makes truncation at a block boundary
+  detectable.
+- The encryption key is **derived once and stored** in `app_meta`. A launch-time
+  backup has nobody to type a passphrase, and 210,000 PBKDF2 rounds do not fit an
+  800 ms cold start. Storing it costs nothing that NFR-SEC-05 has not already
+  spent — the database beside it is plaintext.
+- `AppMetaDao.TRANSIENT_KEYS` must not travel in a backup. The folder grant names
+  a permission a restored phone does not hold, and the key would ride inside the
+  files it protects.
+- `BackupRepository` takes a `(String) -> BackupStore` lambda, not a `Context`.
+  That is what lets rotation and scheduling be tested against `FakeBackupStore`;
+  a document tree cannot be granted without a human tapping a picker.
+- The automatic run lives in `MainActivity`'s existing `LaunchedEffect`, beside
+  `recurringRepo.evaluate()`. **Do not move it to WorkManager** — 04 §6 and
+  NFR-COMP-05, reasoned out in the comment already there.
+
 ### Archive, don't delete
 
 Every foreign key is `ON DELETE RESTRICT`, and `CategoryRepository` has no delete method at all — deleting a category silently rewrites history. The single delete in the app is on income sources with zero entries (FR-IS-06), guarded by a count above and the FK below.
@@ -112,7 +138,7 @@ Every foreign key is `ON DELETE RESTRICT`, and `CategoryRepository` has no delet
 - Repositories are tested against **real in-memory SQLite with the canonical schema**, never mocks — the behaviour that matters (triggers, `CHECK` constraints, cross-period re-filing) lives in the database.
 - `TestFixture` (androidTest) builds that database, the real repositories, a pinned `Clock` (2026-08-14), and a real `AppContainer`. Use `closeAfterDraining()` for tests that run ViewModels — closing the pool under an in-flight Room query throws on an executor thread and gets attributed to whatever test runs *next*.
 - Each milestone's exit criterion is a reconciliation test asserting every rendered figure equals a direct `SUM(amount_minor)` over the ledger — never the rollup read a second way (`BudgetReconciliationTest`, `IncomeReconciliationTest`, `ExportImportRoundTripTest`).
-- Known gap: the instrumented suite has not been fully executed since the M2 pass. Assume nothing about its green-ness; see `06-implementation-log.md` §18.11.
+- The instrumented suite was run in full on 22 August 2026 — 517 tests, zero failures, API 35 emulator (`06-implementation-log.md` §21.8). It had not been since M2 before that.
 
 ## Build config notes that look arbitrary
 
@@ -121,5 +147,5 @@ Every foreign key is `ON DELETE RESTRICT`, and `CategoryRepository` has no delet
 - `benchmark = "1.5.0-rc01"`, not 1.4.1 stable — 1.4.1 rejects AGP 9 application modules.
 - The `benchmark` build type exists because Macrobenchmark needs a non-debuggable build *and* the seeder; neither `debug` nor `release` is both. Its `applicationIdSuffix` is `.bench`, not `.benchmark`, to avoid colliding with the `:benchmark` module's own namespace.
 - `app/build.gradle.kts` must have no top-level `val`s — `lintVital` analyses Gradle scripts and script-level properties crash it.
-- The app declares **no permissions at all**, INTERNET included; verify against the *merged release* manifest, not the source one.
+- The app declares **no permission in any source manifest**, and `INTERNET` must never appear in the merged one — CI greps for it (FR-APP-01). The merged release manifest does carry three library-contributed permissions: `USE_BIOMETRIC` and `USE_FINGERPRINT` from `androidx.biometric`, and androidx.core's signature-level `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`. None reaches a network. Verify against the *merged release* manifest, not the source one. SAF needs no permission, which is why every file path in the app goes through it.
 - Locale filter is `en` only. `bn` stays absent until `values-bn/` exists.

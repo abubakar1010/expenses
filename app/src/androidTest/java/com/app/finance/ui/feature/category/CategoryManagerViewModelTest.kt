@@ -194,8 +194,19 @@ class CategoryManagerViewModelTest {
         vm.addChild(vm.state.value.root("Variable Expenses"))
         typeAndSubmit(vm, "Misc")
 
-        val after = vm.state.awaitState { it.root("Variable Expenses").children.any { c -> c.name == "Misc" } }
-        assertNull("no error was raised", after.editor)
+        // Two independent updates land here: the tree arrives on a Room flow and
+        // the editor closes in the save coroutine, so a state that has one need
+        // not yet have the other. Waiting only for the tree observed the editor
+        // still open and failed — under JaCoCo's slower timing, which changed
+        // nothing about the behaviour and only widened the window.
+        //
+        // The predicate settles on *either* outcome so a real failure is still
+        // reported as one rather than as a timeout.
+        val after = vm.state.awaitState { s ->
+            s.editor?.error != null ||
+                (s.editor == null && s.root("Variable Expenses").children.any { c -> c.name == "Misc" })
+        }
+        assertNull("the save raised ${after.editor?.error}", after.editor)
         assertEquals(2, after.tree.sumOf { r -> r.children.count { it.name == "Misc" } })
     }
 

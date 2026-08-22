@@ -176,9 +176,19 @@ class BackupViewModelTest {
         vm.onPassphraseRepeated("cholish taka")
         vm.savePassphrase()
 
-        vm.state.awaitState(timeoutMillis = 30_000) { it.settings.encrypted }
-        assertNull("the sheet should close", vm.state.value.passphrase)
-        assertEquals(BackupMessage.PassphraseSet, vm.state.value.message)
+        // `settings.encrypted` arrives on a Room flow and the message is set by
+        // the save coroutine — two independent updates, so a state that has one
+        // need not yet have the other. Waiting for only the first is the same
+        // race §21.9 J describes, and this test had it too: it failed under
+        // JaCoCo and passed everywhere else. Settles on either outcome so a
+        // rejected passphrase is still reported as one.
+        val after = vm.state.awaitState(timeoutMillis = 30_000) { s ->
+            s.passphrase?.error != null ||
+                (s.settings.encrypted && s.passphrase == null && s.message != null)
+        }
+        assertNull("validation rejected it: ${after.passphrase?.error}", after.passphrase)
+        assertEquals(BackupMessage.PassphraseSet, after.message)
+        assertTrue("the key was not stored", after.settings.encrypted)
     }
 
     @Test

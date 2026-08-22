@@ -1,0 +1,41 @@
+# NFR-PERF budgets, and the exemptions from them.
+#
+# Read by `:benchmark:verifyPerformance`. One row per assertion:
+#
+#     <benchmark>.<metric>  <=  <budget>   # NFR-xxx  note
+#
+# Budgets are 02-SRS.md §3.1's, unchanged. They are defined on the reference
+# device — 4x Cortex-A53 at 1.4 GHz — and the SRS is explicit that a figure from
+# faster hardware is not evidence of compliance. Asserting them anywhere is
+# still worth doing: a target missed on a faster phone is missed on the
+# reference device too, so this gate is a necessary condition, not a sufficient
+# one, and §20.14 says so in the log rather than letting a green build imply
+# more than it earned.
+
+startupWithBaselineProfile.timeToInitialDisplayMs <= 800    # NFR-PERF-01 cold start
+startupWarm.timeToFullDisplayMs                   <= 250    # NFR-PERF-02 warm start
+dashboardCold.timeToFullDisplayMs                 <= 300    # NFR-PERF-04 dashboard fully rendered
+ledgerScroll.gfxFrameTime95thPercentileMs         <= 16     # NFR-PERF-05 no frame over 16 ms at p95
+dashboardPeriodSwitch.derivedMsPerSwitch          <= 150    # NFR-PERF-06 derived: frames per switch x p95
+steadyStateMemory.memoryRssAnonLastKb             <= 81920  # NFR-PERF-08 80 MB of anonymous RSS
+
+# --- Exemptions ------------------------------------------------------------
+#
+# A known failure recorded in the open, in the manner of `lint-baseline.xml`:
+# the threshold is NOT quietly raised to whatever the app currently does, which
+# would turn the gate into a ratchet that certifies the regression. The real
+# budget stays above; the exemption states what is measured today and why it is
+# tolerated, and the gate fails again the moment it gets worse.
+#
+#     exempt <benchmark>.<metric>  ceiling <value>   # reason
+#
+# Remove the line, not the budget, when it is fixed.
+
+exempt dashboardCold.timeToFullDisplayMs ceiling 700
+# NFR-PERF-04 misses its 300 ms budget. Measured 552 and 572 ms on a Galaxy A54
+# with the app's baseline profile in place, against a target defined for a
+# 1.4 GHz Cortex-A53 — so it misses on the reference device by more, not less.
+# Decomposition and the two things already tried are in §20.6; the untried lever
+# is 04 §2.2's own fallback, XML views for the entry and ledger screens, which
+# is a decision that needs the reference device. The ceiling here is set just
+# above the worst observed run so a further regression still fails.

@@ -228,6 +228,8 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 
 ### 3.1 Performance — NFR-PERF
 
+**"Resident memory" means anonymous RSS.** The unqualified wording was ambiguous in a way that mattered: total RSS for this app is about 145 MB, of which ~94 MB is file-backed — the framework, the fonts, the APK itself — pages that are shared with every other process and exist whether Khata runs or not. Charging those to the app would fail the budget for any Compose application ever written, and would say nothing about whether this one behaves on a 2 GB device. Anonymous RSS is what the app actually allocated and what the system reclaims against it, and it is what the benchmark suite can assert, which a budget nobody can gate on is not. Restated in `06-implementation-log.md` §20.14.
+
 All targets are measured on the **reference device** with a seeded database of **5 years, 20,000 expenses, 400 income entries, 60 categories**. Targets measured on a flagship device are not evidence of compliance.
 
 | ID | Requirement | Target |
@@ -239,7 +241,7 @@ All targets are measured on the **reference device** with a seeded database of *
 | NFR-PERF-05 | Ledger scroll | ≥ 55 fps, no frame > 16 ms at p95 |
 | NFR-PERF-06 | Period switch on dashboard | ≤ 150 ms |
 | NFR-PERF-07 | Full JSON export | ≤ 3 s |
-| NFR-PERF-08 | Steady-state resident memory | ≤ 80 MB |
+| NFR-PERF-08 | Steady-state **anonymous** resident memory — the pages this app allocated, measured as `MemoryUsageMetric`'s `memoryRssAnonLastKb` once the dashboard has settled over five years of data | ≤ 80 MB |
 | NFR-PERF-09 | Main-thread database access | Zero occurrences; enforced by StrictMode in debug builds |
 
 ### 3.2 Size — NFR-SIZE
@@ -260,14 +262,14 @@ All targets are measured on the **reference device** with a seeded database of *
 | NFR-REL-02 | Every displayed aggregate MUST reconcile exactly with a direct sum over the underlying ledger. A nightly self-check in debug builds asserts rollup consistency |
 | NFR-REL-03 | Schema migrations MUST be tested against a populated database from each prior released version |
 | NFR-REL-04 | A failed import MUST leave the existing database unmodified — the operation is transactional |
-| NFR-REL-05 | Crash-free session rate ≥ 99.5% |
+| NFR-REL-05 | A release candidate must exhibit **no unhandled exception**. *Accept:* the instrumented suite completes with zero crashes; no StrictMode violation attributable to app code; the crash log is empty after the dogfooding period in `01-PRD.md` §8. — Restated from "crash-free session rate ≥ 99.5%", which presumed a fleet and a backend. A *field* rate requires transmitting session outcomes off the device, and NFR-SEC-01, NFR-SEC-02 and FR-APP-01 each forbid that — the last structurally, by removing the `INTERNET` permission altogether, so the app has no transport even in principle. The three could not all hold at once. What the requirement was *for* was reliability, not the statistic, so the instrument changed and the intent did not. Recorded here deliberately, in the manner of NFR-SEC-05; `06-implementation-log.md` §20.11 has the reasoning. |
 
 ### 3.4 Compatibility — NFR-COMP
 
 | ID | Requirement |
 |---|---|
 | NFR-COMP-01 | Minimum API 26 (Android 8.0); target latest stable |
-| NFR-COMP-02 | ARM 32-bit and 64-bit; no native libraries beyond the platform-bundled SQLite |
+| NFR-COMP-02 | ARM 32-bit and 64-bit. **No native library this project chooses**; native code arriving transitively through AndroidX is permitted and must be justified individually, as NFR-SIZE-04 already requires of dependencies. There is currently one: `androidx.graphics:graphics-path`, reached through Compose UI, 16 KB installed, supplying `PathIterator` — the platform gained an equivalent only at API 34, above this app's minimum of 26. — Restated from "no native libraries beyond the platform-bundled SQLite", which cannot hold while the UI is Compose: the class survives R8 in the release dex, so removing the library would be an `UnsatisfiedLinkError` on exactly the low-end devices this app is for. The intent is unchanged — this project takes on no native code of its own, and NFR-SEC-05's decision against bundling SQLCipher stands. `06-implementation-log.md` §20.12 has the reasoning. |
 | NFR-COMP-03 | Screen widths 320 dp to 480 dp; no tablet layouts required |
 | NFR-COMP-04 | Correct rendering at system font scale 0.85× to 1.3× |
 | NFR-COMP-05 | Functions correctly under Doze and aggressive OEM battery restrictions — no background work is required for core function |

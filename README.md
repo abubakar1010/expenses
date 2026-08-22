@@ -10,20 +10,30 @@ Three budgets drive every decision:
 
 | Budget | Target | Current |
 |---|---|---|
-| APK size (NFR-SIZE-01) | ≤ 6 MB | **1.66 MB** |
-| Dex methods (NFR-SIZE-03) | ≤ 40,000, single dex | **18,870** |
-| Line coverage, calculation layer (NFR-MAIN-02) | ≥ 80% | **84.7%** |
-| Cold start (NFR-PERF-01) | ≤ 800 ms on a Cortex-A53 | not yet measured — needs the reference device |
+| APK size (NFR-SIZE-01) | ≤ 6 MB | **2.12 MB** |
+| Installed footprint (NFR-SIZE-02) | ≤ 20 MB | **5.58 MB** |
+| Database at 5 years (NFR-SIZE-05) | ≤ 6 MB | **5.41 MB** |
+| Dex methods (NFR-SIZE-03) | ≤ 40,000, single dex | **22,261 in one dex** |
+| Line coverage, calculation **and repository** layers (NFR-MAIN-02) | ≥ 80% | **94.2%** |
+| Cold start (NFR-PERF-01) | ≤ 800 ms on a Cortex-A53 | **314 ms** on a Galaxy A54 — not the reference device |
 
-The app declares **no permissions at all**, INTERNET included. That is verified
-against the merged release manifest, not the source one.
+**The app declares no `INTERNET` permission** (FR-APP-01), verified against the
+merged release manifest rather than the source one.
+
+It is no longer true that it declares *no permissions at all*, and that changed
+in §20.3: FR-APP-04's app lock is `androidx.biometric`, which contributes
+`USE_BIOMETRIC` and `USE_FINGERPRINT` to the merged manifest. Both are
+normal-protection and neither reaches the network, but the count went from zero
+to two and the claim had to go with it. The gate that matters — no `INTERNET`,
+so the offline guarantee is structural rather than promised — is unchanged.
 
 ## State
 
-**All five milestones in `01-PRD.md` §8 are complete** — M1 (*schema, expense
-quick-add, ledger*), M2 (*category tree, budgets, alerts*), M3 (*income
-module*), M4 (*dashboard analytics*) and M5 (*export/import, recurring,
-polish*).
+**All five milestones in `01-PRD.md` §8 are complete**, and so is everything
+that was deferred behind them — M1 (*schema, expense quick-add, ledger*), M2
+(*category tree, budgets, alerts*), M3 (*income module*), M4 (*dashboard
+analytics*) and M5 (*export/import, recurring, polish*), plus the five items
+that had been carried as deferred since M2 (§20).
 
 | Area | State |
 |---|---|
@@ -41,66 +51,46 @@ polish*).
 | **Income** — year-first view, 12-month trend, per-source breakdown, stable coverage | done (M3) |
 | **Income sources** — create, rename, set kind, archive, delete when unused | done (M3) |
 | **Dashboard** — safe-to-spend, month ribbon, net strip, alerts, burn rate, deltas, spend mix, top 5, six-month trend | done (M4) |
-| Category reorder (FR-CAT-11) and source reorder (FR-IS-07) — the two `SHOULD`s | deferred to P1 |
 | **Settings** — export, import, rebuild totals, theme, delete all data | done (M5) |
 | **Repeating entries** — rules, launch evaluation, one-tap confirm on the ledger | done (M5) |
 | **Export / import** — JSON, CSV archive, replace or merge, transactional | done (M5) |
-| Reports screen (04 §7's inventory; no `FR-*` requires it, PRD §7 lists it at no tier) | deferred |
+| **Category reorder** (FR-CAT-11) and **source reorder** (FR-IS-07) | done (§20.2) |
+| **Hide from screenshots** — `FLAG_SECURE`, optional (NFR-SEC-04) | done (§20.3) |
+| **App lock** — the device's own PIN or biometric, no secret stored (FR-APP-04) | done (§20.3) |
+| **Reports** — custom date range, fixed/variable split, top expenses (04 §7) | done (§20.4) |
+| Bengali (`values-bn`) | not attempted — see below |
 
-**239 JVM tests + 447 instrumented tests.** Each milestone's exit criterion is
-a reconciliation test that asserts every figure a screen renders equals a direct
-`SUM(amount_minor)` over the ledger itself — never the rollup read a second way.
-`BudgetReconciliationTest` for M2 (*"budgets reconcile against ledger"*) and
-`IncomeReconciliationTest` for M3 (*"yearly totals match manual calculation"*),
-across refunds, re-filed entries, deletions, pending rows, archived categories
-and sources, and a full rollup rebuild. See `docs/06-implementation-log.md`
-§12 and §14.
+**239 JVM tests + 485 instrumented tests, all green on a device.** Each
+milestone's exit criterion is a reconciliation test that asserts every figure a
+screen renders equals a direct `SUM(amount_minor)` over the ledger itself —
+never the rollup read a second way. `BudgetReconciliationTest` for M2,
+`IncomeReconciliationTest` for M3, `ExportImportRoundTripTest` for M5.
 
-Every milestone is then re-audited against `01`–`05` requirement by
+Every milestone was then re-audited against `01`–`05` requirement by
 requirement — M1 and M2 gave up six defects (§13), M3 twelve (§15), M4 and M5
 twelve more (§18) — and then the application was audited **as a whole** (§19),
-which found nine things no per-milestone read could see. The worst of those:
-a theme lookup added at M5 sat above the database check on the launch path, so
-a corrupt database would have crashed the app instead of showing the recovery
-screen M1 built for exactly that moment. Neither milestone's own review had
-both halves in view. The worst
-of them was in export: **merge deduplicated on UUID alone, so a backup from a
-second phone was rejected outright**, because two installs seed "Grocery" with
-different UUIDs and the unique index refused the second one. Merging a file into
-the database it came from worked, which is exactly why it survived — the only
-merge anyone had tested was the one that never leaves a phone.
+which found nine things no per-milestone read could see.
 
-**Both of those were already asserted against by `IncomeReconciliationTest`,
-which has never been run.** That is the shape of the one real gap in this
-project: **the instrumented suite has not been executed since the M2 pass**,
-when its last complete run was 173/174. The 253 tests added since are written
-and compiled, not executed, and every audit so far has found defects that tests
-in that backlog already asserted against. §18.11 has the full account of what is
-left.
+### And then the tests were run
 
-M5's is `ExportImportRoundTripTest` (*"round-trip export→wipe→import loses
-nothing"*), which reads FR-DAT-04's acceptance as the two claims it actually
-makes: row counts and checksums per entity, **and** every figure the dashboard
-and income screens render, identical before and after. The second does not
-follow from the first — the rollups are rebuilt from the ledger rather than
-restored from the file.
+The instrumented suite had not executed since M2. §20 ran it, and the result is
+worth stating plainly because it is not what six audits predicted:
 
-M4's exit criterion is a measurement rather than a reconciliation — *"dashboard
-renders in ≤ 300 ms with 5 years seeded data"* — and it is split in two.
-`DashboardScaleTest` seeds sixty periods and asserts the claim the target rests
-on: that the dashboard's reads are bounded by the category tree rather than by
-history, and that every figure still reconciles at that scale. The wall-clock
-number itself is `DashboardBenchmark`'s, and it needs the reference
-Cortex-A53. To put five years on a device:
+> **Thirty failures out of 447. Twenty-nine were defects in the tests. One was a
+> defect in the app — and it was M5's exit criterion.**
 
-```bash
-./gradlew :app:installDebug
-adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug
-```
+`Schema.WIPE_ORDER` could not wipe the `category` table. `parent_id` references
+`category(id)` `ON DELETE RESTRICT`, so a single `DELETE FROM category` reaches
+a root while its children still point at it. Both callers were affected:
+"delete all data" (FR-DAT-06) and REPLACE import. Since the seed creates
+thirteen leaves under three roots, it failed on **every database that has ever
+existed**, and the criterion had been recorded as met on the strength of a test
+that had never run.
 
-That receiver and its generator live in `app/src/debug/`, so they are absent
-from the release build rather than disabled in it — verified against the release
-dex and the merged manifest, not assumed.
+The other twenty-nine were assertions written against screens that had never
+rendered, import fixtures in a shape the importer is right to refuse, and a
+query plan asserted by a string SQLite does not print. Reading them again would
+not have found them, because reading them is what produced them.
 
 ## Getting started
 
@@ -203,15 +193,81 @@ which `04` §2.2 makes mandatory rather than optional.
 ./gradlew :benchmark:connectedBenchmarkAndroidTest
 ```
 
+Seed 02 §3.1's corpus first — 20,000 expenses, 400 income entries, 60
+categories — onto the `benchmark` variant, which is minified and **not
+debuggable** because a debuggable build disables optimisations wholesale:
+
+```bash
+./gradlew :app:installBenchmark
+adb shell am start -n com.app.finance.bench/com.app.finance.MainActivity
+adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.bench   --include-stopped-packages --es scale benchmark
+./gradlew :benchmark:connectedBenchmarkReleaseAndroidTest   -Pandroid.testInstrumentationRunnerArguments.targetPackage=com.app.finance.bench
+```
+
+### The release-candidate gate
+
+```bash
+./gradlew releaseCandidateCheck   # architecture, JVM, lint, instrumented, coverage, release build
+./gradlew performanceCheck        # the benchmarks and their budgets — needs a real ARM device
+```
+
+`performanceCheck` asserts 02 §3.1's budgets from `benchmark/performance-budget.txt`
+and fails on three things: a metric over budget, an exempted metric that has got
+worse than its recorded ceiling, and **a budgeted benchmark missing from the
+results** — because macrobenchmark skips routinely, and a gate that only checks
+what it finds would pass a run in which nothing ran.
+
+NFR-PERF-04 currently sits under a recorded exemption rather than a lowered
+threshold: the 300 ms budget stays, the exemption states the 572 ms that is
+measured today, and the build fails again if it worsens. Same idea as
+`lint-baseline.xml`.
+
+`.github/workflows/release-candidate.yml` runs the first task and deliberately
+omits the second — an x86_64 hosted runner would produce green performance
+numbers that mean nothing. It is a template; this project has no remote yet.
+
+### What has been measured
+
+On a Galaxy A54 (arm64, 8 cores at 2.0 GHz), ten iterations each, against that
+corpus. **Not the reference device**, so these are real measurements that do not
+establish compliance — but the A54 is several times faster than a 1.4 GHz
+Cortex-A53, so a target missed here is missed there too.
+
+| | Target | Median |
+|---|---|---|
+| NFR-PERF-01 cold start | ≤ 800 ms | 288 ms |
+| NFR-PERF-02 warm start | ≤ 250 ms | 168 ms |
+| NFR-PERF-03 expense committed | ≤ 100 ms | 17 ms |
+| **NFR-PERF-04 dashboard fully rendered** | **≤ 300 ms** | **572 ms** |
+| NFR-PERF-05 ledger scroll | no frame > 16 ms at p95 | 13.5 ms at p95 |
+| NFR-PERF-06 period switch | ≤ 150 ms | 5 frames per switch |
+| NFR-PERF-07 full JSON export | ≤ 3 s | 1,197 ms (5.1 MB) |
+| NFR-PERF-08 steady-state memory | ≤ 80 MB | 50.8 MB anonymous RSS |
+
+**NFR-PERF-04 misses**, and §20.6 has the decomposition: 281 ms to the first
+frame, 223 ms for the reads, the rest composition. The mitigation `04` §2.2
+requires has now been applied — the app finally has a baseline profile of its own
+code, generated on the `Khata_API35` AVD, taking the release profile from 3,345
+library-only rules to 24,795 with 2,738 of them Khata's. That moved the dashboard
+from **666 ms to 552 ms**, a 17% improvement in the range the architecture
+predicted, and still 252 ms outside the target. The next lever is `04` §2.2's own
+fallback — XML views for the entry and ledger screens — and that call needs the
+reference device.
+
 Two caveats:
 
 - Profile generation **needs root**, so it requires an AOSP or `google_apis`
   emulator image — a `google_apis_playstore` one cannot be rooted. The
   `Khata_API35` AVD created for the test suite is `google_apis` and works.
-- The SRS is explicit that "targets measured on a flagship device are not
-  evidence of compliance". Numbers from an x86_64 emulator say nothing about a
-  1.4 GHz Cortex-A53 with eMMC storage. `04` §2.2 defines the fallback if the
-  real device misses 800 ms: XML views for the entry and ledger screens only.
+- `FrameTimingMetric` returns frame *counts* and no per-frame durations on the
+  A54, so the scroll and period-switch benchmarks use `FrameTimingGfxInfoMetric`
+  as well — it reads `dumpsys gfxinfo` and reports percentiles, which is the
+  shape NFR-PERF-05 is actually written in.
+- NFR-PERF-08 is measured but the requirement is ambiguous: "resident memory" is
+  50.8 MB of anonymous RSS, or ~145 MB counting shared framework mappings. §20.6
+  records both rather than picking one.
+- `04` §2.2 defines the fallback if the real device misses 800 ms: XML views for
+  the entry and ledger screens only.
 
 To benchmark on a physical Xiaomi/MIUI device, enable **Install via USB** in
 developer options first — without it the instrumentation APK is refused with

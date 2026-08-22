@@ -399,6 +399,8 @@
     <string name="welcome_title">Khata</string>
     <string name="welcome_body">If you have a backup from another phone, bring it in now and your categories, budgets and every entry come back as they were.</string>
     <string name="welcome_restore">Restore from a backup</string>
+    <string name="welcome_restore_body">Your starter categories are replaced by the ones in the backup.</string>
+    <string name="welcome_restore_confirm">Restore everything</string>
     <string name="welcome_fresh">Start fresh</string>
     <string name="welcome_restored">Restored %1$d records</string>
     <!-- The step after a restore. The file carried the schedule but could not

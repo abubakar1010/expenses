@@ -111,6 +111,11 @@ interface AppMetaDao {
          * A8): the file describes a ledger, not a device.
          */
         val TRANSIENT_KEYS = setOf(
+            // Whether *this* install has been through its first run. A restored
+            // file said yes, and it flipped the welcome gate away mid-flow —
+            // before the screen could ask the restored phone where its backups
+            // should now go.
+            KEY_ONBOARDED,
             KEY_BACKUP_TREE,
             KEY_BACKUP_LAST_AT,
             KEY_BACKUP_LAST_COUNT,

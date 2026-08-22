@@ -77,7 +77,7 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun WelcomeScreen(container: AppContainer) {
+fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
     val vm: BackupViewModel = viewModel(
         factory = viewModelFactory {
             BackupViewModel(backups = container.backupRepo, settings = container.settingsRepo)
@@ -89,7 +89,13 @@ fun WelcomeScreen(container: AppContainer) {
     val scope = rememberCoroutineScope()
     val lock = LocalLockController.current
 
-    fun answered() = scope.launch { container.settingsRepo.setOnboarded() }
+    // The flag and the latch above it, together. The flag stops the question
+    // being asked on the next launch; the latch stops it disappearing during
+    // this one.
+    fun answered() {
+        scope.launch { container.settingsRepo.setOnboarded() }
+        onDone()
+    }
 
     val fileLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
@@ -179,7 +185,7 @@ fun WelcomeScreen(container: AppContainer) {
         ) {
             Text(
                 text = stringResource(
-                    if (restoredUnprotected) R.string.backup_folder_pick else R.string.welcome_restore,
+                    if (restoredUnprotected) R.string.backup_folder_none else R.string.welcome_restore,
                 ),
                 style = KhataTheme.type.body,
             )
@@ -218,6 +224,11 @@ fun WelcomeScreen(container: AppContainer) {
                     style = KhataTheme.type.screenTitle,
                     color = colors.ink,
                 )
+                Text(
+                    text = stringResource(R.string.welcome_restore_body),
+                    style = KhataTheme.type.body,
+                    color = colors.inkSoft,
+                )
                 if (draft.locked) {
                     Text(
                         text = stringResource(
@@ -242,7 +253,7 @@ fun WelcomeScreen(container: AppContainer) {
                     modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
                 ) {
                     Text(
-                        text = stringResource(if (draft.locked) R.string.backup_unlock else R.string.welcome_restore),
+                        text = stringResource(if (draft.locked) R.string.backup_unlock else R.string.welcome_restore_confirm),
                         style = KhataTheme.type.body,
                     )
                 }

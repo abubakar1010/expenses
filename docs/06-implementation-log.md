@@ -3486,13 +3486,60 @@ review threshold is not engaged by a version bump of something already present.
 #### What it says about the suite
 
 An instrumented test that presses this button would be the honest fix, and it is
-listed in §21.10 as not done: `ActivityResultRegistry` cannot be driven to the
+listed in §21.11 as not done: `ActivityResultRegistry` cannot be driven to the
 system document picker from an instrumented test without UI Automator against a
 provider that varies by ROM. What *can* be asserted is narrower and still worth
 having — that launching produces no exception — and that is the shape the gap
 needs filling in.
 
-### 21.8 Test inventory
+### 21.8 Driven on a device, and what that found
+
+`SafBackupStore` has no automated test and cannot have one — a document tree
+cannot be granted without a human tapping a picker. So the provider layer was
+walked by hand on an API 35 emulator, and the walk earned its keep twice.
+
+The full scenario, in order:
+
+| | |
+|---|---|
+| Clean install, first launch | `WelcomeScreen` appears. "Start fresh" dismisses it. |
+| Settings → Automatic backup | Renders; "Never backed up"; the folder row offers a choice |
+| Choose a folder | `ACTION_OPEN_DOCUMENT_TREE` opens; **"Allow Khata to access files in Documents?"**; the row then reads "Documents / Change folder" |
+| Back up now | `khata-backup-2026-08-22-1317.khata` appears in `/sdcard/Documents`, 1,067 bytes, **no `.part` left behind** |
+| The file, pulled and decoded | magic `KHATA1
+`, mode 0, `schema_version` 1, 16 categories, 1 source — and **no `backup_tree_uri` in its meta**, which is `TRANSIENT_KEYS` working on a real provider rather than a fake one |
+| An expense of ৳1,234, then a second backup | Two generations in the folder, both kept (retention is 5) |
+| **`adb uninstall`** | **Both backups still there.** The property the whole design rests on: a document created through SAF belongs to the user, not the app |
+| Reinstall, launch | `WelcomeScreen` again, on a genuinely fresh install |
+| Restore → pick the file → Restore everything | ৳1,234 Grocery on 22 Aug, and every dashboard figure identical to before the uninstall |
+
+#### What it found
+
+**The follow-up folder question never appeared.** §21.4's third defect was
+supposed to be fixed by `WelcomeScreen` asking for a folder after a restore that
+landed without one. On the device it went straight to the dashboard.
+
+The cause was two decisions that were each right and wrong together.
+`observeNeedsWelcome` was a live flow, and `onboarded` was not transient — so the
+restore imported the *old* phone's `onboarded = 1`, the flow re-evaluated, and
+the gate closed underneath the screen that was still mid-conversation. The
+question died with it.
+
+Two changes, and the first is the interesting one:
+
+- **The gate is latched at launch.** Whether to offer a restore is a property of
+  how the app *started*, not of what the ledger holds a moment later — and a
+  restore changes both. A live flow was the wrong shape for the question.
+- **`onboarded` joins `TRANSIENT_KEYS`.** It describes this install, exactly like
+  the folder grant does. A restored file has no business answering it.
+
+Also fixed on the way through: the folder row showed "Choose a folder" as both
+its title and its hint, the restore sheet said "Restore from a backup" as both
+its title and its button, and the post-restore prompt used a hint string as a
+button label. All three are 05 §9's "a control says what happens" — small, and
+exactly the kind of thing only a screenshot shows.
+
+### 21.9 Test inventory
 
 | Suite | Where | Tests |
 |---|---|---|
@@ -3518,7 +3565,7 @@ Both halves of FR-DAT-04's acceptance are asserted: row counts and checksums,
 and every rendered `DashboardViewModel` / `IncomeViewModel` figure, because the
 rollups are rebuilt from the ledger rather than carried in the file.
 
-### 21.9 Measured
+### 21.10 Measured
 
 | | target | before (§20.9) | after |
 |---|---|---|---|
@@ -3547,7 +3594,7 @@ NFR-SEC-01 structural), and a `ContentProvider` would sit on the cold-start path
 recorded that it had not been since the M2 pass and that nothing should be
 assumed about its green-ness. 517 tests in one invocation, zero failures.
 
-### 21.10 Still not done
+### 21.11 Still not done
 
 - **NFR-PERF-10 is unmeasured on the reference device.** The 10 s restore budget
   is new and there was no import budget at all before it — only NFR-PERF-07 for
@@ -3560,18 +3607,16 @@ assumed about its green-ness. 517 tests in one invocation, zero failures.
   orphaning any backup already taken.
 - **`SafBackupStore` has no automated test, and cannot have one.** A document
   tree cannot be granted without a human tapping a picker. Everything above it
-  is covered against `FakeBackupStore`; the provider layer itself is manual
-  verification, and the fake imitates the two provider behaviours that have
+  is covered against `FakeBackupStore`; the provider layer itself was walked by
+  hand (§21.8), and the fake imitates the two provider behaviours that have
   caused bugs elsewhere — a deduped display name and a write that fails
-  part-way.
-- **Provider name mangling is unverified in the field.** Some providers append
-  an extension derived from the MIME type. `create` and `rename` read the
-  resulting name back rather than assuming, and `octet-stream` is the type
-  providers leave alone — but this needs a real device on a real ROM.
-- **The uninstall/reinstall path is verified by simulation, not by uninstalling
-  anything.** `BackupRoundTripTest` reproduces a fresh install faithfully,
-  including the re-seeded UUIDs. It cannot reproduce Android actually deleting
-  the app.
+  part-way. Every future change to that class needs the same walk.
+- **One provider, one ROM.** §21.8 ran against `ExternalStorageProvider` on an
+  API 35 emulator. Name mangling is the specific worry: some providers append an
+  extension derived from the MIME type. `create` and `rename` read the resulting
+  name back rather than assuming, and `octet-stream` is the type providers leave
+  alone — but a Xiaomi, an SD card, and a cloud provider's tree are all
+  untested.
 - **No test presses a document picker.** §21.7 is the reason this matters:
   every launcher in the app was throwing and four suites each had a good reason
   not to notice. `ActivityResultRegistry` cannot be driven to the system picker

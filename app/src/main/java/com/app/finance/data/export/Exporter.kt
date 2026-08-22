@@ -2,6 +2,7 @@ package com.app.finance.data.export
 
 import com.app.finance.data.db.AppDatabase
 import com.app.finance.data.db.Schema
+import com.app.finance.data.db.dao.AppMetaDao
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import java.io.OutputStream
@@ -50,7 +51,7 @@ class Exporter(private val db: AppDatabase) {
             counts[EXPENSES] = w.array(EXPENSES, ExpenseDto.serializer(), dao.allExpenses()) { it.toDto() }
             counts[INCOME] = w.array(INCOME, IncomeEntryDto.serializer(), dao.allIncomeEntries()) { it.toDto() }
             counts[RULES] = w.array(RULES, RuleDto.serializer(), dao.allRules()) { it.toDto() }
-            counts[META] = w.array(META, MetaDto.serializer(), dao.allMeta()) { it.toDto() }
+            counts[META] = w.array(META, MetaDto.serializer(), exportableMeta()) { it.toDto() }
 
             w.write("}")
         }
@@ -111,12 +112,24 @@ class Exporter(private val db: AppDatabase) {
                     it.createdAt.s(), it.updatedAt.s(),
                 )
             }
-            counts[META] = zip.csv(META, META_HEADER, dao.allMeta()) {
+            counts[META] = zip.csv(META, META_HEADER, exportableMeta()) {
                 listOf(it.key, it.value, it.updatedAt.s())
             }
         }
         return ExportSummary(counts)
     }
+
+    /**
+     * `app_meta` minus the rows that describe this phone rather than this
+     * ledger — `AppMetaDao.TRANSIENT_KEYS`, and the reasoning is there.
+     *
+     * Filtered in Kotlin rather than by a `WHERE key NOT IN (...)`, so the set
+     * has exactly one definition. A SQL literal listing the same keys is a
+     * second one, and the two would part company the first time a key was
+     * added.
+     */
+    private suspend fun exportableMeta() =
+        dao.allMeta().filterNot { it.key in AppMetaDao.TRANSIENT_KEYS }
 
     // ------------------------------------------------------------- internals
 

@@ -116,6 +116,19 @@ class SettingsRepository(
         lastRevision = meta.get(AppMetaDao.KEY_BACKUP_LAST_REVISION)?.toLongOrNull(),
     )
 
+    /**
+     * The two rows that decide whether there is any work to do at all.
+     *
+     * Read on every launch by `BackupRepository.runIfDue`, and separate from
+     * [backupSettings] for exactly that reason: the full object is seven point
+     * queries, and six of them are wasted on a phone whose owner has never
+     * turned this on. FR-DAT-07 and FR-DAT-08 are both required before anything
+     * is written, so both absences rule the work out.
+     */
+    suspend fun backupArmed(): Boolean =
+        meta.get(AppMetaDao.KEY_BACKUP_TREE) != null &&
+            BackupInterval.fromStored(meta.get(AppMetaDao.KEY_BACKUP_INTERVAL)).isOn
+
     /** Emits on any change to any backup key, so the screen can follow along. */
     fun observeBackupSettings(): Flow<BackupSettings> =
         meta.observeBackupKeys().distinctUntilChanged().map { backupSettings() }

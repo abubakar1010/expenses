@@ -234,6 +234,12 @@ val coverageReport = tasks.register<JacocoReport>("coverageReport") {
     group = "verification"
     description = "Line coverage over domain/, core/ and data/repo/ (NFR-MAIN-02)."
     dependsOn("testDebugUnitTest")
+    // `mustRunAfter`, not `dependsOn`: this task reads the connected suite's
+    // execution data when it is there, and Gradle rightly refuses to guess the
+    // order otherwise. Depending on it would be wrong — it would make a
+    // coverage report demand a device, when the point of joining the `.ec`
+    // files as a tree is that the JVM half still works without one.
+    mustRunAfter("connectedDebugAndroidTest")
 
     executionData.setFrom(
         files(

@@ -150,12 +150,27 @@ Templates for rent, internet, subscriptions, and regular salary. On the due date
 
 This is P0, not a nice-to-have. Users do not trust an app with their financial history until they have proof they can extract it. It is also the only backup mechanism in a no-server product.
 
+### 6.7 Backup and restore — P1
+
+- Nominate a folder once; Khata writes a dated backup there when it is opened, at most once a day, and only when something changed
+- Keep the last several backups and delete older ones
+- Optionally protect them with a passphrase
+- Hand the newest one to another app — Drive, email, a chat app — with one tap
+- Offer a restore on the first launch after an install, and from the recovery screen
+
+§6.6 makes the *artifact* exist. This makes it exist without being remembered, which is a different requirement and the one that matters after a phone is lost. An export nobody runs is a backup nobody has.
+
+Two limits are part of the design rather than gaps in it, and the interface says both out loud:
+
+- **A phone left closed is not backed up.** There is no background service and no notification (05 §12), so backups happen when the app is opened. Promising "every day" would be promising something the app cannot deliver.
+- **Getting a copy off the device is the user's tap.** Khata has no `INTERNET` permission and will not acquire one (FR-APP-01); "send a copy" hands the file to an app that already has one. Cloud backup of Khata's own remains P2, and `04 §11` records what it would cost.
+
 ## 7. Feature priority
 
 | Priority | Scope |
 |---|---|
 | **P0 — MVP** | Income entry + sources, category tree, budgets, expense entry, ledger, dashboard, export/import |
-| **P1 — Fast follow** | Recurring rules, app PIN lock, category reorder, budget copy templates, dark theme |
+| **P1 — Fast follow** | Recurring rules, app PIN lock, category reorder, budget copy templates, dark theme, automatic backup and restore |
 | **P2 — Later** | SMS parsing, cloud backup, multi-device sync, receipt attachments, net worth |
 
 ## 8. Release plan

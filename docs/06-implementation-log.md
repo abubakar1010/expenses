@@ -3186,3 +3186,293 @@ Nothing else. Every `FR-*` and every `NFR-*` in `02-SRS.md` is implemented, and
 the list above is what remains of their *verification* — one failing target, one
 constraint the framework makes impossible, one manual release step, one
 ambiguous wording, and a language nobody has asked for.
+
+---
+
+## 21. Backup: making the artifact happen without being remembered
+
+**Date:** 22 August 2026
+
+`01-PRD.md` §6.6 has said the same thing since the first draft:
+
+> "Users do not trust an app with their financial history until they have proof
+> they can extract it. It is also the only backup mechanism in a no-server
+> product."
+
+M5 built that mechanism and §17 records it working: streaming JSON, a
+transactional import, UUID-then-natural-key dedup, a schema gate, and
+`ExportImportRoundTripTest` proving twenty-one rendered figures survive a wipe.
+
+None of it runs unless somebody remembers to run it.
+
+That is the whole of this section. The file format was not the problem, the
+importer was not the problem, and neither needed changing. What was missing sat
+entirely around them: a backup happened only on request, went to a location
+re-chosen every time, left no record that it had happened, was plaintext, and —
+the part that matters most — a user who reinstalled landed on an empty dashboard
+with nothing to suggest their five years were recoverable at all.
+
+### 21.1 What was actually built
+
+Six pieces, and five of them are thin:
+
+| | |
+|---|---|
+| `data/export/BackupCodec.kt` | magic number, gzip, optional AES-256-GCM in authenticated blocks |
+| `data/backup/BackupStore.kt` | the folder, as an interface |
+| `data/backup/SafBackupStore.kt` | that interface over `DocumentsContract` |
+| `data/repo/BackupRepository.kt` | whether, where, what to delete, what a restore must not lose |
+| `ui/feature/backup/` | the screen |
+| `ui/WelcomeScreen.kt` | the first launch after an install |
+
+`Exporter` and `Importer` are untouched. `decode` hands the importer the same
+plain JSON it has always read, which is why all twenty of
+`ImportValidationTest`'s cases still pass without being looked at. `Exporter`
+gained one line — a filter, §21.4.
+
+### 21.2 NFR-SEC-01, amended
+
+The second requirement in this project to be **changed** rather than
+implemented, and it follows §20.11's procedure exactly.
+
+#### The contradiction
+
+> NFR-SEC-01: "No data leaves the device except by explicit user-initiated
+> export."
+
+FR-DAT-08 backs up on launch. Nobody initiates that. The two cannot both stand,
+and pretending the schedule counts as "user-initiated" because the user once
+switched it on would be reinterpreting a requirement quietly — which §20.11 is
+explicitly the precedent against.
+
+#### How it got there
+
+The wording was written when export was the only way data moved, and in that
+world "the user initiates it" and "one file at a time, chosen each time" were
+the same sentence. They are not the same guarantee. The first is about *who
+decides*; the second is about *how often they are asked*. Only the first is what
+anybody wants from this requirement.
+
+#### What was rejected
+
+- **Leaving the automatic backup out.** It is the feature. An export nobody runs
+  is a backup nobody has, and §6.6's claim is about trust, which a mechanism
+  that depends on memory does not earn.
+- **Calling the schedule "user-initiated" and moving on.** The requirement would
+  then mean whatever the implementation needed it to mean, which is how a
+  specification stops being normative.
+- **Asking each time.** That is the manual export, which already exists.
+
+#### What it says now
+
+> "Data leaves the device only by a transfer the user asked for, to a
+> destination the user chose. The app holds no network transport, and MUST NOT
+> select or infer a destination of its own."
+
+Every protection the old wording gave is intact, and one is now stated that was
+only implied — the app may not pick a destination. The grant comes from
+`ACTION_OPEN_DOCUMENT_TREE`, needs no manifest permission, and can be withdrawn
+in system settings. **FR-APP-01 is untouched**, still gated in CI against the
+merged release manifest, so there is no transport off the device even in
+principle.
+
+#### Why restating beats leaving it
+
+The same reason as §20.11: the requirement was protecting something real, and
+the instrument had stopped matching it. A requirement that is quietly violated
+by shipping code teaches people to stop reading the document.
+
+### 21.3 The passphrase problem, and where the key lives
+
+FR-DAT-11 makes encryption optional. FR-DAT-08 runs on launch. Together they ask
+for a file to be encrypted with nobody present to type anything.
+
+Deriving on the spot is not available either: 210,000 rounds of PBKDF2-HMAC-
+SHA256 is a second or two on a Cortex-A53, and NFR-PERF-01 budgets the entire
+cold start at 800 ms.
+
+So the passphrase is turned into a key once, when the user sets it, and **the
+key is stored in `app_meta` beside the ledger**. That reads badly at first and
+is in fact free: anyone who can read the app's private storage can read
+`khata.db`, which NFR-SEC-05 deliberately leaves unencrypted on the reasoning
+that "the device lock screen already gates access". Wrapping this key would be
+defending a door standing open beside it.
+
+What backup encryption is *for* is the file after it leaves — a shared folder, a
+cloud client's sync directory, a forwarded chat message. Against that, a key
+that never leaves the phone is exactly the protection asked for.
+
+The salt and iteration count travel in every file, so the passphrase alone
+rebuilds the key on a phone that has never held it. Without that a stored key
+would produce backups only one device could read, which is the opposite of the
+point. `a_key_kept_from_an_earlier_derivation_opens_the_same_as_the_passphrase`
+asserts it.
+
+**NFR-SEC-06 rather than an amendment to NFR-SEC-05.** SEC-05's stated rationale
+is the size and startup cost of a **native** crypto library — SQLCipher, which
+NFR-COMP-02 refuses again. Neither reaches `AES/GCM/NoPadding` and
+`PBKDF2WithHmacSHA256`, which the platform has shipped since API 26 and which
+add nothing to the APK. SEC-05 is about the database at rest and still stands.
+
+### 21.4 Three defects the tests found
+
+#### A truncated backup would have read as a shorter ledger
+
+`CipherInputStream` under GCM swallows `AEADBadTagException` at end of stream on
+several Android versions and returns -1 instead of throwing. A tampered backup
+would decode partway and stop, and `Importer` would be handed a document it had
+no way to know was incomplete.
+
+So the ciphertext is framed: each block carries its own tag through
+`Cipher.doFinal`, its index and a last-block marker go into the AAD, and the
+final block is sealed even when it is empty. A file cut at a block boundary is
+therefore a well-formed prefix that never presents a last block — detected,
+where otherwise it would simply have ended.
+`a_backup_truncated_at_a_block_boundary_is_refused` is the test that would have
+caught this, and it is the reason the framing exists.
+
+#### A quiet week would have deleted a real backup
+
+The first `runIfDue` checked only the interval. A phone opened every morning
+therefore wrote a byte-identical copy each day and rotated a genuine backup out
+of the folder to make room for it. After `keep` quiet days the oldest real
+backup is gone and every remaining file is the same week — retention actively
+destroying history in the name of keeping it.
+
+`BackupDao.ledgerRevision()` is the fix, and `app_meta` is deliberately not in
+its union: `ExpenseRepository` writes `last_category_id` on every save, so
+including it would report a change when nothing about the ledger changed, and
+change again when the backup recorded its own result.
+
+#### A restored phone came back unprotected
+
+Found by writing `BackupRoundTripTest`, and the most consequential of the three.
+
+The file carries the user's schedule — `backup_interval` is not transient — but
+it cannot carry the folder grant, which names a permission the *old* phone held.
+So a reinstall restored five years of ledger onto a device with nowhere to back
+it up, behind a dashboard that looked entirely healthy. A one-shot recovery:
+whole again and unprotected, with no way to find out until the next time it
+mattered.
+
+`WelcomeScreen` now asks for a folder the moment a restore lands without one.
+Not a nag under 05 §12 — somebody who has this second restored from a backup has
+said as clearly as anyone can that they want one.
+
+### 21.5 What the file does not carry
+
+`app_meta` is exported wholesale and restored wholesale, and that is deliberate:
+a restore that brought back the ledger but not the theme, the lock or the
+last-used category would not be "as it was before", which is the claim FR-DAT-04
+makes.
+
+`AppMetaDao.TRANSIENT_KEYS` is the exception, and each member earns it:
+
+| | |
+|---|---|
+| `backup_tree_uri` | names a grant this install holds and a restored phone does not |
+| `backup_last_at` / `_count` / `_revision` | record what *this* phone has written; importing them tells a fresh install it has just backed up |
+| `backup_key` / `_salt` / `_rounds` | would ride inside the files they protect — and in a plain backup, in the clear |
+
+`backup_interval` and `backup_keep` are **not** here. They are choices the user
+made and would otherwise have to make again.
+
+Same shape as the `schema_version` re-stamp §18.7 A8 introduced: the file
+describes a ledger, not a device.
+
+### 21.6 A documented departure from 04
+
+`04 §2` lists WorkManager for background work, and `04 §5.3` puts export at
+"`Dispatchers.IO`, foreground with progress". The automatic backup is neither
+WorkManager nor, strictly, initiated in the foreground.
+
+It runs in `MainActivity`'s existing `LaunchedEffect`, immediately after
+`recurringRepo.evaluate()` — and the comment already written there for rule
+evaluation applies unchanged: §6 keeps `ContentProvider` initialisers off the
+startup path, which rules out WorkManager's default initialisation, and 05 §12
+has no notification through which a background run could report anything.
+NFR-COMP-05 settles it: "no background work is required for core function", and
+a backup that only happened under Doze's good graces would put core data safety
+behind exactly the OEM battery policies that requirement refuses to trust.
+
+The "with progress" half is kept rather than dropped: the shell draws an
+indeterminate bar over the top edge for as long as a backup is in flight.
+Success is silent (05 §12), the Backup screen carries the record, and only a
+failure gets a sentence.
+
+**The cost is stated rather than hidden.** A phone left in a drawer is not
+backed up until it is next opened. WhatsApp can do better because it has a
+foreground service and a network permission; this app has neither and will not
+acquire them. The Backup screen says "Backups are written when you open Khata,
+not while it is closed" for that reason — 05 §9 asks for the fact and then the
+action, and a user who believes they are covered and is not would be worse off
+than one with no backup at all.
+
+### 21.7 Test inventory
+
+| Suite | Where | Tests |
+|---|---|---|
+| `BackupCodecTest` | `test/data/export` | 22 |
+| `BackupRepositoryTest` | `androidTest/data/repo` | 26 |
+| `BackupRoundTripTest` | `androidTest/data/backup` | 5 |
+
+`BackupRoundTripTest` is the exit criterion and is not `ExportImportRoundTripTest`
+through a different door. Two things differ, and both have been real defects:
+
+1. **The database is re-seeded before the restore, not merely emptied.**
+   `deleteAllData` is what a fresh install looks like, and `Schema.SEED` builds
+   its UUIDs from `randomblob` — so the categories waiting for the backup have
+   *different* UUIDs from the ones inside it. That is §18.1's case, and every
+   reinstall is it: "the only merge anyone had tested was the one that never
+   leaves a phone."
+2. **The file is compressed, encrypted, and travels through the folder.** If the
+   framing, the gzip or the key handling were wrong, five years would decode to
+   something the importer refuses — and the user would find out at the one
+   moment it cannot be fixed.
+
+Both halves of FR-DAT-04's acceptance are asserted: row counts and checksums,
+and every rendered `DashboardViewModel` / `IncomeViewModel` figure, because the
+rollups are rebuilt from the ledger rather than carried in the file.
+
+### 21.8 Measured
+
+| | before | after |
+|---|---|---|
+| Instrumented tests | 486 | **517**, all passing |
+| JVM tests | — | +22 |
+| Line coverage, `domain/` + `core/` + `data/repo/` | — | **93.8%** (`data/repo` 90.9%) |
+| Five-year backup, encrypted | — | see §21.9 |
+
+**The instrumented suite has now been run in full.** `CLAUDE.md` and §18.11
+recorded that it had not been since the M2 pass and that nothing should be
+assumed about its green-ness. 517 tests in one invocation, zero failures.
+
+### 21.9 Still not done
+
+- **NFR-PERF-10 is unmeasured on the reference device.** The 10 s restore budget
+  is new and there was no import budget at all before it — only NFR-PERF-07 for
+  export. Like every other NFR-PERF figure it means nothing off a 1.4 GHz
+  Cortex-A53 (02 §3.1), and `PerformanceProbeTest` does not cover it yet.
+- **The PBKDF2 cost is unmeasured on the reference device.** 210,000 rounds is
+  paid once, when a passphrase is set, in the foreground with a progress bar. On
+  an A53 it may be several seconds. If it is bad enough to feel broken the
+  iteration count is in the file header precisely so it can be changed without
+  orphaning any backup already taken.
+- **`SafBackupStore` has no automated test, and cannot have one.** A document
+  tree cannot be granted without a human tapping a picker. Everything above it
+  is covered against `FakeBackupStore`; the provider layer itself is manual
+  verification, and the fake imitates the two provider behaviours that have
+  caused bugs elsewhere — a deduped display name and a write that fails
+  part-way.
+- **Provider name mangling is unverified in the field.** Some providers append
+  an extension derived from the MIME type. `create` and `rename` read the
+  resulting name back rather than assuming, and `octet-stream` is the type
+  providers leave alone — but this needs a real device on a real ROM.
+- **The uninstall/reinstall path is verified by simulation, not by uninstalling
+  anything.** `BackupRoundTripTest` reproduces a fresh install faithfully,
+  including the re-seeded UUIDs. It cannot reproduce Android actually deleting
+  the app.
+- **Cloud backup remains P2.** `04 §11` still records what it would cost, and
+  the estimate is smaller than it was: the artifact now exists, is compressed,
+  is optionally encrypted, and is already written on a schedule. What is missing
+  is the upload and the `INTERNET` permission that FR-APP-01 forbids.

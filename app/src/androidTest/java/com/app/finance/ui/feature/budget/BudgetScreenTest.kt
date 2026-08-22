@@ -31,6 +31,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.LocalDate
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performScrollToNode
 
 /**
  * The budget screen as rendered — 05 §3.3, §5.4, §10.
@@ -254,10 +257,29 @@ class BudgetScreenTest {
         show()
 
         awaitText("VARIABLE EXPENSES")
-        val tree = compose.onRoot().printToString(maxDepth = Int.MAX_VALUE)
+
+        // The screen is a `LazyColumn`, so "FIXED EXPENSES" is not composed
+        // until it is scrolled to — and comparing two `indexOf`s in a printed
+        // tree silently passed a `-1` for the header that was never there. It
+        // held until money figures got a few pixels taller and pushed the
+        // section past the fold, which is a test failing for a reason that has
+        // nothing to do with what it asserts. The rule itself is proven by
+        // `BudgetViewModelTest` and `BudgetSummaryTest`; what a screen test can
+        // add is that the rendering follows it.
+        compose.onNode(hasScrollAction())
+            .performScrollToNode(hasText("FIXED EXPENSES", ignoreCase = true))
+        awaitText("FIXED EXPENSES")
+
+        val variable = compose.onAllNodesWithText("VARIABLE EXPENSES").fetchSemanticsNodes()
+        val fixed = compose.onAllNodesWithText("FIXED EXPENSES").fetchSemanticsNodes()
+        assertTrue("fixed expenses must be reachable", fixed.isNotEmpty())
         assertTrue(
-            "ordering must be by actionability, not by amount:\n$tree",
-            tree.indexOf("VARIABLE EXPENSES") < tree.indexOf("FIXED EXPENSES"),
+            "ordering must be by actionability, not by amount",
+            // Either variable scrolled off the top to get here — which is what
+            // "above" means in a scrolling list — or both are on screen and
+            // variable sits higher.
+            variable.isEmpty() ||
+                variable.first().positionInRoot.y < fixed.first().positionInRoot.y,
         )
     }
 

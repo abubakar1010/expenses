@@ -106,6 +106,33 @@ class PerformanceProbeTest {
         assertTrue("export took ${elapsed}ms against a 3s budget", elapsed <= 3_000)
     }
 
+    @Test
+    fun five_years_of_data_fits_the_database_budget() = runBlocking {
+        // NFR-SIZE-05 — "database size for 5 years of data <= 6 MB", and 03 §9
+        // sizes it at roughly 3.8 MB with indexes. Never measured until now,
+        // though it is the one budget in the SRS a schema decision could blow on
+        // its own: `period_ym` is denormalised, every entity carries a UUID, and
+        // both rollup tables duplicate the ledger by design.
+        val file = ApplicationProvider.getApplicationContext<android.content.Context>()
+            .getDatabasePath(DB_NAME)
+        // WAL and the shared-memory file are part of what sits on disk.
+        val wal = java.io.File(file.path + "-wal")
+        val shm = java.io.File(file.path + "-shm")
+        val total = file.length() + wal.length() + shm.length()
+
+        Log.i(
+            TAG,
+            "NFR-SIZE-05 database: main ${file.length() / 1024}KB, " +
+                "wal ${wal.length() / 1024}KB, shm ${shm.length() / 1024}KB, " +
+                "total ${total / 1024}KB",
+        )
+        assertTrue("database was not created", file.length() > 0)
+        assertTrue(
+            "five years took ${total / 1024}KB against a 6 MB budget",
+            total <= 6L * 1024 * 1024,
+        )
+    }
+
     // Not private: JUnit calls `@BeforeClass` reflectively and needs it public
     // and static, which a private companion cannot give it.
     companion object {

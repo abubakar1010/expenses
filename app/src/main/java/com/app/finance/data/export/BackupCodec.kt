@@ -130,6 +130,16 @@ object BackupCodec {
     /** The extension the app writes and looks for. */
     const val EXTENSION = "khata"
 
+    /**
+     * What a backup is created as.
+     *
+     * Deliberately not a made-up `application/x-khata`. A document provider
+     * decides a new file's extension from its MIME type, and one it has never
+     * heard of is where providers start improvising -- octet-stream is the type
+     * every one of them leaves alone.
+     */
+    const val MIME = "application/octet-stream"
+
     /** What every automatic backup's name begins with. Drives rotation. */
     const val NAME_PREFIX = "khata-backup-"
 
@@ -158,33 +168,88 @@ object BackupCodec {
     class CorruptBackup(message: String) : IOException(message)
 
     /**
+     * A derived key, with the parameters that produced it.
+     *
+     * ### Why the key is kept rather than the passphrase re-derived
+     *
+     * FR-DAT-08 runs the backup on launch, with nobody there to type anything.
+     * Deriving on the spot is not an option either: 210,000 rounds of
+     * HMAC-SHA256 is a second or two on the Cortex-A53 the targets are set
+     * against, and NFR-PERF-01 budgets the whole cold start at 800 ms. So the
+     * passphrase is turned into a key once, when the user sets it, and the key
+     * is stored beside the ledger.
+     *
+     * **Storing it there costs nothing that is not already spent.** An attacker
+     * who can read the app's private storage can read `khata.db`, which
+     * NFR-SEC-05 deliberately leaves unencrypted on the reasoning that "the
+     * device lock screen already gates access". Wrapping this key would defend a
+     * door that is standing open beside it.
+     *
+     * What backup encryption is actually for is the file *after* it leaves —
+     * sitting in a shared folder, synced to somebody's cloud, forwarded through
+     * a chat app. Against that, a key that never leaves the phone is exactly the
+     * protection asked for.
+     *
+     * [salt] and [iterations] are carried in every file, so the passphrase alone
+     * rebuilds this key on a phone that has never seen it. That is what makes a
+     * restore after a lost device possible at all.
+     */
+    class Secret internal constructor(
+        internal val key: SecretKey,
+        internal val salt: ByteArray,
+        internal val iterations: Int,
+    ) {
+        /** The raw key, for storing. 32 bytes. */
+        val keyBytes: ByteArray get() = key.encoded
+
+        val saltBytes: ByteArray get() = salt.copyOf()
+
+        val rounds: Int get() = iterations
+    }
+
+    /**
+     * Derives a key from [passphrase] under a fresh salt.
+     *
+     * Slow on purpose, and the only slow call in this file. Runs when the user
+     * sets a passphrase and never again.
+     */
+    fun secretFrom(passphrase: CharArray): Secret {
+        val salt = ByteArray(SALT_BYTES).also(SecureRandom()::nextBytes)
+        return Secret(deriveKey(passphrase, salt, ITERATIONS), salt, ITERATIONS)
+    }
+
+    /** Rebuilds a key already derived, so the KDF is paid once and not per backup. */
+    fun secretFrom(keyBytes: ByteArray, salt: ByteArray, iterations: Int): Secret =
+        Secret(SecretKeySpec(keyBytes, "AES"), salt, iterations)
+
+    /**
      * Wraps [sink] so that everything written to the result lands in [sink] as a
      * backup. Closing the returned stream finishes the file and closes [sink];
      * `Exporter.writeJson` closes what it is given, so the chain completes on its
      * own.
      *
-     * A null or empty [passphrase] writes mode 0. Encryption is opt-in by
-     * requirement (FR-DAT-11) and the default here says so.
+     * A null [secret] writes mode 0. Encryption is opt-in by requirement
+     * (FR-DAT-11) and the default here says so.
      */
-    fun encode(sink: OutputStream, passphrase: CharArray? = null): OutputStream {
+    fun encode(sink: OutputStream, secret: Secret? = null): OutputStream {
         sink.write(MAGIC)
-        if (passphrase == null || passphrase.isEmpty()) {
+        if (secret == null) {
             sink.write(MODE_PLAIN)
             return GZIPOutputStream(sink, FRAME_BYTES)
         }
 
-        val random = SecureRandom()
-        val salt = ByteArray(SALT_BYTES).also(random::nextBytes)
-        val nonce = ByteArray(NONCE_BYTES).also(random::nextBytes)
-        val key = deriveKey(passphrase, salt, ITERATIONS)
+        // Fresh per file, never derived from anything the file already carries.
+        // The key is reused across backups by design; the nonce is what keeps
+        // every one of them a different ciphertext.
+        val nonce = ByteArray(NONCE_BYTES).also(SecureRandom()::nextBytes)
 
         sink.write(MODE_ENCRYPTED)
-        sink.write(salt)
-        sink.writeIntBE(ITERATIONS)
+        sink.write(secret.salt)
+        sink.writeIntBE(secret.iterations)
         sink.write(nonce)
-        sink.write(verifier(key, salt))
+        sink.write(verifier(secret.key, secret.salt))
 
-        return GZIPOutputStream(FramedGcmOutputStream(sink, key, nonce), FRAME_BYTES)
+        return GZIPOutputStream(FramedGcmOutputStream(sink, secret.key, nonce), FRAME_BYTES)
     }
 
     /**

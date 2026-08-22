@@ -414,6 +414,8 @@ dependencies {
     // Installs the Baseline Profile on first run. ~30 KB, and 04 §2.2 makes the
     // profile one of the three mandatory mitigations for Compose cold start.
     implementation(libs.androidx.biometric)
+    // Pinned rather than inherited from biometric 1.1.0 — see libs.versions.toml.
+    implementation(libs.androidx.fragment)
     implementation(libs.androidx.profileinstaller)
     baselineProfile(project(":benchmark"))
 

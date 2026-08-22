@@ -353,7 +353,7 @@
 
     <string name="backup_folder">Where backups go</string>
     <string name="backup_folder_none">Choose a folder</string>
-    <string name="backup_folder_pick">Choose a folder</string>
+    <string name="backup_folder_pick">Backups need somewhere to go</string>
     <string name="backup_folder_change">Change folder</string>
     <string name="backup_folder_gone">Khata can\'t reach that folder any more. Choose another.</string>
     <string name="backup_no_folder">Choose a folder first.</string>

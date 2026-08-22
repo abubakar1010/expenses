@@ -3436,12 +3436,28 @@ rollups are rebuilt from the ledger rather than carried in the file.
 
 ### 21.8 Measured
 
-| | before | after |
-|---|---|---|
-| Instrumented tests | 486 | **517**, all passing |
-| JVM tests | — | +22 |
-| Line coverage, `domain/` + `core/` + `data/repo/` | — | **93.8%** (`data/repo` 90.9%) |
-| Five-year backup, encrypted | — | see §21.9 |
+| | target | before (§20.9) | after |
+|---|---|---|---|
+| Release APK | ≤ 6 MB (NFR-SIZE-01) | 2,218,600 B (2.12 MB) | **2,255,564 B (2.15 MB)** |
+| Dex methods | ≤ 40,000 (NFR-SIZE-03) | — | **22,579**, single dex |
+| Dex classes | — | — | 4,029 |
+| Instrumented tests | — | 486 | **517**, all passing |
+| JVM tests | — | — | **+22** |
+| Line coverage, `domain/` + `core/` + `data/repo/` | ≥ 80% (NFR-MAIN-02) | — | **93.8%** (`data/repo` 90.9%) |
+| Merged release permissions | no `INTERNET` (FR-APP-01) | 3 | **3, unchanged** |
+| `<provider>` elements in the merged manifest | 0 (04 §6) | 0 | **0** |
+| Lint (`lintRelease`, `abortOnError`) | clean | clean | **clean, no new baseline entries** |
+
+**The whole feature costs 37 KB of APK** — 2.12 MB to 2.15 MB. That is what
+"platform primitives only" buys: no `androidx.documentfile`, no
+`androidx.security-crypto`, no WorkManager, no crypto library. NFR-SIZE-04's
+300 KB review threshold was never approached because nothing was added to
+review.
+
+The permission count and the provider count are both unchanged, and both are
+load-bearing: SAF needs no permission (which is what keeps FR-APP-01 and
+NFR-SEC-01 structural), and a `ContentProvider` would sit on the cold-start path
+04 §6 spends real effort keeping clear.
 
 **The instrumented suite has now been run in full.** `CLAUDE.md` and §18.11
 recorded that it had not been since the M2 pass and that nothing should be

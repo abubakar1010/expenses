@@ -1,0 +1,116 @@
+# NFR-MAIN-04 — the release-candidate gate.
+#
+# What it encodes is a split, and the split is not a CI detail:
+#
+#   * `correctness` and `instrumented` are meaningful on any hardware. They run
+#     here.
+#   * `performanceCheck` is **not**, and is deliberately absent. 02 §3.1 says a
+#     figure from the wrong device "is not evidence of compliance", and
+#     `DashboardBenchmark`'s own header is blunter: an x86_64 emulator "will beat
+#     it by an order of magnitude while saying nothing at all about the phone
+#     this app is for". A hosted runner would produce green numbers that mean
+#     nothing, which is worse than no gate — a passing check nobody can trust
+#     teaches people to stop reading it.
+#
+# Running the performance half needs a real ARM device with the five-year corpus
+# seeded, either on a self-hosted runner or by hand before tagging. The README
+# has the commands.
+
+name: Release candidate
+
+on:
+  pull_request:
+  push:
+    # The default branch as well as release tags. This project's history is
+    # direct commits to `master` rather than pull requests, so a gate that fired
+    # only on PRs and tags would fire approximately never.
+    branches: [master, main]
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  correctness:
+    name: Architecture, JVM tests, lint, release build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # No `keystore.properties` here, and that is fine by design: the signing
+      # config is conditional, so `assembleRelease` still succeeds and simply
+      # produces an unsigned APK. The shrinking, the size checks and the manifest
+      # verification all stay runnable without secrets.
+      - name: Architecture rules, JVM suite, lint, release build
+        run: ./gradlew :app:architectureCheck :app:testDebugUnitTest :app:lintRelease :app:assembleRelease
+
+      - name: FR-APP-01 — no INTERNET permission in the merged manifest
+        run: |
+          MANIFEST=$(find app/build/intermediates -path '*merged_manifest/release/*' -name AndroidManifest.xml | head -1)
+          if grep -q 'android.permission.INTERNET' "$MANIFEST"; then
+            echo "::error::INTERNET permission present in the release manifest"
+            exit 1
+          fi
+          echo "no INTERNET permission — offline guarantee is structural"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports-correctness
+          path: |
+            app/build/reports/
+            app/build/outputs/apk/release/
+
+  instrumented:
+    name: Instrumented suite and coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # KVM, or the emulator falls back to software rendering and the Compose
+      # suite times out rather than fails, which reads as a flake.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      # API 35, not 37: Espresso 3.7.0 calls `InputManager.getInstance()`, which
+      # no longer exists on API 37, and every Compose test dies in
+      # `Espresso.onIdle()` before reaching an assertion. `google_apis` rather
+      # than `google_apis_playstore` because the latter cannot be rooted, which
+      # baseline profile generation needs.
+      - name: Instrumented suite and coverage gate
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: ./gradlew :app:connectedDebugAndroidTest :app:coverageVerify
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reports-instrumented
+          path: |
+            app/build/reports/
+            app/build/outputs/androidTest-results/
+            app/build/outputs/connected_android_test_additional_output/

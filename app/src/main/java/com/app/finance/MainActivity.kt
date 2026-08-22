@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -141,6 +142,18 @@ class MainActivity : FragmentActivity() {
             }
             val needsWelcome by welcomeFlow.collectAsStateWithLifecycle(initialValue = null)
 
+            // **Latched, and that is the whole point.** Whether to offer a
+            // restore is a property of how this launch started, not of what the
+            // ledger holds a moment later — and a restore changes both. Left as
+            // a live flow, importing a backup filled the ledger and the gate
+            // vanished underneath the screen that was still mid-conversation,
+            // taking the "where should backups go now?" question with it.
+            var welcomeLatch by rememberSaveable { mutableStateOf<Boolean?>(null) }
+            var welcomeDone by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(needsWelcome) {
+                if (welcomeLatch == null) welcomeLatch = needsWelcome
+            }
+
             // Locking on background: a gate that only applies at cold start
             // protects nothing, because the app a thief finds is the one still
             // open in recents.
@@ -243,12 +256,13 @@ class MainActivity : FragmentActivity() {
                             LockScreen(onUnlocked = lockController::unlock)
 
                         // Still resolving. Same blank, same reason.
-                        needsWelcome == null -> Box(Modifier.fillMaxSize())
+                        welcomeLatch == null -> Box(Modifier.fillMaxSize())
 
                         // FR-DAT-10 — after the lock, because a backup file is
                         // the whole ledger and the gate that protects the ledger
                         // should protect the door it can be replaced through.
-                        needsWelcome == true -> WelcomeScreen(container)
+                        welcomeLatch == true && !welcomeDone ->
+                            WelcomeScreen(container, onDone = { welcomeDone = true })
 
                         else -> KhataApp(container)
                     }

@@ -324,6 +324,78 @@
     <string name="import_dangling">That backup refers to a category or source it doesn\'t contain. Nothing was changed.</string>
     <string name="import_rejected">That backup couldn\'t be read to the end. Nothing was changed.</string>
 
+    <!--
+      Automatic backup (FR-DAT-07…12). PRD §6.6 already calls export "the only
+      backup mechanism in a no-server product"; what these strings add is the
+      part that makes it behave like one, and the honesty about where it stops.
+      05 §9: state the fact, then the action. Never congratulate.
+    -->
+    <string name="settings_backup">Automatic backup</string>
+    <string name="settings_backup_hint">Keep copies that survive a lost phone</string>
+    <string name="backup_title">Backup</string>
+    <string name="backup_never">Never backed up</string>
+    <string name="backup_last">Last backup %1$s</string>
+    <plurals name="backup_last_rows">
+        <item quantity="one">%1$d record · %2$s</item>
+        <item quantity="other">%1$d records · %2$s</item>
+    </plurals>
+    <string name="backup_now">Back up now</string>
+    <string name="backup_running">Backing up…</string>
+    <string name="backup_done">Backed up %1$s</string>
+
+    <string name="backup_folder">Where backups go</string>
+    <string name="backup_folder_none">Choose a folder</string>
+    <string name="backup_folder_pick">Choose a folder</string>
+    <string name="backup_folder_change">Change folder</string>
+    <string name="backup_folder_gone">Khata can't reach that folder any more. Choose another.</string>
+    <string name="backup_no_folder">Choose a folder first.</string>
+    <string name="backup_write_failed">That folder wouldn't take the file. Nothing was changed.</string>
+    <!-- The limit worth being blunt about: FR-DAT-08 runs on launch, because
+         04 §6 keeps ContentProviders off the startup path and 05 §12 has no
+         notification to report a background run through. Saying "every day"
+         alone would be a promise the app cannot keep. -->
+    <string name="backup_when">Backups are written when you open Khata, not while it is closed.</string>
+    <string name="backup_survives">They go in a folder you own, so they stay when Khata is uninstalled. To survive a lost phone, send a copy somewhere else.</string>
+
+    <string name="backup_how_often">How often</string>
+    <string name="backup_off">Only when I tap</string>
+    <string name="backup_daily">Every day</string>
+    <string name="backup_weekly">Every week</string>
+
+    <string name="backup_keep">How many to keep</string>
+    <string name="backup_keep_hint">Older backups are deleted to make room</string>
+
+    <string name="backup_encrypt">Protect with a passphrase</string>
+    <!-- No softening. A forgotten passphrase is an unopenable backup, and the
+         one moment the user can act on that is before they choose one. -->
+    <string name="backup_encrypt_hint">Off by default. If you forget it, the backup cannot be opened — not by you, and not by us.</string>
+    <string name="backup_passphrase">Passphrase</string>
+    <string name="backup_passphrase_again">Type it again</string>
+    <string name="backup_passphrase_short">Use at least 8 characters.</string>
+    <string name="backup_passphrase_differs">Those two don't match.</string>
+    <string name="backup_passphrase_save">Protect backups</string>
+    <string name="backup_passphrase_set">Backups are now protected</string>
+    <string name="backup_passphrase_cleared">Backups are no longer protected</string>
+    <string name="backup_wrong_passphrase">That passphrase doesn't open this backup. Nothing was changed.</string>
+    <string name="backup_needs_passphrase">This backup is protected. Enter its passphrase.</string>
+    <string name="backup_unlock">Unlock</string>
+
+    <string name="backup_send_copy">Send a copy</string>
+    <string name="backup_send_copy_hint">Hand the newest backup to Drive, email, or a chat app</string>
+    <string name="backup_send_none">There is no backup to send yet.</string>
+
+    <string name="backup_restore">Restore from a backup</string>
+    <string name="backup_restore_hint">Replace what is here with a backup file</string>
+
+    <!-- FR-DAT-10 — the first launch after an install. -->
+    <string name="welcome_title">Khata</string>
+    <string name="welcome_body">If you have a backup from another phone, bring it in now and your categories, budgets and every entry come back as they were.</string>
+    <string name="welcome_restore">Restore from a backup</string>
+    <string name="welcome_fresh">Start fresh</string>
+    <string name="welcome_restored">Restored %1$d records</string>
+
+    <string name="recovery_restore">Restore from a backup</string>
+
     <string name="settings_maintenance">Maintenance</string>
     <string name="rebuild_aggregates">Rebuild the totals</string>
     <string name="rebuild_aggregates_hint">Recalculates every figure from the ledger</string>

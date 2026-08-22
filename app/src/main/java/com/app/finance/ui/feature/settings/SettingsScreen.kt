@@ -52,7 +52,9 @@ import com.app.finance.data.export.ImportOutcome
 import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.ThemeChoice
+import com.app.finance.ui.common.ActionRow
 import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.ToggleRow
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Radius
@@ -88,6 +90,7 @@ fun SettingsScreen(
     snackbarHostState: SnackbarHostState,
     onManageRecurring: () -> Unit,
     onOpenReports: () -> Unit,
+    onOpenBackup: () -> Unit,
     onBack: () -> Unit,
 ) {
     val vm: SettingsViewModel = viewModel(
@@ -167,6 +170,16 @@ fun SettingsScreen(
         }
 
         SectionHeader(stringResource(R.string.settings_data))
+        // Above the manual three deliberately: this is the one that happens
+        // without being remembered, and PRD §6.6 calls export "the only backup
+        // mechanism in a no-server product" -- a mechanism nobody runs is not
+        // one. The three below stay exactly as they were (FR-DAT-01 … 03).
+        ActionRow(
+            title = stringResource(R.string.settings_backup),
+            hint = stringResource(R.string.settings_backup_hint),
+            enabled = !state.busy,
+            onClick = onOpenBackup,
+        )
         ActionRow(
             title = stringResource(R.string.export_json),
             hint = stringResource(R.string.export_json_hint),
@@ -409,98 +422,6 @@ private fun DeleteAllSheet(
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.cancel), color = colors.inkSoft)
             }
-        }
-    }
-}
-
-/**
- * A setting that is on or off.
- *
- * The state is written as a word as well as drawn as a switch, because
- * NFR-USE-05 says state is "never conveyed by colour alone" and a switch is
- * position and colour. It is also what makes the toggles assertable in a test
- * without reading pixels.
- */
-@Composable
-private fun ToggleRow(
-    title: String,
-    hint: String,
-    checked: Boolean,
-    onChange: (Boolean) -> Unit,
-    enabled: Boolean = true,
-) {
-    val colors = KhataTheme.colors
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = Sizes.minTouchTarget)
-            .toggleable(value = checked, enabled = enabled, role = Role.Switch, onValueChange = onChange)
-            .padding(horizontal = Space.gutter, vertical = Space.s2),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                text = title,
-                style = KhataTheme.type.body,
-                color = if (enabled) colors.ink else colors.inkSoft,
-            )
-            Text(hint, style = KhataTheme.type.caption, color = colors.inkSoft)
-        }
-        Text(
-            text = stringResource(if (checked) R.string.toggle_on else R.string.toggle_off),
-            style = KhataTheme.type.caption,
-            color = colors.inkSoft,
-            modifier = Modifier.padding(end = Space.s2),
-        )
-        Switch(
-            checked = checked,
-            onCheckedChange = null,
-            enabled = enabled,
-        )
-    }
-}
-
-/** A title, an explanation of what it will do, and a 48 dp target. */
-@Composable
-private fun ActionRow(
-    title: String,
-    hint: String?,
-    enabled: Boolean,
-    destructive: Boolean = false,
-    onClick: () -> Unit,
-) {
-    val colors = KhataTheme.colors
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = Sizes.rowPlain)
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
-            .semantics { role = Role.Button }
-            .drawBehind {
-                drawLine(
-                    color = colors.rule,
-                    start = Offset(0f, size.height),
-                    end = Offset(size.width, size.height),
-                    strokeWidth = Sizes.hairline.toPx(),
-                )
-            }
-            .padding(horizontal = Space.gutter, vertical = Space.s2),
-        verticalArrangement = Arrangement.spacedBy(Space.s1),
-    ) {
-        Text(
-            text = title,
-            style = KhataTheme.type.body,
-            fontWeight = if (destructive) FontWeight.SemiBold else FontWeight.Normal,
-            color = when {
-                !enabled -> colors.inkSoft
-                destructive -> colors.vermilion
-                else -> colors.ink
-            },
-        )
-        // 05 §9 — "a control says what happens". Every row here does something
-        // the user cannot easily undo, so each says what before it is tapped.
-        if (hint != null) {
-            Text(hint, style = KhataTheme.type.caption, color = colors.inkSoft)
         }
     }
 }

@@ -1,8 +1,11 @@
 package com.app.finance.di
 
 import android.content.Context
+import android.net.Uri
+import com.app.finance.data.backup.SafBackupStore
 import com.app.finance.data.db.AppDatabase
 import com.app.finance.data.repo.AppMetaRepository
+import com.app.finance.data.repo.BackupRepository
 import com.app.finance.data.repo.BudgetRepository
 import com.app.finance.data.repo.CategoryRepository
 import com.app.finance.data.export.Exporter
@@ -67,6 +70,31 @@ class AppContainer(
     val exporter: Exporter by lazy { Exporter(db) }
     val importer: Importer by lazy { Importer(db) }
     val appMetaRepo: AppMetaRepository by lazy { AppMetaRepository(db, clock) }
+
+    /**
+     * FR-DAT-07 -- the automatic backup.
+     *
+     * `by lazy` like everything else here, and it matters more than most: this
+     * one is reached from `MainActivity`'s launch effect, so an eager field
+     * would open the database on the cold-start path the whole of 04 §6 is
+     * spent keeping clear.
+     *
+     * The store is built per call rather than held, because the folder is a
+     * preference the user can change and a `SafBackupStore` is bound to one
+     * tree. It is a lambda and not a `Context` so `BackupRepository` keeps no
+     * Android dependency and stays drivable against a fake folder -- which is
+     * what lets the rotation and scheduling arithmetic be tested at all.
+     */
+    val backupRepo: BackupRepository by lazy {
+        BackupRepository(
+            db = db,
+            exporter = exporter,
+            importer = importer,
+            settings = settingsRepo,
+            clock = clock,
+            storeFor = { tree -> SafBackupStore(appContext, Uri.parse(tree)) },
+        )
+    }
 
     /**
      * The directory is passed as a lambda so constructing this touches no

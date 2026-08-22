@@ -30,6 +30,7 @@ import androidx.navigation.compose.rememberNavController
 import com.app.finance.core.time.Period
 import com.app.finance.di.AppContainer
 import com.app.finance.ui.common.KhataIcons
+import com.app.finance.ui.feature.backup.BackupScreen
 import com.app.finance.ui.feature.budget.BudgetScreen
 import com.app.finance.ui.feature.category.CategoryManagerScreen
 import com.app.finance.ui.feature.dashboard.DashboardScreen
@@ -196,6 +197,16 @@ fun KhataApp(container: AppContainer) {
                         snackbarHostState = snackbarHostState,
                         onManageRecurring = { navController.navigate(ROUTE_RECURRING) },
                         onOpenReports = { navController.navigate(ROUTE_REPORTS) },
+                        onOpenBackup = { navController.navigate(ROUTE_BACKUP) },
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+                // Reached from Settings for the same reason Reports is: 04 §7
+                // fixes the bottom bar at four destinations.
+                composable(ROUTE_BACKUP) {
+                    BackupScreen(
+                        container = container,
+                        snackbarHostState = snackbarHostState,
                         onBack = { navController.popBackStack() },
                     )
                 }
@@ -245,6 +256,7 @@ private const val ROUTE_SOURCES = "sources"
 private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_RECURRING = "recurring"
 private const val ROUTE_REPORTS = "reports"
+private const val ROUTE_BACKUP = "backup"
 
 private const val SHEET_CLOSED = -1L
 private const val SHEET_NEW = 0L

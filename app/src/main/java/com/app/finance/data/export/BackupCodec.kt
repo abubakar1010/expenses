@@ -155,8 +155,15 @@ object BackupCodec {
     /** A ceiling on the header's iteration count, so a corrupt one cannot hang. */
     private const val MAX_ITERATIONS = 10_000_000
 
-    /** Not a Khata backup at all — a photo, a text file, the wrong JSON. */
-    class NotABackup(message: String) : IOException(message)
+    /**
+     * The magic matched but the mode did not — a backup from a later release.
+     *
+     * Distinct from [CorruptBackup] because it is not damaged, and the user can
+     * do something about it. FR-DAT-05 already extends exactly this courtesy to
+     * a newer *schema*; a newer container deserves the same sentence rather than
+     * being called broken.
+     */
+    class NewerFormat(message: String) : IOException(message)
 
     /** The file is encrypted and no passphrase was supplied. */
     class NeedsPassphrase : IOException("this backup is protected by a passphrase")
@@ -268,7 +275,14 @@ object BackupCodec {
             return head.before(source)
         }
 
-        return when (val mode = source.readByteOrThrow("mode")) {
+        // Past the magic, so anything wrong from here is a damaged backup of
+        // ours rather than somebody else's file. `readByteOrThrow` said
+        // "NotABackup" here, which would have told a user holding a truncated
+        // Khata file to go and find a different one.
+        val mode = source.read()
+        if (mode == -1) throw CorruptBackup("this backup ends before its mode byte")
+
+        return when (mode) {
             MODE_PLAIN -> GZIPInputStream(source, FRAME_BYTES)
 
             MODE_ENCRYPTED -> {
@@ -287,7 +301,7 @@ object BackupCodec {
                 GZIPInputStream(FramedGcmInputStream(source, key, nonce), FRAME_BYTES)
             }
 
-            else -> throw CorruptBackup("unknown backup mode: " + mode)
+            else -> throw NewerFormat("this backup uses format " + mode + ", which this version cannot read")
         }
     }
 
@@ -404,11 +418,19 @@ object BackupCodec {
         override fun close() {
             if (closed) return
             closed = true
-            // Sealed even when empty: an authenticated final frame is what makes
-            // the end of a complete file provable rather than assumed.
-            seal(last = true)
-            sink.flush()
-            sink.close()
+            try {
+                // Sealed even when empty: an authenticated final frame is what
+                // makes the end of a complete file provable rather than assumed.
+                seal(last = true)
+                sink.flush()
+            } finally {
+                // The sink closes even when sealing threw — a card pulled during
+                // the final write is exactly when this happens, and leaving the
+                // document open would strand it. The file is incomplete either
+                // way, and the caller deletes it; what must not also happen is a
+                // leaked handle on top of a failed backup.
+                sink.close()
+            }
         }
 
         private fun seal(last: Boolean) {
@@ -509,9 +531,6 @@ object BackupCodec {
         }
         return if (read == n) buf else buf.copyOf(read)
     }
-
-    private fun InputStream.readByteOrThrow(what: String): Int =
-        read().also { if (it == -1) throw NotABackup("this file ends before its " + what) }
 
     private fun InputStream.readFullyOrThrow(n: Int, what: String): ByteArray {
         val buf = take(n)

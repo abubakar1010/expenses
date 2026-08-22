@@ -6,6 +6,10 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.core.money.Money
 import com.app.finance.core.time.Period
 import com.app.finance.data.db.AppDatabase
+import com.app.finance.data.export.BackupCodec
+import com.app.finance.data.export.ImportMode
+import com.app.finance.data.export.ImportOutcome
+import com.app.finance.data.export.Importer
 import com.app.finance.data.export.Exporter
 import com.app.finance.data.repo.CategoryRepository
 import com.app.finance.data.repo.DashboardRepository
@@ -14,10 +18,12 @@ import com.app.finance.dev.SeedFiveYears
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.AfterClass
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.BeforeClass
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.time.Clock
 import java.time.LocalDate
@@ -107,6 +113,55 @@ class PerformanceProbeTest {
     }
 
     @Test
+    fun a_full_restore_finishes_inside_ten_seconds() = runBlocking {
+        // NFR-PERF-10, which did not exist until backup did — there was no
+        // import budget at all, only NFR-PERF-07 for export, and a restore is
+        // the slower half by some way: decrypt, decompress, wipe, bulk insert
+        // every row, and rebuild both rollup tables, all in one transaction.
+        //
+        // Encrypted on purpose. The unencrypted path is strictly cheaper, so
+        // measuring it would be measuring the easy case and calling the budget
+        // met.
+        val file = ByteArrayOutputStream()
+        BackupCodec.encode(file, BackupCodec.secretFrom(PASSPHRASE)).use {
+            exporter.writeJson(it, clock.millis())
+        }
+        val bytes = file.toByteArray()
+        Log.i(TAG, "NFR-PERF-10 backup is ${bytes.size} bytes for five years")
+        assertTrue("the backup is empty", bytes.size > 10_000)
+
+        // Into a *second*, empty database rather than over the shared corpus.
+        // Two reasons, and both matter: the corpus is seeded once for the whole
+        // class and a REPLACE would rewrite it under every probe that runs
+        // after, and an empty database is the honest target anyway — NFR-PERF-10
+        // is the budget for a restore after a reinstall, which is the only kind
+        // there is.
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.deleteDatabase(RESTORE_DB)
+        val fresh = AppDatabase.named(context, RESTORE_DB)
+        try {
+            val into = Importer(fresh)
+            val elapsed = measureTimeMillis {
+                val outcome = BackupCodec.decode(ByteArrayInputStream(bytes), PASSPHRASE)
+                    .use { into.import(it, ImportMode.REPLACE) }
+                assertTrue("restore failed: $outcome", outcome is ImportOutcome.Done)
+            }
+
+            Log.i(TAG, "NFR-PERF-10 restore: ${elapsed}ms for ${bytes.size} bytes")
+            assertTrue("restore took ${elapsed}ms against a 10s budget", elapsed <= 10_000)
+
+            // A restore that met the budget by dropping rows would be worse than
+            // a slow one, so the ledger is counted afterwards.
+            val restored = fresh.backupDao().allExpenses().size
+            val original = db.backupDao().allExpenses().size
+            assertEquals("the restore lost rows", original, restored)
+        } finally {
+            fresh.close()
+            context.deleteDatabase(RESTORE_DB)
+        }
+    }
+
+    @Test
     fun five_years_of_data_fits_the_database_budget() = runBlocking {
         // NFR-SIZE-05 — "database size for 5 years of data <= 6 MB", and 03 §9
         // sizes it at roughly 3.8 MB with indexes. Never measured until now,
@@ -139,6 +194,10 @@ class PerformanceProbeTest {
         const val TAG = "KhataPerf"
         const val SAMPLES = 21
         const val DB_NAME = "perf-probe.db"
+
+        /** NFR-PERF-10 restores into its own database; see the probe for why. */
+        const val RESTORE_DB = "perf-restore.db"
+        val PASSPHRASE = "shob kichu fire ashuk".toCharArray()
 
         lateinit var db: AppDatabase
         lateinit var expenses: ExpenseRepository

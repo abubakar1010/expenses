@@ -124,8 +124,8 @@ fun BackupScreen(
         if (result.resultCode == Activity.RESULT_OK && tree != null) {
             // Taking the grant is the Android half and stays out of the
             // ViewModel; what crosses is a string.
-            SafBackupStore.persist(context, tree, state.settings.treeUri)
-                ?.let(vm::onFolderChosen)
+            val granted = SafBackupStore.persist(context, tree, state.settings.treeUri)
+            if (granted == null) vm.reportFolderRefused() else vm.onFolderChosen(granted)
         }
     }
     val fileLauncher = rememberLauncherForActivityResult(
@@ -571,6 +571,7 @@ private fun backupMessage(message: BackupMessage): String = when (message) {
     BackupMessage.PassphraseSet -> stringResource(R.string.backup_passphrase_set)
     BackupMessage.PassphraseCleared -> stringResource(R.string.backup_passphrase_cleared)
     BackupMessage.NothingToSend -> stringResource(R.string.backup_send_none)
+    BackupMessage.FolderRefused -> stringResource(R.string.backup_folder_refused)
 }
 
 /**

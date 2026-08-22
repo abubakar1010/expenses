@@ -348,7 +348,6 @@
         <item quantity="other">%1$d records · %2$s</item>
     </plurals>
     <string name="backup_now">Back up now</string>
-    <string name="backup_running">Backing up…</string>
     <string name="backup_done">Backed up %1$s</string>
 
     <string name="backup_folder">Where backups go</string>
@@ -357,6 +356,7 @@
     <string name="backup_folder_change">Change folder</string>
     <string name="backup_folder_gone">Khata can\'t reach that folder any more. Choose another.</string>
     <string name="backup_no_folder">Choose a folder first.</string>
+    <string name="backup_folder_refused">Khata wasn\'t given lasting access to that folder. Try another.</string>
     <string name="backup_write_failed">That folder wouldn\'t take the file. Nothing was changed.</string>
     <!-- The limit worth being blunt about: FR-DAT-08 runs on launch, because
          04 §6 keeps ContentProviders off the startup path and 05 §12 has no
@@ -402,7 +402,6 @@
     <string name="welcome_restore_body">Your starter categories are replaced by the ones in the backup.</string>
     <string name="welcome_restore_confirm">Restore everything</string>
     <string name="welcome_fresh">Start fresh</string>
-    <string name="welcome_restored">Restored %1$d records</string>
     <!-- The step after a restore. The file carried the schedule but could not
          carry the folder grant, so the ledger is back and nothing is backing it
          up — and the dashboard would look entirely healthy. Not a nag under 05

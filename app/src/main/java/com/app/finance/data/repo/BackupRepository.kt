@@ -1,5 +1,6 @@
 package com.app.finance.data.repo
 
+import android.util.Log
 import com.app.finance.data.backup.BackupStore
 import com.app.finance.data.db.AppDatabase
 import com.app.finance.data.export.BackupCodec
@@ -184,15 +185,38 @@ class BackupRepository(
 
             val summary = try {
                 val sink = store.write(partial.id) ?: throw IOException("the folder would not open the file")
-                // `writeJson` closes what it is given, which closes the codec,
-                // which seals the last frame and closes the file underneath.
-                exporter.writeJson(BackupCodec.encode(sink, settings.backupSecret()), at)
+                // `use` is the belt, not the braces. `writeJson` closes what it
+                // is given, which closes the codec, which seals the last frame
+                // and closes this — but only once `encode` has returned. Deriving
+                // the key or writing the header can throw before that, and
+                // without `use` the document is left open: a StrictMode
+                // `detectLeakedClosableObjects` violation, and on some providers
+                // a document that stays locked until the process dies. Closing
+                // twice is a no-op on every stream in the chain.
+                sink.use { exporter.writeJson(BackupCodec.encode(it, settings.backupSecret()), at) }
             } catch (e: Exception) {
+                // Logged, not swallowed. §18.7 A12 is the precedent: a failed
+                // restore of five years of data with nothing to diagnose is a
+                // defect in its own right, and a failed *backup* is the same
+                // shape — the user is told it did not work and nobody can say
+                // why.
+                Log.w(TAG, "backup failed while writing", e)
                 store.delete(partial.id)
                 return BackupOutcome.Failure.WRITE_FAILED
             }
 
-            val done = store.rename(partial.id, name) ?: partial
+            // A file that could not be given its final name is not a backup.
+            //
+            // The content is written and valid, but `isBackupName` will not
+            // match it, so rotation ignores it and `list()` never shows it —
+            // the user would be told they have a backup that nothing in the app
+            // can find, and the next rotation would count one fewer generation
+            // than it has. Better to fail honestly and try again next launch.
+            val done = store.rename(partial.id, name) ?: run {
+                Log.w(TAG, "backup written but could not be renamed from its .part name")
+                store.delete(partial.id)
+                return BackupOutcome.Failure.WRITE_FAILED
+            }
 
             // Recorded only now. A crash before this point leaves the app
             // believing it has not backed up since the last success, which is
@@ -291,15 +315,39 @@ class BackupRepository(
         } catch (e: BackupCodec.WrongPassphrase) {
             input.close()
             return RestoreOutcome.WrongPassphrase
+        } catch (e: BackupCodec.NewerFormat) {
+            // Not damaged — written by a later release. FR-DAT-05's sentence
+            // fits exactly: update, then import again.
+            input.close()
+            Log.w(TAG, "restore refused: the backup is from a newer version", e)
+            return RestoreOutcome.Refused(ImportOutcome.Failure.NEWER_SCHEMA)
+        } catch (e: BackupCodec.CorruptBackup) {
+            // Ours, and damaged — "that backup couldn't be read to the end".
+            // Kept apart from the case below on purpose: the codec goes to some
+            // trouble to tell a Khata file that has been altered from a file
+            // that was never one, and collapsing both into "this isn't a Khata
+            // backup" would throw that away at the last step and tell a user
+            // with a truncated backup to go and find a different file.
+            input.close()
+            Log.w(TAG, "restore refused: the file is a damaged backup", e)
+            return RestoreOutcome.Refused(ImportOutcome.Failure.REJECTED)
         } catch (e: IOException) {
             input.close()
+            Log.w(TAG, "restore refused: the file is not a backup", e)
             return RestoreOutcome.Refused(ImportOutcome.Failure.UNREADABLE)
         }
 
-        // A frame that fails its tag part-way through surfaces inside the import
-        // and rolls it back, arriving here as REJECTED — "that backup couldn't
-        // be read to the end. Nothing was changed", which is exactly true.
-        val outcome = decoded.use { importer.import(it, mode) }
+        // Damage that only shows up part-way through the file — a failed AEAD
+        // tag, a truncated gzip stream — is thrown while `Importer` is reading,
+        // and `Importer` reports every read failure as UNREADABLE: "that file
+        // isn't a Khata backup". For a backup that *is* one and is merely
+        // damaged, that is the wrong sentence and an unhelpful one, and it
+        // silently undid the distinction the codec goes to some trouble to draw.
+        //
+        // So the stream remembers what escaped it, and the verdict below prefers
+        // that over the importer's guess.
+        val watched = DamageWatch(decoded)
+        val outcome = watched.use { importer.import(it, mode) }
 
         return when (outcome) {
             is ImportOutcome.Done -> {
@@ -309,14 +357,52 @@ class BackupRepository(
                 RestoreOutcome.Done(outcome.totals)
             }
 
-            is ImportOutcome.Failure -> RestoreOutcome.Refused(outcome)
+            is ImportOutcome.Failure -> {
+                val damage = watched.failure
+                if (damage != null) {
+                    Log.w(TAG, "restore refused: the backup is damaged part-way through", damage)
+                    RestoreOutcome.Refused(ImportOutcome.Failure.REJECTED)
+                } else {
+                    RestoreOutcome.Refused(outcome)
+                }
+            }
         }
+    }
+
+    /**
+     * Remembers the first `IOException` to escape [delegate].
+     *
+     * `Importer` cannot tell a damaged backup from a file that was never one —
+     * it sees a read that failed either way, and calls both UNREADABLE. This is
+     * how the difference survives the trip: everything the codec throws passes
+     * through here on its way out.
+     */
+    private class DamageWatch(private val delegate: InputStream) : InputStream() {
+        var failure: IOException? = null
+            private set
+
+        override fun read(): Int = watch { delegate.read() }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int = watch { delegate.read(b, off, len) }
+
+        override fun available(): Int = delegate.available()
+
+        override fun close() = delegate.close()
+
+        private inline fun watch(block: () -> Int): Int =
+            try {
+                block()
+            } catch (e: IOException) {
+                if (failure == null) failure = e
+                throw e
+            }
     }
 
     private fun stamp(at: Long): String =
         LocalDateTime.ofInstant(Instant.ofEpochMilli(at), clock.zone).format(STAMP)
 
     private companion object {
+        const val TAG = "Khata"
         const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
 
         /**

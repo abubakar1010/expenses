@@ -6,6 +6,7 @@ import com.app.finance.data.backup.FakeBackupStore
 import com.app.finance.data.db.dao.AppMetaDao
 import com.app.finance.data.export.BackupCodec
 import com.app.finance.data.export.ImportMode
+import com.app.finance.data.export.ImportOutcome
 import com.app.finance.domain.model.BackupInterval
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -253,6 +254,23 @@ class BackupRepositoryTest {
     }
 
     @Test
+    fun a_backup_that_cannot_be_given_its_final_name_is_not_reported_as_one() = runBlocking {
+        // The content is written and valid, but a file still called `.part` is
+        // one `isBackupName` will not match: rotation ignores it, `list()` never
+        // shows it, and the user would be told they have a backup nothing in the
+        // app can find. Failing honestly and retrying next launch is the only
+        // answer that stays true.
+        arm()
+        spend(150_00)
+        store.refuseRename = true
+
+        assertEquals(BackupOutcome.Failure.WRITE_FAILED, backup.runIfDue())
+
+        assertTrue("a half-named file was left behind", store.names.isEmpty())
+        assertFalse("a backup nobody can find was recorded", fx.settings.backupSettings().hasEverRun)
+    }
+
+    @Test
     fun a_folder_that_refuses_the_file_is_reported_not_thrown() = runBlocking {
         arm()
         store.refuseCreate = true
@@ -335,6 +353,45 @@ class BackupRepositoryTest {
 
         assertTrue(outcome is RestoreOutcome.Refused)
         assertEquals(0, expenseCount())
+    }
+
+    @Test
+    fun a_damaged_backup_and_a_stranger_get_different_sentences() = runBlocking {
+        // The codec goes to some trouble to tell a Khata file that has been
+        // altered from a file that was never one. Collapsing both into
+        // "this isn't a Khata backup" at the last step would throw that away and
+        // send somebody with a truncated backup off to find a different file.
+        arm()
+        backup.runIfDue()
+        val good = store.bytesOf(store.names.single())!!
+
+        val truncated = good.copyOf(good.size - 30)
+        assertEquals(
+            RestoreOutcome.Refused(ImportOutcome.Failure.REJECTED),
+            backup.restore({ ByteArrayInputStream(truncated) }, null, ImportMode.MERGE),
+        )
+
+        val stranger = "not a backup at all".toByteArray()
+        assertEquals(
+            RestoreOutcome.Refused(ImportOutcome.Failure.UNREADABLE),
+            backup.restore({ ByteArrayInputStream(stranger) }, null, ImportMode.MERGE),
+        )
+    }
+
+    @Test
+    fun a_backup_from_a_later_release_says_so_rather_than_calling_it_broken() = runBlocking {
+        // FR-DAT-05 already extends this courtesy to a newer schema. A container
+        // this build does not know is the same situation and the same sentence:
+        // update, then import again.
+        arm()
+        backup.runIfDue()
+        val file = store.bytesOf(store.names.single())!!.copyOf()
+        file[BackupCodec.MAGIC.size] = 9
+
+        assertEquals(
+            RestoreOutcome.Refused(ImportOutcome.Failure.NEWER_SCHEMA),
+            backup.restore({ ByteArrayInputStream(file) }, null, ImportMode.MERGE),
+        )
     }
 
     // --- FR-DAT-12: what a backup must not carry ------------------------------

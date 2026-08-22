@@ -132,8 +132,17 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
     ) { result ->
         val tree = result.data?.data
         if (result.resultCode == Activity.RESULT_OK && tree != null) {
-            SafBackupStore.persist(context, tree, null)?.let(vm::onFolderChosen)
-            answered()
+            val granted = SafBackupStore.persist(context, tree, null)
+            if (granted == null) {
+                // Not moved on. Being dropped onto a healthy-looking dashboard
+                // believing backups are set up, when the grant never stuck, is
+                // the same failure this screen exists to prevent — one step
+                // further along.
+                vm.reportFolderRefused()
+            } else {
+                vm.onFolderChosen(granted)
+                answered()
+            }
         }
     }
 
@@ -189,6 +198,18 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
                 ),
                 style = KhataTheme.type.body,
             )
+        }
+
+        // No snackbar host out here — this screen sits above the NavHost — so
+        // anything worth saying is said in place.
+        state.message?.let { message ->
+            if (message is BackupMessage.FolderRefused) {
+                Text(
+                    text = stringResource(R.string.backup_folder_refused),
+                    style = KhataTheme.type.caption,
+                    color = colors.vermilion,
+                )
+            }
         }
 
         TextButton(

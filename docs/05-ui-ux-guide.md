@@ -326,6 +326,58 @@ The income screen **defaults to a yearly view** while every other screen default
 
 Sources are marked stable or variable with a filled or hollow dot — a shape difference, not a colour difference, so it survives both greyscale and colourblindness.
 
+### 5.8 Screen anatomy — Backup
+
+The screen whose job is to be believed.
+
+```
+┌───────────────────────────────────────┐
+│   Backup                              │
+│                                       │
+│   Last backup 22 Aug 2026, 9:14 pm    │  ← section figure, not a caption.
+│   4,182 records · khata-backup-…      │    "Never backed up" reads the same
+├───────────────────────────────────────┤    size, in ink-soft
+│   WHERE BACKUPS GO                    │
+│   Backups are written when you open   │  ← both sentences before the
+│   Khata, not while it is closed.      │    control, not after it
+│   They go in a folder you own, so     │
+│   they stay when Khata is             │
+│   uninstalled. To survive a lost      │
+│   phone, send a copy somewhere else.  │
+│                                       │
+│   Documents/Khata                     │
+│   Change folder                       │
+├───────────────────────────────────────┤
+│   HOW OFTEN                           │
+│   (Only when I tap)(Every day)(Every  │  ← chips, same as the theme row
+│   week)                               │
+├───────────────────────────────────────┤
+│   PROTECT WITH A PASSPHRASE           │
+│   Off                                 │
+│   Off by default. If you forget it,   │  ← said here and again in the
+│   the backup cannot be opened — not   │    sheet that sets it
+│   by you, and not by us.              │
+└───────────────────────────────────────┘
+```
+
+**The two sentences under the folder header are the screen.** Everything else is
+controls; those are the only part that decides whether the feature is honest.
+They state what survives an uninstall, what does not, and when backups actually
+happen — because §12 rules out a background service, so a bare "Every day" chip
+would promise something the app cannot deliver. A user who believes they are
+covered and is not would be worse off than one with no backup at all, and this
+is the one screen where that mistake is unrecoverable.
+
+The passphrase warning appears twice, which nothing else in the app does. It is
+on the row, and again in the sheet that sets one, because the moment it can
+still be acted on is the moment before a passphrase is chosen. §9 forbids
+apologising; it does not forbid saying a hard thing once more where it counts.
+
+**"Last backup" is a section figure, not a caption.** It is the number the user
+came to check, and it is set at the same weight as the money on every other
+screen for the same reason: it is the fact, and the controls under it are the
+action.
+
 ---
 
 ## 6. Components
@@ -497,3 +549,4 @@ Dribbble, Behance, and Pinterest finance-app concepts. They optimise for a stati
 | Income defaults to year | Month, for consistency | A ৳0 farming month is meaningless in isolation |
 | Undo snackbars | Confirmation dialogs | Corrects after the fact instead of interrupting before it |
 | No notifications | Budget alerts / reminders | No background service, and nagging gets apps uninstalled |
+| Backup says when it runs | A bare "Every day" | There is no background service, so the honest sentence is "when you open Khata". A feature nobody can trust is worse than one nobody has |

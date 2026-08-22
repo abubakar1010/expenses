@@ -236,6 +236,7 @@ The database returns small aggregate rows; all derived metrics are computed by p
 | All DAO access | `Dispatchers.IO` via suspend functions or Flow |
 | Domain calculations | Whatever `combine` runs on, off-main by construction |
 | Export / import | `Dispatchers.IO`, foreground with progress |
+| Automatic backup | `Dispatchers.IO`, on launch beside rule evaluation, progress drawn by the shell. Not WorkManager: §6 keeps `ContentProvider` initialisers off the startup path, and NFR-COMP-05 refuses to put core data safety behind OEM battery policy |
 
 StrictMode in debug builds enables `detectDiskReads`, `detectDiskWrites`, and `penaltyDeath`, making any accidental main-thread database access a crash during development rather than a jank report from a user (NFR-PERF-09).
 
@@ -286,6 +287,8 @@ Additional measures:
 | Category Manager | Two-level tree, create/rename/reorder/archive | |
 | Reports | Custom date range, fixed/variable split, top expenses | Ledger-backed rather than rollup-backed |
 | Settings | Export, import, rebuild aggregates, delete all data, theme | |
+| Backup | Folder, schedule, retention, passphrase, back up now, send a copy, restore | Reached from Settings; the bottom bar is fixed at four |
+| Welcome | First launch after an install: restore a backup, or start fresh | Shown above the NavHost, after the lock gate |
 
 Navigation is a single `NavHost` with a bottom bar of four destinations — Dashboard, Ledger, Income, Budget — and a centre FAB for Quick Add. Everything else is a detail route or a bottom sheet.
 
@@ -301,6 +304,8 @@ The FAB placement is a usability requirement, not decoration: NFR-USE-06 require
 | Constraint violation | Repository maps `SQLiteConstraintException` to a typed domain error with an actionable message; never a raw exception surfaced to the user |
 | Migration failure | Release builds never fall back to destructive migration. Failure surfaces a recovery screen offering export of the raw database file |
 | Import failure | Whole import runs in one transaction; any failure rolls back leaving the prior state untouched (FR-DAT-04, NFR-REL-04) |
+| Backup folder gone | Reported, and the setting is kept — a card that is out today goes back in tomorrow. The app is not armed until a folder *and* a schedule are both set, so it never believes it is protected when it is not |
+| Altered or truncated backup | Refused in full before a row is written. Each block carries its own AEAD tag and the last one is marked, so a file cut at a block boundary is detected rather than read as a shorter ledger |
 | Rollup drift | Debug-build startup assertion compares rollups against live aggregates; user-invocable rebuild in Settings |
 | Process death | `SavedStateHandle` restores the current period and in-progress entry form |
 
@@ -351,7 +356,7 @@ The v1 architecture is deliberately server-free, which raises the question of wh
 
 | Future capability | What it requires | Whether v1 blocks it |
 |---|---|---|
-| Cloud backup | Upload the export JSON; add `INTERNET` | No — export already produces the artifact |
+| Cloud backup | Upload the backup file; add `INTERNET` | No — the artifact exists, is compressed, is optionally encrypted, and is already written to a folder on a schedule. What is missing is only the upload, and "send a copy" covers the case today by handing the file to an app that has the permission |
 | Multi-device sync | Sync engine, conflict resolution, tombstone table for deletes | Partly — a `deleted_at` soft-delete column would need adding by migration |
 | SMS auto-import | `RECEIVE_SMS`, per-bank parsers, a staging table of unconfirmed entries | No — the pending-status mechanism built for recurring rules is exactly the right landing place |
 | Multi-currency | Currency column, rate table, base-currency reporting | Partly — every stored amount would need a currency association |

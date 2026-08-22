@@ -209,6 +209,21 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 
 **FR-DAT-06** The system MUST provide a "delete all data" action behind an explicit typed confirmation.
 
+**FR-DAT-07** The system MUST allow the user to nominate a backup folder through the system directory picker, and MUST persist that grant across launches. The app MUST NOT choose or infer a destination of its own.
+- *Accept:* The merged release manifest declares no storage permission; the folder survives a process death and a reboot.
+
+**FR-DAT-08** The system SHOULD write a backup to the nominated folder automatically, at most once per configured interval, and only when the ledger has changed since the last successful backup *(P1)*.
+- *Accept:* A second launch on the same day writes nothing; a launch after the interval with an unchanged ledger writes nothing; a launch after the interval with a new entry writes one file.
+
+**FR-DAT-09** The system MUST retain the most recent *N* backups, *N* being user-configurable, and MUST delete only files it wrote itself.
+
+**FR-DAT-10** The system MUST offer a restore path on the first launch after an install, before any data is entered, and from the recovery screen when the database cannot be opened.
+
+**FR-DAT-11** A backup MAY be encrypted with a user-supplied passphrase. Encryption MUST be optional and off by default. A wrong passphrase, an altered file, or a truncated one MUST be refused in full — never partially applied — and a wrong passphrase MUST be reported as distinct from a damaged file.
+
+**FR-DAT-12** The system MUST read plain, compressed and encrypted backups, and MUST continue to read files written by any earlier release.
+- *Accept:* A `khata-export.json` produced before the backup format existed still restores.
+
 ### 2.9 Application-level requirements — FR-APP
 
 **FR-APP-01** The system MUST NOT declare the `INTERNET` permission.
@@ -241,6 +256,7 @@ All targets are measured on the **reference device** with a seeded database of *
 | NFR-PERF-05 | Ledger scroll | ≥ 55 fps, no frame > 16 ms at p95 |
 | NFR-PERF-06 | Period switch on dashboard | ≤ 150 ms |
 | NFR-PERF-07 | Full JSON export | ≤ 3 s |
+| NFR-PERF-10 | Full restore from a backup — decrypt, decompress, import, rebuild rollups | ≤ 10 s |
 | NFR-PERF-08 | Steady-state **anonymous** resident memory — the pages this app allocated, measured as `MemoryUsageMetric`'s `memoryRssAnonLastKb` once the dashboard has settled over five years of data | ≤ 80 MB |
 | NFR-PERF-09 | Main-thread database access | Zero occurrences; enforced by StrictMode in debug builds |
 
@@ -289,11 +305,12 @@ All targets are measured on the **reference device** with a seeded database of *
 
 | ID | Requirement |
 |---|---|
-| NFR-SEC-01 | No data leaves the device except by explicit user-initiated export |
+| NFR-SEC-01 | Data leaves the device only by a transfer the user asked for, to a destination the user chose. The app holds no network transport, and MUST NOT select or infer a destination of its own. — Restated from "No data leaves the device except by explicit user-initiated export", which FR-DAT-08 contradicts on its face: an automatic backup is not an export the user initiates each time. The wording presumed that "user-initiated" and "one file at a time" were the same guarantee, and they are not. What the requirement was *for* is that the user, and never the app, decides that data leaves and where it goes — and that is exactly what a nominated folder plus a schedule the user switched on preserves: the grant comes from the system directory picker, needs no permission, and can be withdrawn in system settings. FR-APP-01 is untouched and still gated in CI, so there is no transport off the device even in principle. Recorded here deliberately, in the manner of NFR-SEC-05; `06-implementation-log.md` §21.2 has the reasoning. |
 | NFR-SEC-02 | No analytics, telemetry, crash reporting SDK, or advertising identifier |
 | NFR-SEC-03 | The database resides in app-private internal storage; `allowBackup` disabled to prevent silent cloud copies |
 | NFR-SEC-04 | `FLAG_SECURE` applied optionally to block screenshots and recents-screen previews *(P1)* |
 | NFR-SEC-05 | Database encryption at rest is out of scope for v1; the rationale — that it requires bundling a native crypto library at material size and startup cost, while the device lock screen already gates access — is recorded here deliberately, and revisited in v2 |
+| NFR-SEC-06 | Backup files MAY be encrypted at the user's option, using platform primitives only — AES-256-GCM under a key derived by PBKDF2WithHmacSHA256. No third-party and no native crypto. Distinct from NFR-SEC-05: that requirement is about the database at rest, and its stated rationale is the size and startup cost of a **native** library, neither of which applies to primitives the platform has shipped since API 26. The derived key is stored in app-private storage beside the database, which is already unencrypted by NFR-SEC-05 — what this protects is the file after it leaves the device |
 
 ### 3.7 Maintainability — NFR-MAIN
 

@@ -59,6 +59,38 @@ interface BackupDao {
     @Query("SELECT * FROM app_meta ORDER BY key")
     suspend fun allMeta(): List<AppMetaEntity>
 
+    /**
+     * One number that changes whenever the ledger does — FR-DAT-08.
+     *
+     * The automatic backup runs only if something happened since the last one.
+     * Without that, opening the app on a quiet Sunday writes a byte-identical
+     * copy and rotates a real backup out of the folder to make room for it,
+     * which is the opposite of what retention is for.
+     *
+     * `MAX(updated_at)` alone would miss a delete, so the row count rides along:
+     * together they move on any insert, edit or delete. DR-03 makes
+     * `updated_at` present on every mutable row, which is what lets one query
+     * cover all four tables.
+     *
+     * **`app_meta` is deliberately not in the union.** `ExpenseRepository`
+     * writes `last_category_id` on every single save, so including it would
+     * make this change even when nothing about the ledger did — and, worse,
+     * change again when the backup itself recorded its own result.
+     */
+    @Query(
+        """
+        SELECT COALESCE(SUM(stamp), 0) + COALESCE(SUM(n), 0) FROM (
+            SELECT MAX(updated_at) AS stamp, COUNT(*) AS n FROM expense
+            UNION ALL SELECT MAX(updated_at), COUNT(*) FROM income_entry
+            UNION ALL SELECT MAX(updated_at), COUNT(*) FROM budget
+            UNION ALL SELECT MAX(updated_at), COUNT(*) FROM recurring_rule
+            UNION ALL SELECT MAX(updated_at), COUNT(*) FROM category
+            UNION ALL SELECT MAX(updated_at), COUNT(*) FROM income_source
+        )
+        """,
+    )
+    suspend fun ledgerRevision(): Long
+
     // --- writes --------------------------------------------------------------
     //
     // ABORT rather than REPLACE: a collision during import is a bug in the

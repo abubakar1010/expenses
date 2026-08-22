@@ -347,9 +347,9 @@
     <string name="backup_folder_none">Choose a folder</string>
     <string name="backup_folder_pick">Choose a folder</string>
     <string name="backup_folder_change">Change folder</string>
-    <string name="backup_folder_gone">Khata can't reach that folder any more. Choose another.</string>
+    <string name="backup_folder_gone">Khata can\'t reach that folder any more. Choose another.</string>
     <string name="backup_no_folder">Choose a folder first.</string>
-    <string name="backup_write_failed">That folder wouldn't take the file. Nothing was changed.</string>
+    <string name="backup_write_failed">That folder wouldn\'t take the file. Nothing was changed.</string>
     <!-- The limit worth being blunt about: FR-DAT-08 runs on launch, because
          04 §6 keeps ContentProviders off the startup path and 05 §12 has no
          notification to report a background run through. Saying "every day"
@@ -372,11 +372,11 @@
     <string name="backup_passphrase">Passphrase</string>
     <string name="backup_passphrase_again">Type it again</string>
     <string name="backup_passphrase_short">Use at least 8 characters.</string>
-    <string name="backup_passphrase_differs">Those two don't match.</string>
+    <string name="backup_passphrase_differs">Those two don\'t match.</string>
     <string name="backup_passphrase_save">Protect backups</string>
     <string name="backup_passphrase_set">Backups are now protected</string>
     <string name="backup_passphrase_cleared">Backups are no longer protected</string>
-    <string name="backup_wrong_passphrase">That passphrase doesn't open this backup. Nothing was changed.</string>
+    <string name="backup_wrong_passphrase">That passphrase doesn\'t open this backup. Nothing was changed.</string>
     <string name="backup_needs_passphrase">This backup is protected. Enter its passphrase.</string>
     <string name="backup_unlock">Unlock</string>
 

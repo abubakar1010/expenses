@@ -1,7 +1,10 @@
 package com.app.finance.benchmark
 
 import androidx.benchmark.macro.CompilationMode
+import androidx.benchmark.macro.ExperimentalMetricApi
 import androidx.benchmark.macro.FrameTimingMetric
+import androidx.benchmark.macro.FrameTimingGfxInfoMetric
+import androidx.benchmark.macro.MemoryUsageMetric
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.StartupTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
@@ -63,11 +66,64 @@ class StartupBenchmark {
         device.wait(Until.hasObject(By.pkg(TARGET_PACKAGE).depth(0)), 5_000)
     }
 
-    /** NFR-PERF-05. Frame timings while scrolling the ledger. */
+    /**
+     * NFR-PERF-02 — "warm start ≤ 250 ms".
+     *
+     * The process is alive and the activity is not, which is what happens every
+     * time a user comes back to Khata from another app. It had no benchmark
+     * until §20.10: `startup()` above measures cold only, and the two are
+     * different numbers about different things.
+     */
+    @Test
+    fun startupWarm() = rule.measureRepeated(
+        packageName = TARGET_PACKAGE,
+        metrics = listOf(StartupTimingMetric()),
+        compilationMode = CompilationMode.Partial(),
+        iterations = ITERATIONS,
+        startupMode = StartupMode.WARM,
+        setupBlock = { pressHome() },
+    ) {
+        startActivityAndWait()
+        device.wait(Until.hasObject(By.pkg(TARGET_PACKAGE).depth(0)), 5_000)
+    }
+
+    /**
+     * NFR-PERF-08 — "steady-state resident memory ≤ 80 MB".
+     *
+     * Measured after the dashboard has settled over five years of data, which
+     * is the state the target is about — not the moment after launch, when the
+     * flows have not landed and the heap has not been touched.
+     */
+    @OptIn(ExperimentalMetricApi::class)
+    @Test
+    fun steadyStateMemory() = rule.measureRepeated(
+        packageName = TARGET_PACKAGE,
+        metrics = listOf(MemoryUsageMetric(MemoryUsageMetric.Mode.Last)),
+        compilationMode = CompilationMode.Partial(),
+        iterations = ITERATIONS,
+        startupMode = StartupMode.WARM,
+        setupBlock = { pressHome() },
+    ) {
+        startActivityAndWait()
+        device.wait(Until.hasObject(By.textContains("SAFE TO SPEND")), 5_000)
+        device.waitForIdle()
+    }
+
+    /**
+     * NFR-PERF-05. Frame timings while scrolling the ledger.
+     *
+     * **Two metrics, and the second is the one the requirement needs.**
+     * `FrameTimingMetric` returned `frameCount` and nothing else on this device
+     * (§20.6) — a frame count is not a frame time, and the target is "≥ 55 fps,
+     * no frame > 16 ms at p95". `FrameTimingGfxInfoMetric` reads `dumpsys
+     * gfxinfo` instead of the frame timeline and reports percentiles directly,
+     * which is exactly the shape of the requirement.
+     */
+    @OptIn(ExperimentalMetricApi::class)
     @Test
     fun ledgerScroll() = rule.measureRepeated(
         packageName = TARGET_PACKAGE,
-        metrics = listOf(FrameTimingMetric()),
+        metrics = listOf(FrameTimingMetric(), FrameTimingGfxInfoMetric()),
         compilationMode = CompilationMode.Partial(),
         iterations = ITERATIONS,
         startupMode = StartupMode.WARM,

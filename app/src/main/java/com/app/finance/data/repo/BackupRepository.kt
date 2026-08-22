@@ -120,8 +120,17 @@ class BackupRepository(
 
         val prefs = settings.backupSettings()
         if (!prefs.isArmed) return BackupOutcome.Skipped
+
+        // Time before content, and the order is the point. `ledgerRevision` is a
+        // scan of six tables, and at five years that is not free — but it can
+        // only change the answer on a launch where the interval has already
+        // elapsed. Asking the cheap question first means the scan runs about
+        // once a day rather than every time the app is opened.
+        if (!intervalElapsed(prefs)) return BackupOutcome.Skipped
+
         val revision = dao.ledgerRevision()
-        if (!isDue(prefs, revision)) return BackupOutcome.Skipped
+        if (prefs.lastRevision == revision) return BackupOutcome.Skipped
+
         return write(prefs, revision)
     }
 
@@ -133,17 +142,21 @@ class BackupRepository(
     }
 
     /**
-     * Three conditions, and the middle one is the one worth having.
+     * Has the schedule come round again?
      *
-     * Without the revision check, a phone opened every morning writes a
-     * byte-identical copy each time and rotates a real backup out of the folder
-     * to make room for it. After [BackupSettings.keep] quiet days the oldest
-     * genuine backup is gone and every remaining file is the same week.
-     * Retention would be actively destroying history in the name of keeping it.
+     * The other half of "is it due" is in [runIfDue], because the two halves
+     * cost very different amounts. This one is arithmetic on a value already
+     * read; the other is a scan.
+     *
+     * The revision half is the one worth having at all. Without it, a phone
+     * opened every morning writes a byte-identical copy each time and rotates a
+     * real backup out of the folder to make room for it — after
+     * [BackupSettings.keep] quiet days the oldest genuine backup is gone and
+     * every remaining file is the same week. Retention would be actively
+     * destroying history in the name of keeping it.
      */
-    private fun isDue(prefs: BackupSettings, revision: Long): Boolean {
+    private fun intervalElapsed(prefs: BackupSettings): Boolean {
         val last = prefs.lastAt ?: return true
-        if (prefs.lastRevision == revision) return false
         val elapsed = clock.millis() - last
         // A negative elapsed means the clock moved backwards — a timezone
         // change, or the user correcting the date. Back up rather than wait for

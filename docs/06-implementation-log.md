@@ -3611,12 +3611,27 @@ assumed about its green-ness. 517 tests in one invocation, zero failures.
   hand (§21.8), and the fake imitates the two provider behaviours that have
   caused bugs elsewhere — a deduped display name and a write that fails
   part-way. Every future change to that class needs the same walk.
+- **NFR-PERF-01 has not been re-measured.** `MainActivity` gained one more
+  `app_meta` read on the launch gate, and `runIfDue` adds two reads plus a
+  `MAX(updated_at)` scan on days a backup is due. Both are off the main thread
+  and behind the first frame, and neither is free. 02 §3.1 is explicit that a
+  figure from the wrong device "is not evidence of compliance", so this needs
+  the reference hardware and the five-year corpus — not the emulator §21.8 ran
+  on.
 - **One provider, one ROM.** §21.8 ran against `ExternalStorageProvider` on an
   API 35 emulator. Name mangling is the specific worry: some providers append an
   extension derived from the MIME type. `create` and `rename` read the resulting
   name back rather than assuming, and `octet-stream` is the type providers leave
   alone — but a Xiaomi, an SD card, and a cloud provider's tree are all
   untested.
+- **Three of §21.8's steps were left to the instrumented suite.** The device
+  walk covered choosing a folder, backing up, uninstalling, reinstalling and
+  restoring. It did **not** walk the encrypted path, rotation past the retention
+  limit, or a folder deleted out from under the app —
+  `an_encrypted_backup_is_not_readable_without_the_passphrase`,
+  `rotation_keeps_the_newest_and_deletes_the_rest` and
+  `an_unreachable_folder_reports_and_keeps_the_setting` cover all three against
+  a fake folder, and the fake is not a provider.
 - **No test presses a document picker.** §21.7 is the reason this matters:
   every launcher in the app was throwing and four suites each had a good reason
   not to notice. `ActivityResultRegistry` cannot be driven to the system picker

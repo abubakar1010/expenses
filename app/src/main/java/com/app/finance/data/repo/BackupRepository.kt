@@ -109,9 +109,15 @@ class BackupRepository(
      * Backs up if the schedule says so, and does nothing at all otherwise.
      *
      * The cheap path is the common one: two `app_meta` reads and a return. It is
-     * called on every launch, so anything heavier would be paid every launch.
+     * called on every launch, so anything heavier would be paid every launch —
+     * and the full settings object is seven point queries, six of them wasted
+     * on a phone that has never turned this on.
      */
     suspend fun runIfDue(): BackupOutcome {
+        // Stops at two rows on a phone that has never turned this on, which is
+        // the state every launch is in until the user says otherwise.
+        if (!settings.backupArmed()) return BackupOutcome.Skipped
+
         val prefs = settings.backupSettings()
         if (!prefs.isArmed) return BackupOutcome.Skipped
         val revision = dao.ledgerRevision()

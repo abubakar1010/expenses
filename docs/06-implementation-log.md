@@ -3408,7 +3408,91 @@ not while it is closed" for that reason — 05 §9 asks for the fact and then th
 action, and a user who believes they are covered and is not would be worse off
 than one with no backup at all.
 
-### 21.7 Test inventory
+### 21.7 Every document picker in the app was crashing
+
+Not a defect in this feature. A defect **in shipped code**, found by tapping a
+button this feature happened to add beside the ones that already had it.
+
+`FR-DAT-01` is P0. PRD §6.6 rests the product's entire trust argument on it —
+"users do not trust an app with their financial history until they have proof
+they can extract it". Tapping *Save everything as JSON* on a device killed the
+process:
+
+```
+java.lang.IllegalArgumentException: Can only use lower 16 bits for requestCode
+  at androidx.fragment.app.FragmentActivity.checkForValidRequestCode(FragmentActivity.java:714)
+  at androidx.fragment.app.FragmentActivity.startActivityForResult(FragmentActivity.java:672)
+  at androidx.core.app.ActivityCompat.startActivityForResult(ActivityCompat.java:248)
+  at androidx.activity.ComponentActivity$activityResultRegistry$1.onLaunch(ComponentActivity.kt:226)
+```
+
+#### The mechanism
+
+`androidx.biometric:1.1.0` resolves `androidx.fragment` to **1.2.5**. That
+version of `FragmentActivity` still implements the old fragment-result scheme:
+it packs a fragment index into the upper 16 bits of the request code and
+therefore rejects any code that does not fit in the lower 16.
+
+`ActivityResultRegistry` allocates request codes from `0x10000` upwards — every
+one of them fails that check. So **every** `rememberLauncherForActivityResult`
+launch from this activity threw, without exception:
+
+| | |
+|---|---|
+| FR-DAT-01 | Save everything as JSON |
+| FR-DAT-02 | Save everything as CSV |
+| FR-DAT-03 | Restore from a backup |
+| 04 §8 | The recovery screen's raw database copy — *the last resort when the ledger will not open* |
+
+#### How it survived
+
+`MainActivity` became a `FragmentActivity` in §20.3, for FR-APP-04's
+`BiometricPrompt`, and §20.6 records the base class being chosen by measuring
+its cold-start cost. The measurement was the right question. It was not the only
+one, and nothing afterwards tapped a picker.
+
+The test layers each missed it for a different reason, and the pattern is worth
+recording:
+
+- **`SettingsViewModelTest`** drives `exportJson { stream }` with a
+  `ByteArrayOutputStream`. That is deliberate — `SettingsViewModel` has no
+  Android types precisely so it can be tested without a picker — and it means the
+  eighteen tests over the export path never touch the launcher.
+- **The Compose suites** (`DashboardScreenTest`, `BudgetScreenTest`,
+  `IncomeScreenTest`) cover the screens with figures on them. There is no
+  `SettingsScreenTest`, because until now Settings was rows that called a
+  ViewModel.
+- **`RecoveryPathTest`** asserts the screen appears when the database is
+  unusable. It does not press the button on it.
+- **§20.8 installed and drove the release build**, and the walkthrough recorded
+  there is the dashboard, the ledger, entry and the lock. Not export.
+
+Every one of those is a reasonable decision on its own. Together they left the
+single most important button in the app — the one the trust argument rests on —
+with no coverage at the only layer where it was broken.
+
+#### The fix
+
+`androidx.fragment` pinned to **1.8.9** in `libs.versions.toml`, with the
+reasoning in the version comment. Fragment 1.3.0 removed the
+`startActivityForResult` override when it migrated to the ActivityResult API;
+anything from there on is fine, and the current stable line is what the rest of
+the AndroidX surface here is already on.
+
+No new dependency: `androidx.fragment` was already on the classpath through
+`androidx.biometric`. This changes which version resolves, and NFR-SIZE-04's
+review threshold is not engaged by a version bump of something already present.
+
+#### What it says about the suite
+
+An instrumented test that presses this button would be the honest fix, and it is
+listed in §21.10 as not done: `ActivityResultRegistry` cannot be driven to the
+system document picker from an instrumented test without UI Automator against a
+provider that varies by ROM. What *can* be asserted is narrower and still worth
+having — that launching produces no exception — and that is the shape the gap
+needs filling in.
+
+### 21.8 Test inventory
 
 | Suite | Where | Tests |
 |---|---|---|
@@ -3434,7 +3518,7 @@ Both halves of FR-DAT-04's acceptance are asserted: row counts and checksums,
 and every rendered `DashboardViewModel` / `IncomeViewModel` figure, because the
 rollups are rebuilt from the ledger rather than carried in the file.
 
-### 21.8 Measured
+### 21.9 Measured
 
 | | target | before (§20.9) | after |
 |---|---|---|---|
@@ -3463,7 +3547,7 @@ NFR-SEC-01 structural), and a `ContentProvider` would sit on the cold-start path
 recorded that it had not been since the M2 pass and that nothing should be
 assumed about its green-ness. 517 tests in one invocation, zero failures.
 
-### 21.9 Still not done
+### 21.10 Still not done
 
 - **NFR-PERF-10 is unmeasured on the reference device.** The 10 s restore budget
   is new and there was no import budget at all before it — only NFR-PERF-07 for
@@ -3488,6 +3572,12 @@ assumed about its green-ness. 517 tests in one invocation, zero failures.
   anything.** `BackupRoundTripTest` reproduces a fresh install faithfully,
   including the re-seeded UUIDs. It cannot reproduce Android actually deleting
   the app.
+- **No test presses a document picker.** §21.7 is the reason this matters:
+  every launcher in the app was throwing and four suites each had a good reason
+  not to notice. `ActivityResultRegistry` cannot be driven to the system picker
+  from an instrumented test without UI Automator against a provider that varies
+  by ROM — but "launching throws nothing" is narrower, assertable, and is what
+  would have caught it.
 - **Cloud backup remains P2.** `04 §11` still records what it would cost, and
   the estimate is smaller than it was: the artifact now exists, is compressed,
   is optionally encrypted, and is already written on a schedule. What is missing

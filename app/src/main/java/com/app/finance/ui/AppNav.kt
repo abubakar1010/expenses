@@ -5,7 +5,9 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -18,15 +20,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import com.app.finance.R
+import androidx.compose.ui.zIndex
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.app.finance.R
 import com.app.finance.core.time.Period
 import com.app.finance.di.AppContainer
 import com.app.finance.ui.common.KhataIcons
@@ -38,9 +43,9 @@ import com.app.finance.ui.feature.entry.QuickAddSheet
 import com.app.finance.ui.feature.income.IncomeScreen
 import com.app.finance.ui.feature.income.SourceManagerScreen
 import com.app.finance.ui.feature.ledger.LedgerScreen
+import com.app.finance.ui.feature.reports.ReportsScreen
 import com.app.finance.ui.feature.settings.RecurringScreen
 import com.app.finance.ui.feature.settings.SettingsScreen
-import com.app.finance.ui.feature.reports.ReportsScreen
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Motion
 import com.app.finance.ui.theme.khataTween
@@ -123,6 +128,27 @@ fun KhataApp(container: AppContainer) {
                 .background(KhataTheme.colors.paper)
                 .padding(padding),
         ) {
+            // 04 §5.3 puts export at "Dispatchers.IO, foreground with progress",
+            // and FR-DAT-08's run belongs to no screen -- it starts beside the
+            // first frame and outlives whatever is on top of it. Drawn over the
+            // top edge rather than laid out above the NavHost, because a bar
+            // that appears once a day and reflows the whole app when it does is
+            // worse than the two device-pixels it covers.
+            //
+            // Success stays silent (05 §12: "the app never nags"); the Backup
+            // screen carries the record, and only a failure gets a sentence.
+            val backingUp by container.backupRepo.running.collectAsStateWithLifecycle()
+            if (backingUp) {
+                LinearProgressIndicator(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.TopCenter)
+                        .zIndex(1f),
+                    color = KhataTheme.colors.indigo,
+                    trackColor = KhataTheme.colors.rule,
+                )
+            }
+
             // 05 §7 — a 150 ms fade through, and *no* animation at all when the
             // system animator scale is zero. `khataTween` is what enforces the
             // second half; a raw `tween` would still animate.

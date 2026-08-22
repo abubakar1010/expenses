@@ -68,6 +68,31 @@ class SettingsRepository(
     suspend fun setAppLock(on: Boolean) =
         meta.put(AppMetaEntity(KEY_APP_LOCK, if (on) ON else OFF, clock.millis()))
 
+    // --- FR-DAT-10: the first launch after an install -------------------------
+
+    /**
+     * Whether to offer a restore before anything is entered.
+     *
+     * Two conditions, and the second is there for the upgrade. `onboarded` has
+     * been declared since M1 and never written, so **every existing install has
+     * it absent** — on the flag alone, a user who has kept this ledger for a
+     * year would be met by a welcome screen offering to replace it. Requiring an
+     * empty ledger as well makes the question only reach the installs it is
+     * actually about.
+     *
+     * The `&&` short-circuits, which matters: this flow re-emits on every
+     * `app_meta` write, and `ExpenseRepository` writes one on every save. Once
+     * the flag is set the count is never run again.
+     */
+    fun observeNeedsWelcome(): Flow<Boolean> =
+        meta.observe(AppMetaDao.KEY_ONBOARDED).map { stored ->
+            stored == null && db.backupDao().ledgerEntryCount() == 0
+        }
+
+    /** Answered — by restoring, or by starting fresh. Either way, not asked again. */
+    suspend fun setOnboarded() =
+        meta.put(AppMetaEntity(AppMetaDao.KEY_ONBOARDED, ON, clock.millis()))
+
     // --- backup (FR-DAT-07 … FR-DAT-11) --------------------------------------
 
     /**

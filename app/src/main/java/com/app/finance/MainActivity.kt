@@ -28,6 +28,7 @@ import com.app.finance.ui.lock.LocalLockController
 import com.app.finance.ui.lock.LockController
 import com.app.finance.ui.lock.LockScreen
 import com.app.finance.ui.RecoveryScreen
+import com.app.finance.ui.WelcomeScreen
 import com.app.finance.ui.theme.KhataTheme
 
 /**
@@ -123,6 +124,23 @@ class MainActivity : FragmentActivity() {
             val lockEnabled by lockFlow.collectAsStateWithLifecycle(initialValue = null)
             val lockController = remember { LockController() }
 
+            // FR-DAT-10. Read here rather than inside the NavHost because it
+            // decides whether there is an app to show at all, and `remember` +
+            // `catch` for the reason the three above have them (§19.1): an
+            // unreadable database must reach RecoveryScreen rather than take the
+            // app down on the way there.
+            //
+            // It rides the blank the lock already waits through -- both are
+            // `app_meta` reads issued together against a database one of them has
+            // opened anyway, so this costs no second pause on the launch path.
+            val welcomeFlow = remember {
+                container.settingsRepo.observeNeedsWelcome().catch { error ->
+                    Log.w(TAG, "onboarding state unreadable; assuming not needed", error)
+                    emit(false)
+                }
+            }
+            val needsWelcome by welcomeFlow.collectAsStateWithLifecycle(initialValue = null)
+
             // Locking on background: a gate that only applies at cold start
             // protects nothing, because the app a thief finds is the one still
             // open in recents.
@@ -174,6 +192,21 @@ class MainActivity : FragmentActivity() {
                             runCatching { container.recurringRepo.evaluate() }
                                 .onFailure { error -> Log.e(TAG, "rule evaluation failed", error) }
 
+                            // FR-DAT-08 — the automatic backup, here for exactly
+                            // the reasons written above for rule evaluation: 04
+                            // §6 keeps ContentProviders off the startup path,
+                            // which rules out WorkManager's default initialiser,
+                            // and 05 §12 has no notification through which a
+                            // background run could report anything. NFR-COMP-05
+                            // settles it -- "no background work is required for
+                            // core function".
+                            //
+                            // `runIfDue` returns after two `app_meta` reads on
+                            // every launch that is not a backup day, so the cost
+                            // paid by the common case is a query and a compare.
+                            runCatching { container.backupRepo.runIfDue() }
+                                .onFailure { error -> Log.w(TAG, "automatic backup failed", error) }
+
                             if (BuildConfig.DEBUG && !container.assertPeriodsDerived()) {
                                 // 03 §4.3. A row filed in a month its own
                                 // date does not fall in is invisible to
@@ -208,6 +241,14 @@ class MainActivity : FragmentActivity() {
 
                         lockEnabled == true && lockController.locked ->
                             LockScreen(onUnlocked = lockController::unlock)
+
+                        // Still resolving. Same blank, same reason.
+                        needsWelcome == null -> Box(Modifier.fillMaxSize())
+
+                        // FR-DAT-10 — after the lock, because a backup file is
+                        // the whole ledger and the gate that protects the ledger
+                        // should protect the door it can be replaced through.
+                        needsWelcome == true -> WelcomeScreen(container)
 
                         else -> KhataApp(container)
                     }

@@ -152,6 +152,13 @@ Every foreign key is `ON DELETE RESTRICT`, and `CategoryRepository` has no delet
 - Repositories are tested against **real in-memory SQLite with the canonical schema**, never mocks — the behaviour that matters (triggers, `CHECK` constraints, cross-period re-filing) lives in the database.
 - `TestFixture` (androidTest) builds that database, the real repositories, a pinned `Clock` (2026-08-14), and a real `AppContainer`. Use `closeAfterDraining()` for tests that run ViewModels — closing the pool under an in-flight Room query throws on an executor thread and gets attributed to whatever test runs *next*.
 - Each milestone's exit criterion is a reconciliation test asserting every rendered figure equals a direct `SUM(amount_minor)` over the ledger — never the rollup read a second way (`BudgetReconciliationTest`, `IncomeReconciliationTest`, `ExportImportRoundTripTest`).
+- **Await the state you are about to assert on.** ViewModel state arrives from
+  two places — Room flows and the coroutine that triggered the write — and
+  neither ordering is guaranteed. An assertion that reads a field the
+  `awaitState` predicate did not mention is asserting a race. Three tests had
+  this and all three passed under `am instrument` and failed under
+  `connectedDebugAndroidTest`, because JaCoCo is slower and slower is all it
+  takes (`06-implementation-log.md` §21.9 J).
 - The instrumented suite was run in full on 22 August 2026 — 517 tests, zero failures, API 35 emulator (`06-implementation-log.md` §21.8). It had not been since M2 before that.
 
 ## Build config notes that look arbitrary

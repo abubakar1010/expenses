@@ -295,7 +295,12 @@ class IncomeViewModelTest {
         val state = vm.state.awaitState { !it.initialLoad && it.totalTaka() == 80_000L }
         vm.deleteEntry(state.entries.first().entry.id) {}
 
-        val afterDelete = vm.state.awaitState { it.totalTaka() == 0L }
+        // Both halves, not just the total. The figure arrives on the rollup flow
+        // and the held row is set by the delete coroutine; awaiting only the
+        // first can observe a state where the second has not landed. It failed
+        // that way under JaCoCo's slower timing — see §21.9 J for the same shape
+        // in the category suite.
+        val afterDelete = vm.state.awaitState { it.totalTaka() == 0L && it.lastDeleted != null }
         assertTrue(afterDelete.lastDeleted != null)
 
         vm.undoDelete()

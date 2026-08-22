@@ -3539,14 +3539,15 @@ its title and its button, and the post-restore prompt used a hint string as a
 button label. All three are 05 §9's "a control says what happens" — small, and
 exactly the kind of thing only a screenshot shows.
 
-### 21.9 The audit, and nine things it found
+### 21.9 The audit, and ten things it found
 
 Everything above had been built, the suite was green at 517, and the feature had
 been driven end to end on a device. Then it was read again, line by line, on the
 assumption that green and working are not the same claim.
 
-Nine defects — seven in the feature, one in a screen's wiring, one in the
-audit's own new test. None of the first eight would have failed a test that
+Ten defects — seven in the feature, one in a screen's wiring, one in the audit's
+own new test, and one that had been sitting in a category suite since long
+before any of this. None of the first eight would have failed a test that
 existed, which is the part worth sitting with: the suite was not wrong, it was
 aimed elsewhere.
 
@@ -3699,9 +3700,53 @@ five-year restore probe is starving the emulator" — was wrong, and was
 disproved by running the probe and the category suite together and watching all
 21 pass.
 
+#### J: a category test was asserting a race, and had been all along
+
+Not this feature's, and not new — but found by the same pass and worth the same
+honesty.
+
+`the_same_leaf_name_under_two_different_roots_is_accepted` awaited the tree
+containing the second "Misc" and then asserted the editor sheet had closed. Those
+are **two independent updates**: the tree arrives on a Room flow, the editor
+closes in the save coroutine. A state that has one need not yet have the other,
+so the assertion was reading a moment that happened to be settled most of the
+time.
+
+It failed under `connectedDebugAndroidTest` and passed under `am instrument`,
+which is the tell: JaCoCo instrumentation slows everything by roughly a factor of
+three and widened a window that was always there. Nothing about the behaviour
+changed.
+
+The predicate now waits for a state that has settled, and settles on *either*
+outcome so a genuine failure is still reported as one rather than as a timeout.
+
+A test that fails one run in ten is worse than no test, because it teaches people
+that red does not mean anything.
+
+**And it was not alone.** Running the gate again surfaced two more of exactly the
+same shape, one of them in this audit's own new suite:
+
+| | The signal it awaited | The one it then asserted |
+|---|---|---|
+| `IncomeViewModelTest.deleting_an_entry_can_be_undone` | the total, from the rollup flow | `lastDeleted`, from the delete coroutine |
+| `BackupViewModelTest.a_good_passphrase_arms_encryption…` | `settings.encrypted`, from a Room flow | the message, from the save coroutine |
+
+Three tests, three authors, one mistake: **await one signal, assert another.**
+It is the default failure of a codebase where state arrives from two places —
+Room flows and the coroutine that triggered them — and neither ordering is
+guaranteed. All three passed under `am instrument` and failed under
+`connectedDebugAndroidTest`, because JaCoCo is the slower harness and slower is
+all it takes.
+
+Worth naming as a pattern rather than three fixes, because the next test written
+here will have the chance to make it again:
+
+> **Await the state you are about to assert on.** If an assertion reads a field
+> the predicate did not mention, the test is asserting a race.
+
 #### What the shape of these says
 
-Six of the nine are error and lifecycle paths — what happens when the card is
+Six of the ten are error and lifecycle paths — what happens when the card is
 pulled, the provider refuses, the file is damaged. The happy path was tested
 thoroughly enough to be driven on a device twice. The unhappy ones were reasoned
 about in comments and never executed.
@@ -3751,9 +3796,9 @@ rollups are rebuilt from the ledger rather than carried in the file.
 | Release APK | ≤ 6 MB (NFR-SIZE-01) | 2,218,600 B (2.12 MB) | **2,255,564 B (2.15 MB)** |
 | Dex methods | ≤ 40,000 (NFR-SIZE-03) | — | **22,579**, single dex |
 | Dex classes | — | — | 4,029 |
-| Instrumented tests | — | 486 | **517**, all passing |
+| Instrumented tests | — | 486 | **533**, all passing under both harnesses |
 | JVM tests | — | — | **+22** |
-| Line coverage, `domain/` + `core/` + `data/repo/` | ≥ 80% (NFR-MAIN-02) | — | **93.8%** (`data/repo` 90.9%) |
+| Line coverage, `domain/` + `core/` + `data/repo/` | ≥ 80% (NFR-MAIN-02) | — | **94.2%** (`data/repo` 91.7%, `BackupRepository` 96.3%) |
 | Merged release permissions | no `INTERNET` (FR-APP-01) | 3 | **3, unchanged** |
 | `<provider>` elements in the merged manifest | 0 (04 §6) | 0 | **0** |
 | Lint (`lintRelease`, `abortOnError`) | clean | clean | **clean, no new baseline entries** |

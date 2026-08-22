@@ -65,6 +65,7 @@ import com.app.finance.domain.model.BackupInterval
 import com.app.finance.ui.common.ActionRow
 import com.app.finance.ui.common.KhataChip
 import com.app.finance.ui.common.SectionHeader
+import com.app.finance.ui.openBackup
 import com.app.finance.ui.lock.LocalLockController
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Radius
@@ -508,7 +509,7 @@ private fun ModeButton(title: String, hint: String, enabled: Boolean, onClick: (
 }
 
 @Composable
-private fun SecretField(value: String, hint: String, onChange: (String) -> Unit) {
+internal fun SecretField(value: String, hint: String, onChange: (String) -> Unit) {
     val colors = KhataTheme.colors
     BasicTextField(
         value = value,
@@ -596,14 +597,6 @@ private fun shareBackup(document: Uri, name: String): Intent =
         null,
     )
 
-private fun openBackup() = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-    addCategory(Intent.CATEGORY_OPENABLE)
-    type = MIME_ANY
-    // A backup may be an encrypted `.khata`, a plain one, or a `khata-export.json`
-    // from before either existed — FR-DAT-12 means the picker must show all three.
-    putExtra(Intent.EXTRA_MIME_TYPES, arrayOf(BackupCodec.MIME, MIME_JSON, MIME_ANY))
-}
-
 private fun friendly(at: Long): String =
     FRIENDLY.format(Instant.ofEpochMilli(at).atZone(ZoneId.systemDefault()))
 
@@ -612,5 +605,3 @@ private val FRIENDLY: DateTimeFormatter =
 
 private val KEEP_CHOICES = listOf(3, 5, 10, 20)
 
-private const val MIME_JSON = "application/json"
-private const val MIME_ANY = "*/*"

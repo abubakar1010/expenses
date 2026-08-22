@@ -60,6 +60,17 @@ interface BackupDao {
     suspend fun allMeta(): List<AppMetaEntity>
 
     /**
+     * Entries only — not categories, not sources — FR-DAT-10.
+     *
+     * What "this install has never been used" means. A fresh install is not
+     * empty: `Schema.SEED` writes three roots, thirteen leaves and a Salary
+     * source, so counting rows would call every new install used. Counting what
+     * the *user* put in does not.
+     */
+    @Query("SELECT (SELECT COUNT(*) FROM expense) + (SELECT COUNT(*) FROM income_entry)")
+    suspend fun ledgerEntryCount(): Int
+
+    /**
      * One number that changes whenever the ledger does — FR-DAT-08.
      *
      * The automatic backup runs only if something happened since the last one.

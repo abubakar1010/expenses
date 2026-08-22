@@ -252,6 +252,14 @@
     <string name="recovery_saved">Copy saved</string>
     <string name="recovery_failed">That copy didn\'t save. Try a different location.</string>
 
+    <!-- FR-DAT-10's other door. Disabled until the copy above has been saved:
+         the interlock is the confirmation, and a better one than a typed word,
+         because it makes the safe step a precondition of the destructive one
+         rather than a suggestion beside it. -->
+    <string name="recovery_start_over">Start over from a backup</string>
+    <string name="recovery_start_over_hint">Discards the ledger Khata can\'t open and reopens empty, ready to restore.</string>
+    <string name="recovery_save_first">Save a copy first.</string>
+
     <!--
       Dashboard (FR-AN-01…10). 05 §5.4 is the layout, and its three notes are
       the reasoning: the hero is a decision rather than a balance, a section
@@ -393,8 +401,6 @@
     <string name="welcome_restore">Restore from a backup</string>
     <string name="welcome_fresh">Start fresh</string>
     <string name="welcome_restored">Restored %1$d records</string>
-
-    <string name="recovery_restore">Restore from a backup</string>
 
     <string name="settings_maintenance">Maintenance</string>
     <string name="rebuild_aggregates">Rebuild the totals</string>

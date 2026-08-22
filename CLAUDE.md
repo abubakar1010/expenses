@@ -49,6 +49,20 @@ adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug
 
 - **Run instrumented tests on API 35 or below.** Espresso 3.7.0 calls `InputManager.getInstance()`, removed in API 37 — every Compose test dies in `Espresso.onIdle()`. Repository and ViewModel suites are unaffected.
 - **`./gradlew --stop` before `connectedAndroidTest` on a 16 GB machine.** The daemon holds `-Xmx4096m` for R8; with a Kotlin daemon alongside, the emulator gets squeezed out and it surfaces as `DeviceException: No connected devices!`.
+- **Stopping the daemon is not enough — sequence the two.** `connectedAndroidTest` *builds and then runs*, so the emulator is up during the expensive half and both lose. Build first with nothing else running, then boot, then drive the device directly:
+
+  ```bash
+  ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest   # emulator OFF
+  ./gradlew --stop
+  # boot the emulator, then:
+  adb install -r -t app/build/outputs/apk/debug/app-debug.apk
+  adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+  adb shell am instrument -w com.app.finance.debug.test/androidx.test.runner.AndroidJUnitRunner
+  ```
+
+  With both running, an `assembleDebug` took **58 minutes and produced nothing**; alone it takes under four. Add `-e class <fqcn>` to `am instrument` for a single suite.
+- **`am instrument` produces no JaCoCo `.ec`, so `coverageVerify` will fail at ~0.34** — it only sees the JVM half and reports the repositories as uncovered. For the NFR-MAIN-02 gate you do need Gradle's `connectedDebugAndroidTest`; run it once everything is already compiled, with `-Dorg.gradle.jvmargs="-Xmx1536m -XX:MaxMetaspaceSize=512m" --no-parallel` so the daemon leaves the emulator room.
+- **The debug `SEED` broadcast did not fire on an API 35 emulator (22 Aug 2026).** `am broadcast` reported `result=0`, ActivityManager logged the broadcast as enqueued, and `SeedReceiver` never logged anything — no rows were written. `src/debug/AndroidManifest.xml` states the opposite ("`am broadcast` from the shell reaches an unexported receiver in a debuggable package"), so one of the two is stale; the cause was not chased down. If seeding matters for what you are doing, verify it landed rather than assuming, or drive `SeedFiveYears.into` from an instrumented test.
 - Layouts target 288 dp of content on a 320 dp phone: `adb shell wm density 360` on a 720 px emulator, `reset` after.
 - Xiaomi/MIUI physical devices need **Install via USB** enabled or the instrumentation APK is refused with `INSTALL_FAILED_USER_RESTRICTED`.
 

@@ -14,7 +14,6 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.isSpecified
-import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
 import com.app.finance.core.money.Money
@@ -65,7 +64,6 @@ fun MoneyText(
             showSymbol = showSymbol,
             figureColor = figureColor,
             symbolColor = colors.inkSoft,
-            symbolSize = KHATA_SYMBOL_SCALE,
         )
     }
 
@@ -94,17 +92,26 @@ fun rememberJavaLocale(): Locale {
     return remember(composeLocale) { Locale.forLanguageTag(composeLocale.toLanguageTag()) }
 }
 
-/**
- * The ৳ is set smaller than the figure, in **em** rather than sp.
+/*
+ * The ৳ used to carry its own `fontSize` — 0.7x the figure — so it read as
+ * subordinate to the number. It does not any more, and the reason is measured
+ * rather than aesthetic.
  *
- * Relative on purpose. As an absolute size — 0.7 x whatever the style happened
- * to be — the symbol stopped tracking the text the moment anything rescaled it:
- * `autoShrink` would shrink the digits while the symbol stayed pinned, so the
- * measured width never converged and the last digit was dropped. §20.7 caught
- * that rendering as `৳12,25`, which is a ledger losing a digit. An em is
- * defined against the span's inherited size, so it follows by construction.
+ * A `SpanStyle` that changes `fontSize` mid-string makes Compose mis-measure
+ * the line on API 35: `Text("৳12,250")` in one style lays out on a single line
+ * 504 px wide, and the identical string with a smaller span on the symbol
+ * becomes **two lines** — 480 px wide and twice the height. At hero size that
+ * put the ৳ alone on the first line and the digits on the second, so
+ * `SAFE TO SPEND TODAY` — the one number the whole dashboard exists to show —
+ * rendered broken in half. §20.7 found it in the greyscale pass, and shrinking
+ * the text to fit only turned the wrap into a dropped digit, which is worse:
+ * 05 §4.3 is that "in a ledger, precision is the product".
+ *
+ * The symbol still reads as subordinate, through colour: `inkSoft` against the
+ * figure's `ink`. That is one signal rather than two, which NFR-USE-05 permits
+ * here because the symbol carries no *state* — it is the same on every figure
+ * in the app, so nothing is being distinguished by it.
  */
-private val KHATA_SYMBOL_SCALE = 0.7.em
 
 private fun buildMoneyString(
     money: Money,
@@ -112,13 +119,12 @@ private fun buildMoneyString(
     showSymbol: Boolean,
     figureColor: Color,
     symbolColor: Color,
-    symbolSize: TextUnit,
 ): AnnotatedString = buildAnnotatedString {
     if (money.isNegative) {
         withStyle(SpanStyle(color = figureColor)) { append(Money.MINUS) }
     }
     if (showSymbol) {
-        withStyle(SpanStyle(color = symbolColor, fontSize = symbolSize)) {
+        withStyle(SpanStyle(color = symbolColor)) {
             append(Money.SYMBOL)
         }
     }

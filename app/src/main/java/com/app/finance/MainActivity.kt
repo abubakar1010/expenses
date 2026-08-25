@@ -120,6 +120,20 @@ internal fun rootScreen(
 
 class MainActivity : FragmentActivity() {
 
+    /**
+     * FR-APP-04's gate state, held by the Activity rather than by the
+     * composition.
+     *
+     * It was `remember { LockController() }` inside `setContent`, which has the
+     * same lifetime *given* this Activity's `configChanges` — every
+     * configuration it could meet is handled, so it is never recreated and the
+     * `remember` never resets. Making that a field makes the dependency
+     * explicit instead of incidental, and it is what lets a test assert that
+     * the lifecycle observer below is actually wired to it: `LockControllerTest`
+     * pins the state machine, and nothing pinned the wiring (§22.10).
+     */
+    internal val lockController = LockController()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Edge-to-edge has to be established before the first frame, but which
         // *icons* the bars draw cannot be decided yet -- that needs the theme
@@ -192,7 +206,6 @@ class MainActivity : FragmentActivity() {
                 }
             }
             val lockEnabled by lockFlow.collectAsStateWithLifecycle(initialValue = null)
-            val lockController = remember { LockController() }
 
             // FR-DAT-10. Read here rather than inside the NavHost because it
             // decides whether there is an app to show at all, and `remember` +

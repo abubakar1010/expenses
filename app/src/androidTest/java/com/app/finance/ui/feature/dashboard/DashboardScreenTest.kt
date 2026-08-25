@@ -481,8 +481,14 @@ class DashboardScreenTest {
         spend(2_000, "Medical")
         show()
 
-        compose.onNodeWithText("Where it goes").assertIsDisplayed()
-        compose.onAllNodesWithText("sits outside them", substring = true).assertCountEquals(0)
+        // Scroll first, for the reason `awaitHeader` documents: the dashboard
+        // is a `LazyColumn`, so a section below the fold is never composed and
+        // is absent from the semantics tree — which is exactly what a test
+        // asserting *absence* must not confuse it with.
+        awaitHeader("Where it goes")
+        scrollTo(hasText(CAPTION, substring = true))
+
+        compose.onAllNodesWithText(CAPTION, substring = true).assertCountEquals(0)
     }
 
     @Test
@@ -491,17 +497,25 @@ class DashboardScreenTest {
         // below zero for a period. It cannot be drawn as a slice — a pie has no
         // negative width — so the percentages are of a smaller number than the
         // figure above them. §22.10 recorded that as an open framing question;
-        // this is the answer.
+        // 05 §5.4 is the answer and this is it on screen.
         spend(5_000, "Grocery")
         spend(-1_000, "Medical")
         show()
 
-        compose.onNodeWithText("Where it goes").assertIsDisplayed()
-        // The remaining slice is the whole of what is drawn...
-        compose.onNodeWithText("100%").assertIsDisplayed()
-        // ...and the caption says how much is not.
-        compose.onNodeWithText("of refunds sits outside them", substring = true)
-            .assertIsDisplayed()
+        awaitHeader("Where it goes")
+        scrollTo(hasText(CAPTION, substring = true))
+
+        // The share itself is not asserted here, and cannot be: `MixRow` draws
+        // through `LedgerRow`, which carries `clearAndSetSemantics {}` so
+        // TalkBack reads the figure once as words (05 §10) — so "100%" is not
+        // in the tree as text at all. `SpendMixTest` owns the arithmetic. What
+        // this test is for is the sentence underneath it.
+        awaitText(CAPTION, substring = true)
+    }
+
+    private companion object {
+        /** The distinctive half of `mix_excludes`, so the figure can vary. */
+        const val CAPTION = "sits outside them"
     }
 
 }

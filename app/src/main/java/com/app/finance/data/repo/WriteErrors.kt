@@ -34,8 +34,18 @@ private const val TAG = "Khata"
  * consulted first for anything that *is* a constraint — it is the part only the
  * caller knows. Returning null from it means "not one of mine", which lands on
  * [EntryError.CONSTRAINT_VIOLATION] with a log line rather than silently.
+ *
+ * **Not `inline`, though it takes a lambda.** Every path through this is a write
+ * that has already failed, so one lambda allocation costs nothing measurable —
+ * and inlining it hid the whole body from coverage, because JaCoCo credits the
+ * inlined copies at each call site rather than the declaration. That put this
+ * file at exactly the 50% per-file floor `coverageVerify` enforces: passing, but
+ * one line away from failing for a reason that has nothing to do with whether
+ * anything tests it. [runCatchingWrite] below stays inline, because that one is
+ * on the success path of every write and `runCatching` is inline for the same
+ * reason.
  */
-internal inline fun Throwable.toWriteError(
+internal fun Throwable.toWriteError(
     what: String,
     constraint: (SQLiteConstraintException) -> EntryError?,
 ): EntryError {

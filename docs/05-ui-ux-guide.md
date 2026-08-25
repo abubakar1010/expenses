@@ -252,6 +252,12 @@ Three notes on this arrangement:
 
 **Fixed expenses sit below variable ones**, despite being larger, because rent is not a decision. Ordering by actionability rather than by amount is the whole point of separating the categories in the first place.
 
+**The mix says what its percentages are of, but only when that is not obvious.** A nature whose net is at or below zero for the period is dropped from "Where it goes" rather than drawn at 0% — FR-EXP-06 makes a negative expense a refund, and a slice cannot have negative width. The remaining shares then total 100% of what is *displayed*, which is the honest reading of a mix, and not of the figure printed above them: ৳5,000 of variable spending beside a ৳1,000 refund on unpredictable shows one slice at 100% over a total of ৳4,000.
+
+The rule is a caption beneath the slices naming the gap, and **only when the gap is non-zero**. Not a permanent subtitle: a line that is always there is a line nobody reads on the day it matters, which is the same argument "needs attention" is built on two paragraphs above. Not a recalculated total either — the hero figure is the period's net and changing it to match the slices would be answering a presentation problem by making a number wrong.
+
+`SpendMix.excludedFrom` is what a screen asks. `06-implementation-log.md` §22.10 recorded this as an open framing question before it was one.
+
 ### 5.5 Signature element: the month ribbon
 
 This is the one element the app should be remembered by.

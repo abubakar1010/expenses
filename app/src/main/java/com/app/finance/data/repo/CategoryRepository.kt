@@ -96,7 +96,7 @@ class CategoryRepository(
 
         val now = clock.millis()
         val siblings = dao.children(parentId)
-        return runCatching {
+        return runCatchingWrite {
             dao.insert(
                 CategoryEntity(
                     uuid = UUID.randomUUID().toString(),
@@ -118,7 +118,7 @@ class CategoryRepository(
     suspend fun createRoot(name: String, nature: Nature): SaveOutcome {
         if (NameKey.isBlank(name)) return SaveOutcome.Rejected(EntryError.BLANK_NAME)
         val now = clock.millis()
-        return runCatching {
+        return runCatchingWrite {
             dao.insert(
                 CategoryEntity(
                     uuid = UUID.randomUUID().toString(),
@@ -141,7 +141,7 @@ class CategoryRepository(
     suspend fun rename(id: Long, name: String): SaveOutcome {
         if (NameKey.isBlank(name)) return SaveOutcome.Rejected(EntryError.BLANK_NAME)
         val existing = dao.byId(id) ?: return SaveOutcome.Rejected(EntryError.CATEGORY_NOT_FOUND)
-        return runCatching {
+        return runCatchingWrite {
             dao.update(
                 existing.copy(
                     name = name.trim(),
@@ -269,10 +269,18 @@ class CategoryRepository(
         return SaveOutcome.Saved(id)
     }
 
-    private fun Throwable.toCategoryError(): EntryError = when {
-        this !is SQLiteConstraintException -> EntryError.CONSTRAINT_VIOLATION
-        message?.contains("two levels") == true -> EntryError.CATEGORY_TOO_DEEP
-        message?.contains("UNIQUE", ignoreCase = true) == true -> EntryError.DUPLICATE_NAME
-        else -> EntryError.CONSTRAINT_VIOLATION
+    /** See [toWriteError] — only the constraint half is this repository's. */
+    private fun Throwable.toCategoryError(): EntryError = toWriteError("save a category") {
+        when {
+            it.message?.contains("two levels") == true -> EntryError.CATEGORY_TOO_DEEP
+            // `trg_category_child_of_used_leaf`, added in §22 to defend the
+            // leaf-only rule from the *parent* side. Without this branch the
+            // trigger fired correctly and the user read "That didn't save.
+            // Check the amount and category" about a category that has neither.
+            it.message?.contains("may not gain a child") == true ->
+                EntryError.CATEGORY_HAS_ENTRIES
+            it.message?.contains("UNIQUE", ignoreCase = true) == true -> EntryError.DUPLICATE_NAME
+            else -> null
+        }
     }
 }

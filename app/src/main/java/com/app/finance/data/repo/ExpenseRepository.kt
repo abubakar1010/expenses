@@ -52,7 +52,7 @@ class ExpenseRepository(
         method: PaymentMethod = PaymentMethod.DEFAULT,
         note: String? = null,
     ): SaveOutcome {
-        validate(amount, categoryId)?.let { return SaveOutcome.Rejected(it) }
+        validate(amount, categoryId, spentOn)?.let { return SaveOutcome.Rejected(it) }
 
         val now = clock.millis()
         val entity = ExpenseEntity(
@@ -71,7 +71,7 @@ class ExpenseRepository(
             updatedAt = now,
         )
 
-        return runCatching {
+        return runCatchingWrite {
             db.withTransaction {
                 val id = expenseDao.insert(entity) // trigger updates the rollup
                 rememberDefaults(categoryId, method, now)
@@ -97,10 +97,10 @@ class ExpenseRepository(
         method: PaymentMethod,
         note: String?,
     ): SaveOutcome {
-        validate(amount, categoryId)?.let { return SaveOutcome.Rejected(it) }
+        validate(amount, categoryId, spentOn)?.let { return SaveOutcome.Rejected(it) }
         val existing = expenseDao.byId(id) ?: return SaveOutcome.Rejected(EntryError.CONSTRAINT_VIOLATION)
 
-        return runCatching {
+        return runCatchingWrite {
             db.withTransaction {
                 expenseDao.update(
                     existing.copy(
@@ -142,10 +142,6 @@ class ExpenseRepository(
 
     suspend fun firstPage(): List<ExpenseWithCategory> = expenseDao.firstPage(PAGE_SIZE)
 
-    /** Keyset, not offset — see [com.app.finance.data.db.dao.ExpenseDao.pageAfter]. */
-    suspend fun pageAfter(last: ExpenseWithCategory): List<ExpenseWithCategory> =
-        expenseDao.pageAfter(last.expense.spentOn, last.expense.id, PAGE_SIZE)
-
     /**
      * One page of the filtered ledger — FR-EXP-08.
      *
@@ -174,7 +170,7 @@ class ExpenseRepository(
             anyMethod = if (filters.method == null) 1 else 0,
             method = filters.method?.code ?: -1,
             noQuery = if (filters.hasQuery) 0 else 1,
-            query = filters.query.trim(),
+            query = filters.query.trim().escapeForLike(),
             hasAmount = if (filters.exactAmount != null) 1 else 0,
             exactAmount = filters.exactAmount?.paisa ?: Long.MIN_VALUE,
             limit = PAGE_SIZE,
@@ -194,13 +190,48 @@ class ExpenseRepository(
 
     // ------------------------------------------------------------- internals
 
-    private suspend fun validate(amount: Money, categoryId: Long): EntryError? {
+    /**
+     * Makes the user's search text a literal for SQL's `LIKE`.
+     *
+     * `%` and `_` are wildcards, and the query went straight into the pattern —
+     * so a note search for `50%` matched every note containing `50` followed by
+     * anything, and `_` matched any single character. Nobody would report that
+     * as a bug; they would decide the search is unreliable and stop using it.
+     *
+     * The backslash is escaped **first**, or escaping the wildcards would then
+     * escape the escapes. `ESCAPE '\'` on the query side is the other half.
+     */
+    private fun String.escapeForLike(): String = this
+        .replace("\\", "\\\\")
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+
+    private suspend fun validate(amount: Money, categoryId: Long, spentOn: LocalDate): EntryError? {
         if (amount.isZero) return EntryError.ZERO_AMOUNT
+        // [EntryError.FUTURE_DATE] calls this a data-integrity rule — "a future
+        // one would post straight into the period rollup and inflate spending
+        // that has not happened" — and it was enforced in
+        // [com.app.finance.ui.feature.entry.QuickAddViewModel] alone. A rule
+        // whose only enforcement is in a ViewModel is a rule the next caller
+        // does not have; `saveEntry` on the Income side had its own copy, and
+        // the importer had none.
+        //
+        // Recurring generation does not come through here — it writes through
+        // the DAO — so FR-REC-04's catch-up is unaffected, and a future
+        // occurrence is `status = 1` anyway, which every rollup excludes.
+        if (spentOn.isAfter(LocalDate.now(clock))) return EntryError.FUTURE_DATE
         val category = categoryDao.byId(categoryId) ?: return EntryError.CATEGORY_NOT_FOUND
         if (category.isArchived) return EntryError.CATEGORY_ARCHIVED
-        if (category.parentId == null || categoryDao.hasChildren(categoryId)) {
+        val parentId = category.parentId
+        if (parentId == null || categoryDao.hasChildren(categoryId)) {
             return EntryError.NOT_A_LEAF_CATEGORY
         }
+        // A live leaf under an archived root. `CategoryRepository.archive`
+        // archives a root's active children in the same transaction, so nothing
+        // in the app can *produce* this — an imported tree can, because a
+        // restore reproduces whatever the file holds. It costs one primary-key
+        // lookup and makes the check total rather than true-by-convention.
+        if (categoryDao.byId(parentId)?.isArchived == true) return EntryError.CATEGORY_ARCHIVED
         return null
     }
 
@@ -227,11 +258,13 @@ class ExpenseRepository(
         )
     }
 
-    private fun Throwable.toEntryError(): EntryError = when {
-        this !is SQLiteConstraintException -> EntryError.CONSTRAINT_VIOLATION
-        message?.contains("leaf categories") == true -> EntryError.NOT_A_LEAF_CATEGORY
-        message?.contains("amount_minor") == true -> EntryError.ZERO_AMOUNT
-        else -> EntryError.CONSTRAINT_VIOLATION
+    /** See [toWriteError] — only the constraint half is this repository's. */
+    private fun Throwable.toEntryError(): EntryError = toWriteError("save an expense") {
+        when {
+            it.message?.contains("leaf categories") == true -> EntryError.NOT_A_LEAF_CATEGORY
+            it.message?.contains("amount_minor") == true -> EntryError.ZERO_AMOUNT
+            else -> null
+        }
     }
 
     private companion object {

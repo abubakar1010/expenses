@@ -46,6 +46,10 @@ class IncomeRepositoryTest {
     private suspend fun sourceId(name: String) =
         fx.db.incomeDao().observeAllSources().first().first { it.name == name }.id
 
+    private fun scalar(sql: String): Long =
+        fx.db.openHelper.writableDatabase.query(sql)
+            .use { if (it.moveToFirst()) it.getLong(0) else 0L }
+
     private suspend fun cells(scope: IncomeScope) = fx.income.observeCells(scope.window).first()
 
     private suspend fun total(scope: IncomeScope) = cells(scope).sumOf { it.totalMinor }
@@ -537,4 +541,55 @@ class IncomeRepositoryTest {
         val active = fx.income.observeActiveSources().first()
         assertFalse(fx.income.moveSource(active.last().id, up = false))
     }
+    // --- archive means archived, on every path in ----------------------------
+
+    @Test
+    fun typing_the_name_of_an_archived_source_is_refused_rather_than_silently_reused() =
+        runBlocking {
+            // `sourceByKey` is unfiltered on `is_archived` — deliberately, since
+            // `ux_income_source_key` is unique across archived and active rows
+            // alike, so a filtered lookup would fall through to an insert the
+            // index then rejects and the user would read "That name is already
+            // used here" about a source they cannot see.
+            //
+            // What was missing is the judgement after the lookup. The archived
+            // row was returned and used, so the entry was filed against a source
+            // hidden from every picker and from the source breakdown: money
+            // inside the period total that nothing on the Income screen
+            // accounted for.
+            fx.income.saveEntry(Money.ofTaka(40_000), "Consulting", fx.today)
+            val id = sourceId("Consulting")
+            fx.income.setSourceArchived(id, archived = true)
+
+            val outcome = fx.income.saveEntry(Money.ofTaka(9_000), "Consulting", fx.today)
+
+            assertEquals(SaveOutcome.Rejected(EntryError.SOURCE_ARCHIVED), outcome)
+            assertEquals(
+                "the refused entry was written anyway",
+                40_000_00L,
+                scalar("SELECT IFNULL(SUM(amount_minor), 0) FROM income_entry"),
+            )
+        }
+
+    @Test
+    fun restoring_the_source_makes_the_same_name_work_again() = runBlocking {
+        // The refusal has to be a state and not a dead end, or the copy —
+        // "Restore it, or use a different name" — is a lie.
+        fx.income.saveEntry(Money.ofTaka(40_000), "Consulting", fx.today)
+        val id = sourceId("Consulting")
+        fx.income.setSourceArchived(id, archived = true)
+        fx.income.setSourceArchived(id, archived = false)
+
+        assertTrue(fx.income.saveEntry(Money.ofTaka(9_000), "Consulting", fx.today) is SaveOutcome.Saved)
+    }
+
+    @Test
+    fun income_dated_after_today_is_refused_by_the_repository() = runBlocking {
+        // As with expenses: the rule lived in the ViewModel alone.
+        val outcome = fx.income.saveEntry(Money.ofTaka(5_000), "Salary", fx.today.plusDays(1))
+
+        assertEquals(SaveOutcome.Rejected(EntryError.FUTURE_DATE), outcome)
+        assertEquals(0L, scalar("SELECT IFNULL(SUM(amount_minor), 0) FROM income_entry"))
+    }
+
 }

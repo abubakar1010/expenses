@@ -173,10 +173,19 @@ class IncomeReconciliationTest {
     fun ordinary_income_across_a_year_reconciles() = runBlocking {
         // FR-IE-02's shape: several entries for one source in one month, and a
         // source with entries in most months of the year.
-        (1..11).forEach { seed(30_000, "Salary", it, 1) }
+        //
+        // Months 1..8, not 1..11. The fixture's today is 14 August 2026, so
+        // seeding September onwards described a ledger that cannot exist —
+        // income recorded before it was earned — and it only ever worked
+        // because `FUTURE_DATE` was enforced in `IncomeViewModel` and nowhere
+        // the repository could see it (§22.4). Eight months is still "most
+        // months of the year" for a year that is eight months old, and every
+        // property this test is about — many months, several entries for one
+        // source in one month, several sources — is unchanged.
+        (1..8).forEach { seed(30_000, "Salary", it, 1) }
         seed(50_000, "Farming", 6, 4)
         seed(30_000, "Farming", 6, 19)
-        seed(144_000, "Real estate", 9, 2)
+        seed(144_000, "Real estate", 7, 2)
 
         settled(vm(), yearSum(2026)).reconcilesAgainstTheLedger(2026)
     }
@@ -330,7 +339,11 @@ class IncomeReconciliationTest {
         // rests on: truncating and regenerating from the ledger must land on
         // the state the triggers had already produced. If the two ever differ,
         // one of them is wrong and every figure in the app is suspect.
-        (1..12).forEach { seed(10_000 + it * 100L, "Salary", it, 1) }
+        // 1..8 rather than 1..12, for the reason in
+        // `ordinary_income_across_a_year_reconciles`: the fixture's today is in
+        // August, and a rebuild that reproduces the triggers' state proves
+        // exactly as much over eight months as over twelve.
+        (1..8).forEach { seed(10_000 + it * 100L, "Salary", it, 1) }
         seed(80_000, "Farming", 6, 4)
         val doomed = seed(5_000, "Property", 3, 3)
         fx.income.deleteEntry(doomed.id)

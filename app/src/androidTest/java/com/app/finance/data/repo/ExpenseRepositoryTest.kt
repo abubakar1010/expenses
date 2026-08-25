@@ -274,4 +274,79 @@ class ExpenseRepositoryTest {
         assertEquals(120, seen.size)
         assertEquals("no row may appear on two pages", 120, seen.toSet().size)
     }
+    // --- rules that were only enforced above the repository -------------------
+
+    @Test
+    fun a_date_that_has_not_happened_yet_is_refused_here_and_not_only_in_the_sheet() = runBlocking {
+        // `EntryError.FUTURE_DATE` calls this a data-integrity rule — "a future
+        // one would post straight into the period rollup and inflate spending
+        // that has not happened" — and the only thing enforcing it was
+        // `QuickAddViewModel`. A rule enforced in one ViewModel is a rule the
+        // next caller does not have.
+        val outcome = fx.expenses.insert(
+            amount = Money.ofTaka(500),
+            categoryId = fx.leafId("Grocery"),
+            spentOn = fx.today.plusDays(1),
+        )
+
+        assertEquals(SaveOutcome.Rejected(EntryError.FUTURE_DATE), outcome)
+        assertTrue(
+            "a refused entry must not reach the ledger",
+            fx.expenses.filteredPage(LedgerFilters.NONE).isEmpty(),
+        )
+    }
+
+    @Test
+    fun today_itself_is_not_in_the_future() = runBlocking {
+        // The boundary, because `isAfter` and `!isBefore` differ by exactly the
+        // day every entry is made on.
+        assertTrue(
+            fx.expenses.insert(Money.ofTaka(500), fx.leafId("Grocery"), fx.today)
+                is SaveOutcome.Saved,
+        )
+    }
+
+    @Test
+    fun a_percent_sign_in_a_search_matches_a_percent_sign() = runBlocking {
+        // `%` and `_` are LIKE wildcards and the query went straight into the
+        // pattern, so searching for "50%" returned every note containing "50"
+        // followed by anything. Nobody reports that as a bug — they conclude
+        // the search is unreliable and stop using it.
+        val grocery = fx.leafId("Grocery")
+        fx.expenses.insert(Money.ofTaka(100), grocery, fx.today, note = "50% off")
+        fx.expenses.insert(Money.ofTaka(200), grocery, fx.today, note = "50 taka bus")
+
+        val hits = fx.expenses.filteredPage(LedgerFilters(query = "50%"))
+
+        assertEquals(1, hits.size)
+        assertEquals("50% off", hits.single().expense.note)
+    }
+
+    @Test
+    fun an_underscore_in_a_search_matches_an_underscore() = runBlocking {
+        val grocery = fx.leafId("Grocery")
+        fx.expenses.insert(Money.ofTaka(100), grocery, fx.today, note = "bus_fare")
+        fx.expenses.insert(Money.ofTaka(200), grocery, fx.today, note = "busXfare")
+
+        val hits = fx.expenses.filteredPage(LedgerFilters(query = "bus_fare"))
+
+        assertEquals(1, hits.size)
+        assertEquals("bus_fare", hits.single().expense.note)
+    }
+
+    @Test
+    fun a_backslash_in_a_search_is_a_backslash() = runBlocking {
+        // The escape character itself. Escaping the wildcards without escaping
+        // this first would turn a user's backslash into an escape and swallow
+        // the character after it.
+        val grocery = fx.leafId("Grocery")
+        fx.expenses.insert(Money.ofTaka(100), grocery, fx.today, note = "a\\b")
+        fx.expenses.insert(Money.ofTaka(200), grocery, fx.today, note = "ab")
+
+        val hits = fx.expenses.filteredPage(LedgerFilters(query = "a\\b"))
+
+        assertEquals(1, hits.size)
+        assertEquals("a\\b", hits.single().expense.note)
+    }
+
 }

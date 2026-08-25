@@ -127,4 +127,31 @@ class BudgetStatusTest {
         assertEquals(BudgetState.UNDER, status.state)
         assertEquals(0f, status.fraction, 0.001f)
     }
+
+    @Test
+    fun a_month_whose_refunds_outweigh_its_spending_does_not_gain_budget() {
+        // FR-EXP-06 makes a negative expense a refund, so a category's net for
+        // a period can be below zero. `limit - spent` is then *larger* than the
+        // limit, and the row read "৳1,200 left" against a ৳1,000 budget — money
+        // the user was never granted, printed beside a bar drawn at 0%.
+        // `fraction` and `percentConsumed` both clamped; this did not.
+        val status = BudgetStatus.of(spent = Money.ofTaka(-200), limit = Money.ofTaka(1_000))
+
+        assertEquals(Money.ofTaka(1_000), status.remaining)
+        assertEquals(0f, status.fraction, 0f)
+        assertEquals(0, status.percentConsumed)
+        assertEquals(Money.ZERO, status.overspend)
+    }
+
+    @Test
+    fun remaining_and_overspend_still_partition_the_ordinary_cases() {
+        // The clamp must not have moved anything that was already right.
+        val under = BudgetStatus.of(spent = Money.ofTaka(300), limit = Money.ofTaka(1_000))
+        assertEquals(Money.ofTaka(700), under.remaining)
+        assertEquals(Money.ZERO, under.overspend)
+
+        val over = BudgetStatus.of(spent = Money.ofTaka(1_280), limit = Money.ofTaka(1_000))
+        assertEquals(Money.ZERO, over.remaining)
+        assertEquals(Money.ofTaka(280), over.overspend)
+    }
 }

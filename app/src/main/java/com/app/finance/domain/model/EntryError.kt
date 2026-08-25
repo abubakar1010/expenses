@@ -68,6 +68,16 @@ enum class EntryError {
     SOURCE_NOT_FOUND,
 
     /**
+     * The income counterpart of [CATEGORY_ARCHIVED].
+     *
+     * Reached by typing the name of a source that has been archived. The
+     * name key is unique across archived and active rows alike, so there is no
+     * "create a new one under the same name" to fall back on — the honest
+     * answer is that this source is retired.
+     */
+    SOURCE_ARCHIVED,
+
+    /**
      * FR-IS-05 — a source that has entries may not be deleted.
      *
      * `ON DELETE RESTRICT` on `income_entry.source_id` is the enforcement; this
@@ -88,6 +98,41 @@ enum class EntryError {
      * for entries that are not there.
      */
     SOURCE_HAS_RULES,
+
+    /**
+     * FR-CAT-04/05 from the parent's side — a leaf that already carries
+     * expenses or a budget may not be given a child.
+     *
+     * The rule is that only leaves hold money, and it was defended only from
+     * the *reference* side: an expense could not be filed against a group. The
+     * same rule read the other way round was unguarded, so adding a
+     * subcategory under a category that already had a year of groceries turned
+     * those groceries into rows filed against a group — invisible to every
+     * leaf-scoped query, and unreachable without deleting the child again.
+     */
+    CATEGORY_HAS_ENTRIES,
+
+    /**
+     * The phone has no room left for the write.
+     *
+     * Not a constraint and not the user's input: `SQLiteFullException` was
+     * falling through every repository's mapper onto [CONSTRAINT_VIOLATION],
+     * whose copy asks the user to check the amount and the category. Following
+     * that advice fails identically every time, because nothing about the entry
+     * is wrong.
+     */
+    STORAGE_FULL,
+
+    /**
+     * The database could not be written for a reason that is not space —
+     * `SQLiteDiskIOException`: failing storage, a revoked file, a full-disk
+     * condition the filesystem reports differently.
+     *
+     * Separate from [STORAGE_FULL] because the fix is different and there isn't
+     * one the user can perform; the copy says so rather than sending them to
+     * delete photos that will not help.
+     */
+    STORAGE_FAILED,
 
     /** A constraint fired that the layer above did not anticipate. */
     CONSTRAINT_VIOLATION,

@@ -2474,12 +2474,15 @@ with a number rather than a preference — see §20.6.
    and it fails **open**: `RecoveryScreen` is checked *before* the lock, because
    a gate that failed shut would lock a user out of the one screen that can
    rescue five years of data. ~~There is a test for that ordering.~~
-   **[Corrected in §22]** — there is not, and there was not when this was
-   written. The ordering lives in `MainActivity`'s `when`, nothing in the suite
-   composes `MainActivity`, and `RecoveryPathTest` asserts that the screen
-   *appears* rather than that it appears ahead of the lock. Left visible rather
-   than edited away: a sentence claiming coverage that does not exist is worse
-   than no sentence, because it is the reason nobody goes looking.
+   **[Corrected in §22, and true again since §23]** — there was not, and there
+   was not when this was written. The ordering lived in `MainActivity`'s `when`,
+   nothing in the suite composes `MainActivity`, and `RecoveryPathTest` asserts
+   that the screen *appears* rather than that it appears ahead of the lock. Left
+   visible rather than edited away: a sentence claiming coverage that does not
+   exist is worse than no sentence, because it is the reason nobody goes
+   looking. §23.1 extracted the decision into `rootScreen` and `RootScreenTest`
+   now pins it — including the case composing the activity could never have
+   reached, where a broken database takes the lock setting down with it.
 2. **The unlock prompt backgrounds the app**, because a device-credential prompt
    is a separate activity. Re-locking on `ON_STOP` without guarding for it locks
    the app underneath its own prompt.
@@ -4555,23 +4558,199 @@ the answer to that: it caught `WriteErrors.kt` at 36% on the first run, and the
 eight tests that fixed it are the ones that make the number mean something.
 ### 22.10 Still not done
 
-- **NFR-PERF-04 remains missed**, recorded rather than redefined. §22.6 has the
-  reasoning; the rendering work is not in this pass.
-- **NFR-PERF-10 is still unmeasured on the reference device**, and this pass
-  found out why the emulator is not a substitute: probe timings on a long-lived
-  AVD drift by a factor of four or more. That trap is now in CLAUDE.md.
-- **Nothing composes `MainActivity` in a test**, so the RecoveryScreen-before-lock
-  ordering and the system-bar appearance are both asserted one level down —
-  `ThemeChoice.isDark` and `LockController` are pinned; the `when` that uses them
-  is not. §20.3's claim to the contrary is corrected in place.
-- **The five manual checks this pass implies have not been run on a device**:
-  the theme's effect on the status bar with the phone set the other way, the
-  recovery screen's copy not blocking the main thread, "Start fresh" surviving a
-  relaunch, two ledger swipes inside five seconds, and the lock re-engaging after
-  a share sheet. Each is behaviour the automated tests reach only one level below
-  the composition.
-- **`SpendMix` still does not reconcile with the hero total beside it** when a
-  nature's net is negative. The shares sum to 100% of what is displayed, which
-  is the honest reading of a mix; what they do not sum to is a total that
-  includes the negative. That is a framing question for 05 §5.3 rather than an
-  arithmetic one, and it is written down rather than silently adjusted.
+Rewritten by §23, which closed six of these. What remains is below, and every
+line says what would unblock it.
+
+| | Blocked by |
+|---|---|
+| NFR-PERF-04's 300 ms | The reference device. 552 ms measured, ~300 ms of it the first frame alone, so the read side cannot close the gap; the untried lever is 04 §2.2's own XML-views fallback, which §20.6 says needs the hardware to decide |
+| NFR-PERF-01 re-measurement | Same. `MainActivity` gained another `app_meta` read this session |
+| NFR-PERF-10 on the reference device | Same. This pass also found out why the emulator is no substitute: probe timings on a long-lived AVD drift by a factor of four (now in CLAUDE.md) |
+| The PBKDF2 cost | Same |
+| `RecoveryScreen`'s copy running off the main thread | Undrivable. The work starts in an `ActivityResult` callback and no test can press the system picker — the wall `SafBackupStore` has always hit |
+| The lock after a **share sheet** specifically | Same. `LockControllerTest` pins the state machine and `MainActivityTest` pins the lifecycle wiring; the sheet itself cannot be driven |
+| NFR-COMP-03 at 480 dp, asserted on the root | `DeviceConfigurationOverride.ForcedSize` can shrink a composition but cannot widen the window past the device. The content-level assertion is in place |
+| `SafBackupStore`, NFR-REL-05's dogfooding clause | Recorded as permanently manual since §21.12 |
+
+---
+
+## 23. Closing out §22.10
+
+**Date:** 25 August 2026
+
+§22 ended with five open items and a note that the five manual checks it implied
+had not been run. This pass closed everything in that list that does not need a
+1.4 GHz Cortex-A53 in somebody's hand, and left the rest recorded rather than
+quietly dropped.
+
+The interesting part is not the count. It is that three of the six were open
+because the *instrument* was wrong, not because the work was hard.
+
+### 23.1 The ordering that could not be tested by composing the activity
+
+`§20.3` claimed a test existed for "RecoveryScreen is checked *before* the
+lock". `§22.6` corrected that; `§22.10` recorded it as open, with the reason
+given as "nothing composes `MainActivity`".
+
+That reason was true and was not the obstacle. Composing the activity does not
+help, and finding out why is what unblocked it:
+
+> A test that breaks the database to reach the recovery branch **also** breaks
+> the `app_meta` read the lock setting comes from. `observeAppLock` catches,
+> emits `false`, and the branch whose precedence is being asserted is not in the
+> running at all.
+
+The assertion would have passed while measuring nothing — which is `§22.5`'s
+entire subject, arrived at from the other direction.
+
+So the decision was extracted rather than the activity launched.
+`rootScreen(databaseFailed, lockEnabled, locked, welcomeLatch, welcomeDone)` is
+a pure function, the `when` dispatches on it with its reasons intact, and
+`RootScreenTest` pins all thirty-six reachable states plus the three orderings
+that carry a consequence. Moving the lock branch above recovery fails three of
+its thirteen tests.
+
+One assertion had to be corrected while writing them, and it is the useful kind
+of correction: an engaged lock **does** correctly precede an *unresolved*
+welcome latch, because `lockEnabled` has already been read and answered, so
+there is nothing left to wait for. The first version of the invariant said
+"always `LOADING` while anything is unresolved" and was too strong. It says
+"never `APP`" now, and the case that forced the change has a test of its own
+rather than living as an exception inside a loop.
+
+### 23.2 The two things that genuinely needed a window
+
+Having established that the *ordering* does not need an activity, two things
+still did — and for a reason worth stating, because it is the same test that
+decides when to reach for the heavier instrument:
+
+- `isAppearanceLightStatusBars` is a property of `WindowInsetsController`. No
+  value the app holds is equal to it, so `ThemeChoice.isDark` being correct says
+  nothing about whether anything applied it.
+- Whether the lock re-engages needs a *real* `ON_STOP`/`ON_START` pair.
+  `LockControllerTest` pins the state machine; nothing pinned that
+  `MainActivity` is wired to it, and §22.3 had just rewritten the controller.
+
+`ActivityScenario.moveToState` delivers those events for real, so
+`MainActivityTest` launches the activity against in-memory Room. Two seams, each
+the counterpart of one that already existed: `FinanceApp.installContainer` is
+the Application-level twin of `AppContainer`'s documented `databaseOverride`,
+and `MainActivity.lockController` became a field rather than a `remember` inside
+`setContent` — the same lifetime either way, since every configuration this
+activity could meet is in its `configChanges`, but now an explicit dependency
+instead of an incidental one.
+
+`FLAG_SECURE` came along for free, and is asserted on the window for the first
+time. NFR-SEC-04's setting has been stored and read since §20.3; that it ever
+became a flag was taken on trust.
+
+**The risk §22's plan flagged did not materialise.** `FinanceApp` installs
+StrictMode with `penaltyDeath` in debug, and launching the real activity under
+it could have died on a main-thread read. It did not, on any of the six tests —
+which is a small piece of evidence for 04 §6 that nothing else was going to
+produce.
+
+### 23.3 Three manual checks that stopped being manual
+
+`§22.10` listed five. Three are now automated, and the two that are not are the
+two that need a human to press something the framework will not let a test
+press.
+
+**Two ledger swipes inside the undo window.** `LedgerViewModelTest` covers the
+queue, but the defect §22.3 fixed was never in the queue — it was in
+`LedgerScreen`'s `LaunchedEffect`, keyed on the held row, where re-keying
+cancels without running either branch. `LedgerUndoScreenTest` drives the actual
+gesture and asserts the *first* row still comes back.
+
+**"Start fresh" survives a relaunch.** The flag surviving is the whole of what a
+relaunch would show, and `AppStateRepositoryTest` already had the repository
+half. What broke was the *ordering*, so "the flag is eventually written" would
+not have caught it: the assertion is that it is already written at the moment
+`onDone` — the callback that cancels the scope — fires.
+
+**The status bar following the app's theme**, in §23.2 above.
+
+Both new Compose suites scope their ViewModels to a store they own and clear it
+before the database closes, and that is not defensive habit. The ledger suite's
+first run leaked an `observePendingExpenses` collector between its own two
+tests, threw on a Room executor, and the instrumentation attributed it to the
+wrong test — §21.9 I and CLAUDE.md both describe exactly that. Fixing it also
+took the suite from 95 s to 37 s.
+
+### 23.4 The spend mix, answered
+
+`§22.10` left this as "a framing question for 05 §5.3 rather than an arithmetic
+one", which was the right diagnosis and not an answer.
+
+The answer is in 05 §5.4 now: a caption beneath the slices naming what sits
+outside them, and **only when something does**. Not a permanent subtitle — a
+line that is always there is a line nobody reads on the day it matters, which is
+the same argument "needs attention" has rested on since M4. Not a recalculated
+hero total either, which would be answering a presentation problem by making a
+number wrong.
+
+`SpendMix.excludedFrom` is the question a screen asks, sharing one group-to-nature
+fold with `of` so the two cannot disagree. The arithmetic of the mix is
+unchanged, and every test written against it before today still passes.
+
+### 23.5 Test inventory
+
+| Suite | Where | Change |
+|---|---|---|
+| `RootScreenTest` | `test/` | **new**, 13 — the launch-gate ordering, all 36 states |
+| `MainActivityTest` | `androidTest/` | **new**, 6 — system bars, the lock's lifecycle wiring, `FLAG_SECURE` |
+| `WelcomeScreenTest` | `androidTest/ui` | **new**, 3 — "Start fresh" writes before it dismisses |
+| `LedgerUndoScreenTest` | `androidTest/ui/feature/ledger` | **new**, 2 — two swipes inside the window |
+| `SpendMixTest` | `test/domain/usecase` | +7 — what the slices leave out |
+| `DashboardScreenTest` | `androidTest/…/dashboard` | +2 — the caption appears, and stays silent when it should |
+
+**Every one of them was verified by mutation**, which is the standard §22.5
+argued for and did not itself apply:
+
+| Mutation | Fails |
+|---|---|
+| Lock branch above recovery in `rootScreen` | 3 of `RootScreenTest`'s 13 |
+| `enableEdgeToEdge()` back to no arguments | 2 of `MainActivityTest`'s 6 |
+| `undoQueue` back to a single slot | `a_second_swipe_inside_the_window_…` |
+| `onDone()` back beside the write | `start_fresh_writes_the_flag_before_…` |
+
+### 23.6 Measured
+
+| | before (§22.9) | after |
+|---|---|---|
+| Instrumented tests | 583 | **596**, zero failures |
+| JVM tests | 279 | **299** |
+| Line coverage, `domain/` + `core/` + `data/repo/` | 94.0% | **94.5%** |
+| Lowest-covered source file in those layers | `WriteErrors.kt`, 50.0% | **`CategoryNode.kt`, 80.0%** |
+| Release APK | 2,272,848 B | **2,272,964 B** |
+| Lint (`lintRelease`, `abortOnError`) | clean | **clean** |
+
+**The per-file floor was passing at exactly its own limit, and that is worth
+a paragraph.** `WriteErrors.kt` measured 50.0% against a 50% minimum — green,
+and one line from red for a reason having nothing to do with whether anything
+tested it. The cause was `inline`: JaCoCo credits an inlined body to each call
+site rather than to the declaration, so `toWriteError`'s entire body read as
+uncovered while `WriteErrorsTest` was exercising every branch of it.
+
+Dropping `inline` from `toWriteError` took the file to 88.9% and the bundle up
+by half a point. It costs one lambda allocation on a write that has *already
+failed*, which is not a cost. `runCatchingWrite` stays inline, because that one
+sits on the success path of every write and `runCatching` is inline for exactly
+that reason.
+
+A gate sitting on its own floor is a gate that fails on somebody else's unrelated
+change, and the fix that gets reached for then is lowering the number. Better to
+find out why it is there.
+
+### 23.7 What this pass deliberately did not do
+
+**NFR-PERF-04 stays recorded as missed.** The decomposition in §20.6 is what
+settles it: of 552 ms, about 300 ms is the first frame alone, so eliminating
+every millisecond of the nine dashboard reads still leaves it outside a 300 ms
+budget. The only lever left is 04 §2.2's own fallback — XML views for entry and
+ledger — and that is a decision that needs the reference device, not a change to
+be attempted blind and left unverified. `performance-budget.txt` keeps the
+exemption at 700 ms and the budget at 300.
+
+The rest of §22.10's table is above, and every line of it names hardware or a
+system dialog that no instrumentation can press.

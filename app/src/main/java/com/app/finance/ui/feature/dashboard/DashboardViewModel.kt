@@ -210,6 +210,7 @@ class DashboardViewModel(
                             safeToSpend = b.safeToSpend,
                             projections = b.projections,
                             mix = b.mix,
+                            mixExcluded = b.mixExcluded,
                             net = net,
                             coverage = StableCoverage.percent(f.stableIncome, b.spent),
                             ribbon = f.ribbon,

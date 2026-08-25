@@ -163,15 +163,24 @@ Every foreign key is `ON DELETE RESTRICT`, and `CategoryRepository` has no delet
   a `StateFlow` hands back its current value before any new one arrives, so
   `awaitState { rows.size == 1 }` after two deletions and an undo settles on the
   one-row state from *between* the deletions (§22.8).
-- The suite reaches the repositories and ViewModels but stops one level below the
-  composition: nothing composes `MainActivity`, so the RecoveryScreen-before-lock
-  ordering and the system-bar appearance are asserted on `LockController` and
-  `ThemeChoice.isDark` rather than on the `when` that uses them (§22.10).
+- **`MainActivityTest` launches the real activity** against in-memory Room, via
+  `FinanceApp.installContainer` (the Application-level twin of `AppContainer`'s
+  `databaseOverride`). Use it only for what needs a real `Window` or real
+  lifecycle events — the system bars, `FLAG_SECURE`, the lock across
+  `moveToState(CREATED)`. The launch-gate *ordering* is `rootScreen`, a pure
+  function with a JVM test: composing the activity cannot test it, because a
+  database broken enough to reach the recovery branch also takes the lock
+  setting's read down with it (§23.1).
+- **A Compose test that renders a screen must scope its ViewModels.** Provide
+  `LocalViewModelStoreOwner` with a store the test owns and `clear()` it before
+  `closeAfterDraining()`; otherwise `viewModel()` resolves against the host
+  activity's store, whose collectors outlive `@After` and throw on a Room
+  executor — attributed to whichever test runs next (§21.9 I, §23.3).
 - `:app:coverageVerify` has **two** rules: NFR-MAIN-02's 80% over the bundle, and
   a 50% floor per **source file**. An average hides a whole file at zero, which is
   how six launch-path functions went untested until §22 — and the floor caught
   `WriteErrors.kt` at 36% on the day it was added.
-- The instrumented suite was run in full on 25 August 2026 — **583 tests, zero failures**, API 35 emulator (`06-implementation-log.md` §22). The JVM suite is 279. Before that it had been run on 22 August (§21.8), and before *that* not since M2.
+- The instrumented suite was run in full on 25 August 2026 — **596 tests, zero failures**, API 35 emulator (`06-implementation-log.md` §23). The JVM suite is 299. Before that it had been run on 22 August (§21.8), and before *that* not since M2.
 
 ## Build config notes that look arbitrary
 

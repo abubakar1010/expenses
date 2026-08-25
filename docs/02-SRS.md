@@ -217,7 +217,30 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 
 **FR-DAT-09** The system MUST retain the most recent *N* backups, *N* being user-configurable, and MUST delete only files it wrote itself.
 
-**FR-DAT-10** The system MUST offer a restore path on the first launch after an install, before any data is entered, and from the recovery screen when the database cannot be opened.
+**FR-DAT-10** The system MUST offer a restore path on the first launch after an install, before any data is entered. From the recovery screen, where the database cannot be opened, it MUST offer to preserve the unreadable file and then discard it, reopening into the first-launch path where the restore is offered — **amended**; see below.
+- *Accept:* A fresh install with an empty ledger offers to restore before anything can be entered; answering it — by restoring or by starting fresh — is remembered across relaunches. On the recovery screen, saving a copy is a precondition of discarding the original, and discarding it lands on the first-launch offer.
+
+> **Amended.** The original clause read "and from the recovery screen when the
+> database cannot be opened", which describes a restore performed *into* the
+> broken database — and that cannot be built. A restore is an import, an import
+> is a transaction, and a transaction needs a database that opens; the recovery
+> screen exists precisely because this one does not. The requirement named an
+> outcome the user needs (their data back) and specified it as a mechanism that
+> is unavailable at that moment.
+>
+> What the screen does instead reaches the same outcome in two steps the user
+> can see: save the unreadable file somewhere first — `RecoveryScreen` disables
+> the second button until that has actually succeeded, which 05 §8 asks for
+> where there is no undo — then delete the database and its `-wal`/`-shm`
+> sidecars and restart the process. The app reopens with an empty ledger, which
+> is the condition the first-launch offer is gated on, so the restore path
+> appears with the backup folder still nominated.
+>
+> Amended in NFR-SEC-05's style, per the precedent set in
+> `06-implementation-log.md` §20.11: the intent stands, the instrument was
+> wrong, and the reasoning is recorded where the requirement is rather than
+> somewhere it will be lost.
+
 
 **FR-DAT-11** A backup MAY be encrypted with a user-supplied passphrase. Encryption MUST be optional and off by default. A wrong passphrase, an altered file, or a truncated one MUST be refused in full — never partially applied — and a wrong passphrase MUST be reported as distinct from a damaged file.
 
@@ -252,13 +275,31 @@ All targets are measured on the **reference device** with a seeded database of *
 | NFR-PERF-01 | Cold start to first interactive frame | ≤ 800 ms |
 | NFR-PERF-02 | Warm start | ≤ 250 ms |
 | NFR-PERF-03 | Expense save committed and UI updated | ≤ 100 ms |
-| NFR-PERF-04 | Dashboard fully rendered | ≤ 300 ms |
+| NFR-PERF-04 | Dashboard fully rendered — **recorded as missed**; see the note below the table | ≤ 300 ms |
 | NFR-PERF-05 | Ledger scroll | ≥ 55 fps, no frame > 16 ms at p95 |
 | NFR-PERF-06 | Period switch on dashboard | ≤ 150 ms |
 | NFR-PERF-07 | Full JSON export | ≤ 3 s |
 | NFR-PERF-10 | Full restore from a backup — decrypt, decompress, import, rebuild rollups | ≤ 10 s |
 | NFR-PERF-08 | Steady-state **anonymous** resident memory — the pages this app allocated, measured as `MemoryUsageMetric`'s `memoryRssAnonLastKb` once the dashboard has settled over five years of data | ≤ 80 MB |
 | NFR-PERF-09 | Main-thread database access | Zero occurrences; enforced by StrictMode in debug builds |
+
+**NFR-PERF-04 is recorded as missed, and the number is unchanged.** The measured
+`timeToFullDisplayMs` on the reference device is above 300 ms; the benchmark
+carries an explicit exemption at 700 ms so the suite still runs, and
+`benchmark/performance-budget.txt` states the rule this follows:
+
+> the threshold is NOT quietly raised to whatever was measured. The real budget
+> stays above.
+
+Raising 300 ms to the measured figure would make the row green by redefining the
+target, which is the failure mode `06-implementation-log.md` §20.11 describes:
+"a compliance table with a permanent false negative in it is a table nobody
+audits" — and a table with a permanent *false positive* is worse, because
+nothing is left pointing at the work. The structural properties the budget rests
+on are tested and hold (`SchemaAssertionsTest` proves the dashboard's reads are
+bounded by the leaf count and never touch the ledger); what is not yet done is
+the rendering work to convert that into the wall-clock figure. The exemption is
+the record of the gap, not its resolution.
 
 ### 3.2 Size — NFR-SIZE
 

@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Build
 import android.os.StrictMode
 import android.util.Log
+import androidx.annotation.VisibleForTesting
 import com.app.finance.di.AppContainer
 import java.util.concurrent.Executors
 
@@ -31,6 +32,26 @@ class FinanceApp : Application() {
         // disk and opens no file until something actually crashes, so it stays
         // inside the <10 ms budget this method has.
         container.crashLog.install()
+    }
+
+    /**
+     * Replaces the container before an Activity is launched.
+     *
+     * The Application-level counterpart of [AppContainer]'s `databaseOverride`,
+     * and it exists for the same reason: without it, nothing can launch
+     * `MainActivity` against anything but the user's real database, so the two
+     * things that only a real `Window` and real lifecycle events can show —
+     * whether the system bars follow [com.app.finance.domain.model.ThemeChoice],
+     * and whether the lock re-engages on a genuine `ON_STOP` — cannot be
+     * asserted at all. §22.10 listed both as open for exactly that reason.
+     *
+     * `internal`, so only this module's tests can reach it, and it must be
+     * called before the Activity starts: the container is read once per
+     * composition.
+     */
+    @VisibleForTesting
+    internal fun installContainer(replacement: AppContainer) {
+        container = replacement
     }
 
     /**

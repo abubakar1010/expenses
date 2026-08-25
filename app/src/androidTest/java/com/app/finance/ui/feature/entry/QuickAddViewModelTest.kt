@@ -93,6 +93,57 @@ class QuickAddViewModelTest {
         withTimeout(5_000) { done.await() }
     }
 
+    // --- the sheet is reused, and must come back clean -----------------------
+
+    @Test
+    fun a_saved_sheet_does_not_still_belong_to_the_row_it_saved() = runBlocking {
+        // `vm()` hands out a fresh instance per call, which is what let this
+        // through: in the app the sheet's owner is the **Activity**, so one
+        // instance serves every open for the life of the process. This test
+        // reuses one on purpose.
+        val grocery = fx.leafId("Grocery")
+        val first = (fx.expenses.insert(Money.ofTaka(500), grocery, fx.today) as SaveOutcome.Saved).id
+
+        val vm = vm()
+        vm.start(first)
+        vm.state.awaitState { it.seeded && it.editingId == first }
+        vm.saveAndWait()
+
+        // Second open, same instance, this time a new entry.
+        vm.start(null)
+        val reopened = vm.state.awaitState { it.seeded }
+
+        assertNull("the sheet is still editing the row it just saved", reopened.editingId)
+        assertFalse("the save button would be dead on reopen", reopened.saving)
+    }
+
+    @Test
+    fun the_entry_after_an_edit_is_an_insert_and_not_a_rewrite() = runBlocking {
+        // The consequence of the above, and the reason it is Tier 1: a stale
+        // `editingId` sends `save()` down the `update` branch, so the next
+        // "new" expense silently overwrites the last one edited.
+        val grocery = fx.leafId("Grocery")
+        val first = (fx.expenses.insert(Money.ofTaka(500), grocery, fx.today) as SaveOutcome.Saved).id
+
+        val vm = vm()
+        vm.start(first)
+        vm.state.awaitState { it.seeded && it.editingId == first }
+        vm.saveAndWait()
+
+        vm.start(null)
+        vm.state.awaitState { it.seeded }
+        "250".forEach { vm.onKey(KeypadKey.Digit(it)) }
+        vm.saveAndWait()
+
+        val rows = fx.db.backupDao().allExpenses()
+        assertEquals("the second entry replaced the first instead of joining it", 2, rows.size)
+        assertEquals(
+            "the edited row was rewritten by the entry that followed it",
+            Money.ofTaka(500).paisa,
+            rows.first { it.id == first }.amountMinor,
+        )
+    }
+
     // --- keypad -------------------------------------------------------------
 
     @Test

@@ -115,12 +115,12 @@ fun BudgetScreen(
     // Declared once and passed to both chips. The affordance appears in two
     // branches of the layout and the behaviour must not be able to differ.
     val copyLastMonth: () -> Unit = {
-        vm.copyFromLastMonth { count, added ->
+        vm.copyFromLastMonth { count, added, period ->
             scope.launch {
                 snackbarHostState.offerUndo(
                     message = resources.getQuantityString(R.plurals.copied_limits, count, count),
                     undoLabel = undoLabel,
-                    onUndo = { vm.undoCopy(added) },
+                    onUndo = { vm.undoCopy(added, period) },
                 )
             }
         }
@@ -192,10 +192,10 @@ fun BudgetScreen(
                 vm.saveLimit { scope.launch { snackbarHostState.showSnackbar(savedMessage) } }
             },
             onClear = {
-                vm.clearLimit { categoryId, removed ->
+                vm.clearLimit { categoryId, removed, period ->
                     scope.launch {
                         snackbarHostState.offerUndo(clearedMessage, undoLabel) {
-                            vm.undoClear(categoryId, removed)
+                            vm.undoClear(categoryId, removed, period)
                         }
                     }
                 }

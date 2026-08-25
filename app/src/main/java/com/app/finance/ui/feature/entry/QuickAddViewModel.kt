@@ -307,7 +307,24 @@ class QuickAddViewModel(
             }
             when (outcome) {
                 is SaveOutcome.Saved -> {
-                    clearDraft()
+                    // `reset`, not `clearDraft`. The two are not
+                    // interchangeable and the difference was a defect.
+                    //
+                    // `clearDraft` only empties the `SavedStateHandle`; it
+                    // leaves `_state` and `started` exactly as they were. But
+                    // this ViewModel belongs to the **Activity** (see `start`),
+                    // so the instance survives the sheet closing, and the sheet
+                    // is closed here by the caller setting its state — which
+                    // does not go through `onDismissRequest`, the only other
+                    // place `reset` was called from.
+                    //
+                    // So after a save the instance kept `saving = true` (the
+                    // Save button was dead on the next open), kept `started`
+                    // (so `start` returned early and never re-seeded), and kept
+                    // `editingId` — which sends the *next* entry down the
+                    // `update` branch above. Adding an expense after editing one
+                    // silently rewrote the edited row.
+                    reset()
                     onSaved()
                 }
                 is SaveOutcome.Rejected ->
@@ -321,13 +338,25 @@ class QuickAddViewModel(
         val id = _state.value.editingId ?: return
         _state.update { it.copy(saving = true) }
         viewModelScope.launch {
-            withContext(io) { expenses.delete(id) }
-            clearDraft()
+            val removed = runCatching { withContext(io) { expenses.delete(id) } }
+            if (removed.isFailure) {
+                // Leaving `saving` set would disable the sheet for good, on an
+                // instance that outlives this screen.
+                _state.update { it.copy(saving = false, error = EntryError.CONSTRAINT_VIOLATION) }
+                return@launch
+            }
+            reset()
             onDeleted(id)
         }
     }
 
-    /** Called when the sheet closes, so the next open starts clean. */
+    /**
+     * Returns the sheet to the state a fresh open expects.
+     *
+     * Called on every way out — dismissed, saved, or deleted. Anything that
+     * finishes with the sheet must come through here; see the note in `save`
+     * for what happens when one path does not.
+     */
     fun reset() {
         started = false
         clearDraft()

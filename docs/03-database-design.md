@@ -446,9 +446,24 @@ One income source is seeded — Salary, kind Stable — because the first thing 
 | budget | 3,600 | ~60 B | ~216 KB |
 | rollups | ~3,800 | ~40 B | ~152 KB |
 | Indexes | — | — | ~1.5 MB |
-| **Total** | | | **≈ 3.8 MB** |
+| **Total** | | | **≈ 3.8 MB** (estimate) |
+| **Measured** | 22,200 expenses | — | **5.41 MB** — 5,000 KB main, 512 KB WAL, 32 KB shm |
 
-Comfortably within the 6 MB ceiling of NFR-SIZE-05, with room for the WAL file and vacuum slack.
+Inside the 6 MB ceiling of NFR-SIZE-05, but with about a quarter of the budget
+left rather than the third this estimate implied.
+
+The estimate was low by 42%, at a corpus 11% *larger* than the 20,000 rows it
+assumed, and the gap is worth keeping in front of anyone adding a column. Three
+schema decisions spend it, all deliberate: `period_ym` denormalised onto every
+row (§4.3), a UUID on every entity for FR-DAT-04's merge, and two rollup tables
+that duplicate the ledger on purpose (§1). Index overhead is also the line an
+estimate is most likely to get wrong — SQLite stores the indexed columns *and*
+the rowid in every entry, so a composite index on two integers is not cheaper
+than a third of the table it indexes.
+
+`PerformanceProbeTest.five_years_of_data_fits_the_database_budget` is where the
+measured figure comes from, and it asserts the ceiling rather than reporting it;
+`06-implementation-log.md` §20.6 has the full reading.
 
 ---
 

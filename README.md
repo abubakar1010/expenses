@@ -10,11 +10,11 @@ Three budgets drive every decision:
 
 | Budget | Target | Current |
 |---|---|---|
-| APK size (NFR-SIZE-01) | ≤ 6 MB | **2.12 MB** |
+| APK size (NFR-SIZE-01) | ≤ 6 MB | **2.17 MB** |
 | Installed footprint (NFR-SIZE-02) | ≤ 20 MB | **5.58 MB** |
 | Database at 5 years (NFR-SIZE-05) | ≤ 6 MB | **5.41 MB** |
-| Dex methods (NFR-SIZE-03) | ≤ 40,000, single dex | **22,261 in one dex** |
-| Line coverage, calculation **and repository** layers (NFR-MAIN-02) | ≥ 80% | **94.2%** |
+| Dex methods (NFR-SIZE-03) | ≤ 40,000, single dex | **22,708 in one dex** |
+| Line coverage, calculation **and repository** layers (NFR-MAIN-02) | ≥ 80% | **94.0%**, and no source file below 50% |
 | Cold start (NFR-PERF-01) | ≤ 800 ms on a Cortex-A53 | **314 ms** on a Galaxy A54 — not the reference device |
 
 **The app declares no `INTERNET` permission** (FR-APP-01), verified against the
@@ -60,7 +60,7 @@ that had been carried as deferred since M2 (§20).
 | **Reports** — custom date range, fixed/variable split, top expenses (04 §7) | done (§20.4) |
 | Bengali (`values-bn`) | not attempted — see below |
 
-**239 JVM tests + 485 instrumented tests, all green on a device.** Each
+**279 JVM tests + 575 instrumented tests, all green on a device.** Each
 milestone's exit criterion is a reconciliation test that asserts every figure a
 screen renders equals a direct `SUM(amount_minor)` over the ledger itself —
 never the rollup read a second way. `BudgetReconciliationTest` for M2,
@@ -99,9 +99,9 @@ Requires JDK 17 and the Android SDK (platform 37, build-tools 36).
 ```bash
 ./gradlew :app:installDebug          # build and install
 ./gradlew :app:architectureCheck     # the two structural rules
-./gradlew :app:testDebugUnitTest     # 239 JVM tests — domain and core
-./gradlew :app:connectedAndroidTest  # 447 tests, needs a device — see below
-./gradlew :app:coverageVerify        # NFR-MAIN-02, currently 84.7%
+./gradlew :app:testDebugUnitTest     # 279 JVM tests — domain, core, and two gates
+./gradlew :app:connectedAndroidTest  # 575 tests, needs a device — see below
+./gradlew :app:coverageVerify        # NFR-MAIN-02's 80%, plus a per-class floor
 ./gradlew :app:lintRelease
 ./gradlew :app:assembleRelease       # R8 full mode
 ```

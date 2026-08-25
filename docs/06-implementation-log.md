@@ -2473,7 +2473,13 @@ with a number rather than a preference — see §20.6.
    recoverable database into a crash. It has the same `remember { … catch }`,
    and it fails **open**: `RecoveryScreen` is checked *before* the lock, because
    a gate that failed shut would lock a user out of the one screen that can
-   rescue five years of data. There is a test for that ordering.
+   rescue five years of data. ~~There is a test for that ordering.~~
+   **[Corrected in §22]** — there is not, and there was not when this was
+   written. The ordering lives in `MainActivity`'s `when`, nothing in the suite
+   composes `MainActivity`, and `RecoveryPathTest` asserts that the screen
+   *appears* rather than that it appears ahead of the lock. Left visible rather
+   than edited away: a sentence claiming coverage that does not exist is worse
+   than no sentence, because it is the reason nobody goes looking.
 2. **The unlock prompt backgrounds the app**, because a device-credential prompt
    is a separate activity. Re-locking on `ON_STOP` without guarding for it locks
    the app underneath its own prompt.
@@ -2483,6 +2489,14 @@ with a number rather than a preference — see §20.6.
 One `suppressNextBackground` flag covers both, consumed by the stop it was set
 for rather than left standing — and `LockControllerTest` pins all of it,
 including the case where the suppression is never used.
+
+**[Corrected in §22]** — "consumed by the stop it was set for" is the defect,
+and `LockControllerTest` pinned it *as a requirement*. One `ON_STOP` took the
+flag down whatever had caused that stop, so a suppression armed for a picker
+that never opened was spent on the user pressing Home; and "Send a copy" armed
+it before a plain `startActivity` to the share sheet, which returns no result
+and so had no moment at which anything could take it down at all. It is a
+begin/end pair now, raised only by `rememberHandoffLauncher`.
 
 The setting is disabled with a reason when the phone has no screen lock, which
 is FR-IS-05's shape reused.
@@ -3823,7 +3837,10 @@ assumed about its green-ness. 517 tests in one invocation, zero failures.
 - **NFR-PERF-10 is unmeasured on the reference device.** The 10 s restore budget
   is new and there was no import budget at all before it — only NFR-PERF-07 for
   export. Like every other NFR-PERF figure it means nothing off a 1.4 GHz
-  Cortex-A53 (02 §3.1), and `PerformanceProbeTest` does not cover it yet.
+  Cortex-A53 (02 §3.1). ~~and `PerformanceProbeTest` does not cover it yet.~~
+  **[Corrected in §22]** — it does, and §21.10 four paragraphs above says so in
+  the same breath: `a_full_restore_finishes_inside_ten_seconds` was the `+1` that
+  table records. What is missing is the *device*, not the test.
 - **The PBKDF2 cost is unmeasured on the reference device.** 210,000 rounds is
   paid once, when a passphrase is set, in the foreground with a progress bar. On
   an A53 it may be several seconds. If it is bad enough to feel broken the
@@ -3867,3 +3884,694 @@ assumed about its green-ness. 517 tests in one invocation, zero failures.
   the estimate is smaller than it was: the artifact now exists, is compressed,
   is optionally encrypted, and is already written on a schedule. What is missing
   is the upload and the `INTERNET` permission that FR-APP-01 forbids.
+
+---
+
+## 22. The whole-application audit
+
+**Date:** 25 August 2026
+
+§19 audited the app once already, at M5, and §21.9 audited the backup feature
+the day after it was built. This is the third pass, and it was asked for in the
+plainest possible terms: find any potential issue that exists, and fix it
+properly.
+
+The framing that made it productive is the one §21.9 arrived at and did not
+generalise:
+
+> "Seven defects. None of them would have failed a test that existed, which is
+> the part worth sitting with: the suite was not wrong, it was aimed elsewhere."
+
+So this pass was aimed at the places a green suite does not reach. Not the
+happy paths — those have been driven on a device and reconciled figure by
+figure since M2. The lifecycle, the second tap, the cancelled coroutine, the
+full disk, the clock that went backwards, and the tests that were written in
+the shape of an assertion without containing one.
+
+**Thirty-four defects and nine documents that disagreed with the code.** Five of
+the defects silently corrupted data. The headline one was proven before it was
+fixed, which is the only way to be sure a defect is real:
+
+```
+the_entry_after_an_edit_is_an_insert_and_not_a_rewrite
+AssertionError: expected:<2> but was:<1>
+```
+
+Edit an expense, save it, add another — and the second **overwrote the first**.
+Not a rounding error or a stale figure: a row of somebody's financial history
+replaced by the next one they typed, with no message and nothing to undo.
+
+### 22.1 How the work was ordered
+
+Everything found was verified by hand against the current code before it was
+planned, and again before it was changed. That second check is not ceremony —
+six candidates did not survive it, and §22.7 records them, because a list of
+findings without the ones that were wrong is a list nobody can calibrate.
+
+Then severity, strictly:
+
+| Tier | What it is | Count |
+|---|---|---|
+| 1 | Silent data corruption | 5 |
+| 2 | User-visible wrong behaviour | 10 |
+| 3 | Error and edge paths | 12 |
+| 4 | Tests that could not fail, and gates that did not exist | 7 |
+| 5 | Documents that disagree with the code | 9 |
+
+One commit per tier, so the corruption fixes land first and can be shipped
+without waiting for the documentation.
+
+### 22.2 Tier 1 — five that corrupted data silently
+
+#### A: the entry sheet kept editing the row it had just saved
+
+`QuickAddViewModel` is Activity-scoped, and its `save()` success path called
+`clearDraft()`:
+
+```kotlin
+private fun clearDraft() { handle[KEY_AMOUNT] = null; /* … */ }
+```
+
+which empties the `SavedStateHandle` and nothing else. `reset()` — the function
+that actually returns the ViewModel to "new entry", `editingId` included — was
+called from exactly one place: `onDismissRequest`. And Quick Add is sheet state
+rather than a route (04 §7), so saving closes the sheet **programmatically** and
+`onDismissRequest` never fires.
+
+So `editingId` survived the save. The next Quick Add opened as an edit of the
+row before it, and saving updated that row instead of inserting. Two entries
+in, one entry out, no error, and the ledger simply had a different number in it
+than the user had typed.
+
+The fix is one line in the right place — `reset()` before `onSaved()` — and the
+test above is what makes it stay fixed. `delete()` had the same shape and is
+now wrapped in `runCatching` with the same reset.
+
+#### B: budget Undo wrote to whatever month was on screen
+
+`clearLimit`, `undoClear`, `copyFromLastMonth` and `undoCopy` each read
+`_state.value.period` at the moment they ran. The snackbar that offers Undo is
+on screen for five seconds, and the period switcher is two taps away — so
+stepping back a month and then pressing Undo **deleted limits the user had set
+in the month they had stepped into**. `undoCopy` was the worst of the four: it
+calls `removeLimits`, so an undo of an August copy removed July's real budgets.
+
+Fixed by making the period part of the action rather than of the state: the
+callbacks carry the period they were created for, and `saveLimit` reads it once
+outside the coroutine.
+
+#### C: the seed folded `name_key` with the device locale
+
+`Schema.SEED` built `name_key` with `lowercase()` and no locale. On a Turkish
+phone `"Insurance".lowercase()` is `"ınsurance"` — dotless ı — so the seeded key
+did not match the key `NameKey.of` computes at runtime, and
+`ux_category_parent_key` stopped being the uniqueness guarantee the whole tree
+rests on. `Schema.kt` had *no imports at all*, which is how it came to
+reimplement a `core/` type rather than call it. It calls `NameKey.of` now.
+
+#### D: a category could become its own parent
+
+`trg_category_depth_update` checked that the new parent is a root and did not
+check that it is not the row being updated. `UPDATE category SET parent_id = id`
+produced a cycle that `observeTree` walks forever.
+
+#### E: the leaf-only rule was defended from one side only
+
+Triggers refused an expense against a category with children, and refused a
+budget on one. Nothing refused giving a **child** to a category that already had
+expenses or a budget. A user adding "Vegetables" under "Grocery" — the most
+natural thing in this tree — turned a year of groceries into rows filed against
+a group: invisible to every leaf-scoped query, and unreachable without deleting
+the new child again.
+
+`trg_category_child_of_used_leaf` and its `_upd` twin close it. That is the
+sixteenth trigger, which is worth stating because `SchemaValidationTest`
+asserted "all fourteen triggers must survive reopen" and had to be corrected.
+
+### 22.3 Tier 2 — ten the user would have seen
+
+Grouped by what they have in common, because four of the ten are the same
+mistake wearing different clothes.
+
+#### The lifecycle set: work launched into a scope that is about to die
+
+**"Start fresh" did not stick.** `WelcomeScreen.answered()` was
+
+```kotlin
+scope.launch { container.settingsRepo.setOnboarded() }
+onDone()
+```
+
+`onDone()` flips the latch, removes the screen from the composition, and cancels
+the very scope the write is running in. A coin toss the write usually lost — so
+FR-DAT-10's gate came back on **every launch** until the first expense happened
+to satisfy `observeNeedsWelcome` some other way, and a fresh install that was
+left alone asked forever. `onDone()` is now called after the write, not beside
+it.
+
+**The last-viewed period destroyed itself.** `AppNav` had two
+`LaunchedEffect`s: one reading the stored period, one writing the current one.
+Both start on first composition, on different Room executors, with no ordering
+between them — and the write goes out with the *default* period. When it won the
+race it overwrote the stored month before the read saw it, and FR-APP-03 quietly
+stopped working. This is §21.9 J's pattern, in production code rather than in a
+test. The write now waits for the read, and the flag is `rememberSaveable` so a
+process death does not repeat the read over saved state that is already correct.
+
+**The recovery screen zipped the database on the main thread.**
+`copyDatabase(context, target)` ran inside the `ActivityResult` callback — five
+years of ledger plus both WAL sidecars, seconds of blocking I/O, on the one
+screen that exists to rescue data. StrictMode's `penaltyDeath` never caught it
+because that screen is unreachable in a debug build with a healthy database.
+
+**A failed restore on the welcome screen said nothing.** The screen rendered
+exactly one of eight `BackupMessage` cases. §21.9 F and G went to real trouble
+to tell a wrong passphrase from a damaged file from a backup written by a newer
+release — and all six of those verdicts arrived at the one screen with no way to
+say any of them: the sheet closed and the screen sat there unchanged. It renders
+every message now, through the same function the Backup screen uses.
+
+#### The undo set: a single slot, and a mutex inside a timeout
+
+NFR-USE-03 says every destructive action is "undoable for at least 5 seconds".
+Two things were stopping that.
+
+`LedgerUiState` held `lastDeleted` and `lastDismissed`, one row each, and the
+screen keyed a `LaunchedEffect` on each. **Re-keying a `LaunchedEffect` cancels
+the running one without executing either branch** — so a second swipe within the
+window ran neither `undoDelete()` nor `clearUndo()` for the first row, and
+overwrote the slot holding it. That row is already gone from the database; the
+slot was the only copy. It could not be recovered by any action, and the
+snackbar offering to do so had vanished after a second. `IncomeViewModel` had
+the same single slot.
+
+And six screens each wrapped `showSnackbar` in `withTimeoutOrNull(5_000)`.
+`showSnackbar` takes the host's mutex, and the wait for it is **inside** the
+timeout — so a second destructive action taken while the first snackbar is up
+could spend its entire five seconds queued and never appear at all.
+
+Both are fixed by the same shape. `Undoable<T>` is a queue drained head-first,
+keyed on a monotonic id so *appending does not disturb the effect that is
+running*; the first action keeps its whole window and the second starts its own
+when that closes. And one shared `SnackbarHostState.offerUndo` replaces five
+private copies under three different names — it dismisses what is on screen
+before asking for the mutex, so the wait is bounded by an exit animation rather
+than by somebody else's window, and it has an `onExpired` callback because the
+two sites that lacked one are where a row became unrecoverable.
+
+#### The rest
+
+**The app lock did not re-lock.** `suppressNextBackground()` set one boolean,
+consumed by the first `ON_STOP` of any cause. Two reachable failures: a
+suppression armed for a picker that then failed to open sat there until the user
+pressed Home and swallowed *that* stop; and "Send a copy" armed it before a
+plain `startActivity` to the share sheet, which returns no result and therefore
+has no moment at which the flag could come down — tap it, pick WhatsApp, and
+Khata stayed unlocked in the background for as long as the user was gone.
+
+It is a `beginHandoff`/`endHandoff` count now, and `rememberHandoffLauncher` is
+the only thing that can raise it: the launcher returns a plain `(I) -> Unit`
+rather than the launcher itself, so there is no `launch()` reachable that has
+not told the controller first, and a launch that throws ends the hand-off on the
+way past. The share sheet no longer suppresses anything at all, because coming
+back to the gate after sending a copy of the entire ledger somewhere is the
+behaviour FR-APP-04 is for.
+
+**An archived leaf kept a ৳0 budget bar forever.** The delete trigger decrements
+a rollup bucket rather than removing it, so a period that was spent in and then
+emptied leaves `(0, 0)` behind. `observeBudgetBars` joined on presence —
+`r.total_minor IS NOT NULL` — and showed the row. Its two siblings both carry
+`txn_count > 0` and both cite §15.3; this is the query §15.3 missed.
+
+**The dashboard had a second source of period state.** It passed
+`state.period` — the ViewModel's copy, which lags by a round trip through
+`setPeriod` — where Budget and Income pass the hoisted one. The switcher
+computes its next target from what it is *shown*, so a second "‹" inside the lag
+window recomputed the same month and the step was swallowed. CLAUDE.md forbids a
+second source in as many words.
+
+**The system bars ignored the in-app theme.** `enableEdgeToEdge()` was called
+once, with no arguments, so its default `detectDarkMode` read the *phone's*
+night mode while everything below followed `ThemeChoice`. Dark app on a light
+phone drew dark icons on a dark status bar. `uiMode` is in the activity's
+`configChanges`, so nothing recreated it to settle the difference — even "Follow
+the phone" went stale until the next cold start. One `theme.isDark(systemDark)`
+now feeds both.
+
+### 22.4 Tier 3 — the paths nobody takes until the day they have to
+
+§21.9 ended on an observation it did not act on:
+
+> "Five of the seven are error and lifecycle paths … The happy path was tested
+> thoroughly enough to be driven on a device twice. The unhappy ones were
+> reasoned about in comments and never executed."
+
+That was said about the backup subsystem. It is true of the repositories too.
+
+#### A full disk was reported as a bad entry
+
+Five repositories had each written the same failure mapping, and having written
+it five times they had drifted in both of the ways duplication drifts. Every one
+opened with
+
+```kotlin
+this !is SQLiteConstraintException -> EntryError.CONSTRAINT_VIOLATION
+```
+
+so `SQLiteFullException` — the phone is out of storage — rendered as **"That
+didn't save. Check the amount and category, then try again."** Advice that
+cannot work, about a cause that is not theirs, on a write that will fail
+identically every time they follow it. And `RecurringRepository` had no mapping
+at all: every failure was `CONSTRAINT_VIOLATION`, so a duplicate rule and a full
+disk produced the same sentence.
+
+Nothing logged, either — which is §18.7 A12 for the third time in this log.
+
+One `Throwable.toWriteError(what) { constraint }` now holds the half that is
+common: `STORAGE_FULL` and `STORAGE_FAILED` get their own copy, the caller
+supplies only its own reading of a constraint message, and returning null from
+that lands on the generic error **with a log line** rather than silently. That
+last part is what caught the next one: `trg_category_child_of_used_leaf`, added
+four hours earlier in Tier 1, raised a message no mapper knew — so a correct
+refusal was being reported in copy about an amount and a category, on a screen
+that has neither.
+
+#### `runCatching` caught the cancellation too
+
+Fifteen sites, and `runCatching` catches `Throwable`. A screen closed mid-save
+therefore came back as a `Result.failure` and was mapped to a typed refusal like
+any other — the coroutine machinery's own signal turned into a verdict about the
+user's data.
+
+Worth being precise about the blast radius, because the first write-up of this
+overstated it: every production caller is
+`viewModelScope.launch { withContext(io) { … } }`, and `withContext` throws
+again on resumption, so the wrong answer was discarded before anything could
+render it. That is luck rather than design — it depends on the call shape of
+every present and future caller — and seven of the fifteen wrap a
+`withTransaction`, where swallowing a cancellation is how a transaction gets
+committed by a coroutine that has been told to stop. `runCatchingWrite` rethrows
+`CancellationException` and is used at all fifteen, plus `Importer.import`.
+
+#### Rotation could delete the backup it had just written
+
+Two behaviours, each right on its own. `intervalElapsed` treats a *negative*
+elapsed time as due, deliberately — a phone whose date was corrected should be
+backed up rather than wait months for the clock to catch up. And `rotate` sorts
+by filename, deliberately — more than one document provider reports a
+last-modified of zero for everything it holds.
+
+The stamp was in local time. So after a backwards clock change the new file is
+named hours *behind* the ones already in the folder: it sorts last, retention
+treats the newest generation as the oldest, and with `keep` others present it is
+deleted seconds after `Done` was reported for it. The `keeping` parameter looks
+like it prevents exactly this — that is what the name says — but it only ever
+reached the `.part` sweep above the retention filter.
+
+Both halves fixed: the stamp is UTC, so the ordering cannot be inverted by a
+clock; and `keeping` guards the retention filter, with the generation budget
+counted explicitly so a provider whose rename is a no-op does not cause one file
+too many to be deleted.
+
+#### FR-REC-03's documented guard was never read
+
+`recurring_rule.last_run_day` carries this KDoc:
+
+> "Generation proceeds only when next_due_day > last_run_day (FR-REC-03)."
+
+It was written on every evaluation and **read nowhere**. The only thing standing
+between a rule and a duplicate was `next_due_day` — which editing a rule's
+anchor day recomputes, and can recompute backwards onto a date already
+generated.
+
+The second guard had the opposite problem: it asked the ledger for any row with
+the same category, day and amount, and a rule's occurrence is indistinguishable
+from an entry the user makes by hand. Somebody who paid the rent and logged it
+themselves before opening the app **switched their rent rule off** — and because
+they do the same thing every month, it never generated again. Two rules of the
+same amount against the same category could likewise never both fire.
+
+Now: `last_run_day` is read, and the ledger check is narrowed to `status = 1`.
+The narrowing is asymmetric on purpose — an auto-posting rule writes `status = 0`
+and cannot see its own output, so there `last_run_day` is the guard, which is
+precisely why it had to start existing.
+
+#### The rest, briefly
+
+- **`BudgetStatus.remaining` was unclamped at the top.** FR-EXP-06 makes a
+  negative expense a refund, so a category's net for a period can be below zero
+  and `limit - spent` is then *larger* than the limit: a ৳1,000 budget with a
+  net of −৳200 read **"৳1,200 left"** beside a bar drawn at 0%. `fraction` and
+  `percentConsumed` both clamped; this did not.
+- **The ledger search treated `%` and `_` as wildcards.** They went straight
+  into the `LIKE` pattern, so searching a note for `50%` matched every note
+  containing `50` followed by anything. Nobody reports that as a bug; they
+  decide the search is unreliable and stop using it. `ESCAPE '\'`, with the
+  backslash escaped first.
+- **An archived income source was silently reused.** `sourceByKey` is unfiltered
+  on `is_archived` for a good reason — the key is unique across archived and
+  active alike, so filtering would fall through to an insert the index then
+  rejects — but the row was returned and *used*, filing income against a source
+  hidden from every picker and from the source breakdown. It is refused now,
+  matching what the expense path already does with an archived category.
+- **`FUTURE_DATE` was enforced only in ViewModels**, though `EntryError` calls it
+  a data-integrity rule. It is in `ExpenseRepository.validate` and all three
+  income write paths now.
+- **`Money.parseOrNull` overflowed silently.** `whole * 100` wraps past about
+  nine hundred million billion taka and `toLongOrNull` cannot catch it, because
+  the taka part alone still fits. Every amount-entry path caps typing at ten
+  digits; the ledger's search box parses whatever is pasted into it, and a
+  wrapped negative there quietly matches refunds.
+- **`copyFromPreviousPeriod` had no `runCatching`** where `setLimit` above it
+  always had, and it writes as many rows as the user has budgets.
+
+### 22.5 Tier 4 — four tests that could not fail, and three gates that did not exist
+
+This is the tier that explains the other four. A suite of 562 tests is only
+evidence to the extent that the tests can fail.
+
+#### `GreyscaleCaptureTest` had five `@Test`s and no assertion
+
+Both occurrences of the word "assert" in the file were inside comments. Each
+test rendered a screen, desaturated it, wrote a PNG and called `Log.i`. §20.7
+records "It passes" — what passed was a person looking at five images, once.
+
+It still writes the PNGs, because a human reading them is the only way to check
+some of what NFR-USE-05 asks. But each capture now also asserts the **word** the
+screen has to be saying: `over` on the dashboard and the budget screen,
+`Waiting to confirm` and `Confirm` on the ledger, `Stable`/`Variable` on the
+income rows, the nature names and a percentage on reports. The requirement is
+that colour is never the *only* channel, so the test is that the other channel
+exists.
+
+#### NFR-USE-05's contrast clause had no test of any kind
+
+The palette was chosen carefully, checked by hand once, and never rechecked.
+Contrast is not a property anybody sees slipping — darkening `inkSoft` a few
+points to make a label sit better looks like an improvement right up to the
+moment it crosses the line, and the person who notices is a user reading their
+ledger in sunlight.
+
+All 24 text pairs clear 4.5:1 today; the lowest is 5.27:1 (light `amber` on
+`paper`), and the filled buttons clear it too at 5.96:1. So `ContrastTest`
+passes on the day it is written, which is the point — it exists to fail on the
+day somebody changes a token. The WCAG arithmetic is implemented in the test
+rather than taken from `Color.luminance()`, with black-on-white pinned at 21:1
+and a colour against itself at 1:1, because a contrast check that computes
+something plausible but wrong passes everything while measuring nothing.
+
+#### The EXPLAIN test hand-copied its query, and had already drifted
+
+`SchemaAssertionsTest` transcribed `observeBudgetBars` under a comment saying
+"so the assertion cannot drift away from the query it is about". The copy was
+missing `c.is_archived AS isArchived`, added to the real query some milestones
+earlier — so NFR-MAIN-03's documented query plan was a plan for a query the app
+does not run, and it would have gone on passing however far the two diverged.
+
+`@Query` accepts a compile-time constant. `RollupDao.BUDGET_BARS` is now one
+string, annotated on the DAO and explained by the test, which substitutes
+`:period` before running `EXPLAIN QUERY PLAN` over it. The claim in the comment
+is true now.
+
+#### `docs/schema_v1.sql` said it was generated and nothing generated it
+
+The file opens with "Generated from … Schema.kt … **Regenerate both
+together**". There is no generator, there never was, and nothing checked — Tier
+1's two new triggers had to be hand-applied to it, which is exactly the moment
+such a file starts to rot.
+
+`SchemaDocumentTest` is a **JVM** test: `Schema` is plain Kotlin with one
+import, so the comparison costs milliseconds and runs in the pre-merge gate,
+where the instrumented suite does not run at all. It parses every
+`CREATE TABLE`/`INDEX`/`TRIGGER` out of the document — handling `BEGIN … END;`
+so a trigger is not cut into pieces and the pieces compared — and matches them
+against `Schema.TABLES`/`INDICES`/`TRIGGERS` as sets. The document's prose,
+commentary and commented-out rebuild oracle are left alone; only `IF NOT EXISTS`
+is normalised, because the code needs it and the document deliberately omits it.
+
+It found real drift on its first run, which is how a gate earns its place. There
+is also a test asserting the *parser* finds the expected number of statements —
+a parser that silently matched nothing would make the other three pass while
+comparing empty set to empty set, which is how a gate like this usually fails to
+be one.
+
+#### `coverageVerify` was one bundle-wide rule
+
+A single `LINE COVEREDRATIO >= 0.80` with no `element`. A bundle ratio is an
+average: at 94% overall there is room for a whole class to sit at zero and the
+gate to stay green — which is what had happened to
+`AppMetaRepository.lastViewedPeriod`, `SettingsRepository.setOnboarded`, and
+four of `RecurringRepository`'s income functions. All of them on the launch path
+or on a destructive action; none of them touched by a test.
+
+There is a per-class floor now, deliberately at 0.50 rather than 0.80. It is not
+a second attempt at NFR-MAIN-02, it is a tripwire for a class nobody is
+exercising, and a per-class rule set at the aggregate would fail on small
+classes for reasons unrelated to the risk being managed. A gate that has to be
+argued with is a gate that gets deleted.
+
+The functions themselves now have tests: `AppStateRepositoryTest` covers
+FR-APP-03's remembered period and FR-DAT-10's welcome gate, and
+`RecurringRepositoryTest` gained the income confirm/dismiss/restore trio and the
+auto-post switch.
+
+#### NFR-COMP-04's four font-scale tests never set a width
+
+They carried the comment "0.85x to 1.3x **at 320 dp**" and set only the font
+scale, so they ran at whatever the device happened to be — 393 dp on the
+emulator this suite runs on, which is 73 dp of slack the requirement does not
+promise. NFR-COMP-03 (320–480 dp) had no evidence of any kind.
+
+`DeviceConfigurationOverride.ForcedSize` fixes the width, and the assertion is
+stronger than `assertIsDisplayed`, which passes for a node whose bounds merely
+*intersect* the window — a Save button with half its label past the right edge
+satisfies it. Unclipped bounds are what a person would look at. Each test also
+asserts the root is exactly the forced width, so a future version where the
+override silently stops applying fails rather than quietly measuring the
+emulator again.
+
+#### And one dead path removed rather than tested
+
+`ExpenseRepository.pageAfter` and `ExpenseDao.pageAfter` were on the list of
+zero-coverage functions to write a test for. They have no caller: the ledger's
+paging went through `filteredPage(filters, after)` when FR-EXP-08's filters
+arrived, and the older query has been maintained and explained ever since — a
+second implementation of the app's most performance-sensitive read, kept warm by
+nothing. §21.9 F is the precedent ("a dead exception class is a trap for whoever
+catches it next"), so it is deleted, and its keyset-pagination reasoning moved
+onto the query that is actually run.
+
+### 22.6 Tier 5 — nine places a document disagreed with the code
+
+CLAUDE.md's rule is that where code and a document disagree, one of them is a
+bug — and the presumption established in §20.11 is that the code is right unless
+shown otherwise. Seven of these are the document being stale; two are
+requirements that were wrong when written and have been amended in place.
+
+| Where | Said | Is |
+|---|---|---|
+| `04 §2`, `§6.4`, size table | WorkManager, "for recurring-rule evaluation", "P1 only" | Never introduced. Rules and backups run on the launch path; FR-REC-04, 05 §12 and NFR-COMP-05 between them remove the need |
+| `04 §2.2` | "A single Activity, **no Fragments**" | `MainActivity` is a `FragmentActivity` and inflates no fragment — §20.3 reasoned it out and never came back to `04` |
+| `06 §20.3` | "There is a test for that ordering" (RecoveryScreen before the lock) | There is not, and was not. Nothing composes `MainActivity` |
+| `06 §20.3` | The lock's suppression is "consumed by the stop it was set for" | That *is* the defect, and `LockControllerTest` pinned it as a requirement |
+| `06 §21.12` | "`PerformanceProbeTest` does not cover [NFR-PERF-10] yet" | It does. §21.10 says so four paragraphs above, in the same section |
+| `03 §9` | Database at five years ≈ 3.8 MB | 5.41 MB measured, at a corpus 11% *larger* than the estimate assumed |
+| `README.md` | 239 JVM + 485 instrumented; coverage "84.7%" in one place and "94.2%" in another | Restated from this pass's run |
+| `CLAUDE.md` | "517 tests" | Restated |
+| `02` NFR-PERF-04 | Recorded as met | **Recorded as missed**, number unchanged — see below |
+| `02` FR-DAT-10 | "…and from the recovery screen when the database cannot be opened" | **Amended** — see below |
+
+Two of those deserve more than a table row.
+
+#### NFR-PERF-04 is recorded as missed, and 300 ms stays
+
+The measured `timeToFullDisplayMs` is above the budget, and the benchmark
+carries an explicit exemption at 700 ms so the suite still runs.
+`benchmark/performance-budget.txt` already states the rule this follows:
+
+> the threshold is NOT quietly raised to whatever was measured. The real budget
+> stays above.
+
+Raising 300 ms to the measured figure would make the row green by redefining the
+target — the mirror of the failure §20.11 describes. "A compliance table with a
+permanent false negative in it is a table nobody audits" is true; a table with a
+permanent false *positive* is worse, because nothing is left pointing at the
+work. The structural half is tested and holds: `SchemaAssertionsTest` proves the
+dashboard's reads are bounded by the leaf count and never touch the ledger. What
+is missing is the rendering work that turns that into a wall-clock figure, and
+the exemption is the record of the gap rather than its resolution.
+
+#### FR-DAT-10, amended
+
+The clause "and from the recovery screen when the database cannot be opened"
+describes a restore performed *into* the broken database, and that cannot be
+built: a restore is an import, an import is a transaction, and a transaction
+needs a database that opens — which is the exact condition the recovery screen
+exists because of. The requirement named an outcome the user needs and specified
+it as a mechanism unavailable at the moment it is needed.
+
+What the screen does instead reaches the same outcome in two steps the user can
+see: save the unreadable file somewhere first — the destructive button stays
+disabled until that has actually succeeded, which is a better instrument than
+05 §8's typed confirmation because it makes preserving the original a
+*precondition* rather than a suggestion printed beside it — then delete the
+database and its `-wal`/`-shm` sidecars and end the process. The app reopens
+empty, which is the condition the first-launch offer is gated on, so the restore
+path appears with the backup folder still nominated.
+
+Amended in NFR-SEC-05's style, per §20.11: the intent stands, the instrument was
+wrong, and the reasoning is recorded where the requirement is.
+
+### 22.7 What did not survive verification
+
+Six candidates were found, written up, and then thrown away on the second read.
+Recording them is not modesty — a findings list without its false positives is a
+list nobody can calibrate, and two of these were *nearly* acted on.
+
+- **`Money.divideBy` rounds toward zero, contradicting its KDoc.** Refuted. It
+  is intentional, asserted by `MoneyTest` (`divideBy rounds toward zero`,
+  negative case included), referenced as deliberate by three other tests, and
+  its only caller guards negatives first. At most the KDoc's second paragraph
+  could say "toward zero" where it says "down".
+- **The over-budget row says "৳0 over" when spend equals the limit.** Refuted —
+  already handled. `AlertRow` and `BudgetScreen` both compute `atLimit` and
+  render `limit_reached` ("Limit reached"). The audit read the arithmetic and
+  not the copy. The other half of that finding, the unclamped `remaining`, was
+  real and is fixed.
+- **`copyFromPreviousPeriod` can crash on a leaf that gained a child.**
+  Downgraded. Tier 1's `trg_category_child_of_used_leaf` makes the precondition
+  structurally impossible — a category with budgets cannot gain a child. It was
+  still wrapped, for the full-disk case, but as robustness rather than a defect.
+- **A cancelled save is reported to the user as an invalid entry.** Overstated.
+  Real at the repository, invisible above it, because `withContext` rethrows on
+  resumption. Fixed for the reasons in §22.4, not the reason first given.
+- **`saveEntryToSource` accepts an archived source.** Half right, and pointed at
+  the wrong function: `saveEntryToSource` has no production caller at all. The
+  live hole was `saveEntry` → `resolveOrCreateSource` → `sourceByKey`.
+- **`observeSelectableLeaves`' KDoc claims the repository refuses archived
+  parents.** Misread. The state is only reachable through an import, and the
+  entry picker uses `observeTree()`/`activeChildren` rather than that query. The
+  check was added anyway — one primary-key lookup to make `validate` total — but
+  the finding as written was not what it claimed.
+
+The pattern in the two that were *nearly* acted on is the same: reading the
+arithmetic without reading the copy that renders it, and reading a function
+without checking who calls it.
+
+### 22.8 Test inventory
+
+| Suite | Where | Change |
+|---|---|---|
+| `SchemaDocumentTest` | `test/data/db` | **new**, 5 — gates `docs/schema_v1.sql` against `Schema.kt` |
+| `ContrastTest` | `test/ui/theme` | **new**, 4 — NFR-USE-05's 4.5:1, all 24 token pairs |
+| `ThemeChoiceTest` | `test/domain/model` | **new**, 4 — one answer for the colours and the system bars |
+| `AppStateRepositoryTest` | `androidTest/data/repo` | **new**, 7 — FR-APP-03's period, FR-DAT-10's gate |
+| `WriteErrorsTest` | `androidTest/data/repo` | **new**, 8 — the full-disk and cancellation paths |
+| `LockControllerTest` | `androidTest/ui/lock` | **rewritten**, 7 — it pinned the defect as a requirement |
+| `GreyscaleCaptureTest` | `androidTest/ui` | 5 tests, **0 → 11 assertions** |
+| `AccessibilityTest` | `androidTest/ui` | font-scale tests now set a width; +NFR-COMP-03 |
+| `MoneyTest` | `test/core/money` | +1 — `parseOrNull` overflow |
+| `BudgetStatusTest` | `test/domain/model` | +2 — `remaining` clamped against a refund |
+| `BudgetRepositoryTest` | `androidTest/data/repo` | +1 — the archived-leaf residue bar |
+| `ExpenseRepositoryTest` | `androidTest/data/repo` | +5 — future dates, `LIKE` wildcards |
+| `IncomeRepositoryTest` | `androidTest/data/repo` | +3 — archived sources, future dates |
+| `RecurringRepositoryTest` | `androidTest/data/repo` | +8 — FR-REC-03's two guards, the income half, auto-post |
+| `BackupRepositoryTest` | `androidTest/data/repo` | +3 — rotation across a backwards clock |
+| `LedgerViewModelTest` | `androidTest/ui/feature/ledger` | +2 — the undo queue |
+| `IncomeViewModelTest` | `androidTest/ui/feature/income` | +1 — the undo queue |
+| `LedgerPendingTest` | `androidTest/ui/feature/ledger` | two waits now await both flows |
+| `IncomeReconciliationTest` | `androidTest/ui/feature/income` | fixture no longer seeds months that have not happened |
+| `SchemaAssertionsTest` | `androidTest/data/db` | EXPLAIN now runs the DAO's own constant |
+
+`WriteErrorsTest` is there because the new per-file coverage floor put it there.
+`WriteErrors.kt` came in at 36% — the full-disk branch, the failing-disk branch
+and the cancellation rethrow had no test, which is the same shape as the defect
+they were written to fix. A gate that finds something on the day it is added is
+the only kind worth having.
+
+**Eleven of these failed on their first run, and it is worth saying what of.**
+Only one was a defect in the app — and the test caught it exactly as intended:
+`IncomeRepository.saveEntry` had no future-date guard at all, because the patch
+that was supposed to add it aborted before writing the file, and the three sibling
+paths that did get it hid the gap.
+
+The other ten were the tests being wrong, in four distinct ways, and each way is
+worth naming because none of them is unusual:
+
+- **An assertion about ordering that indexed by position.** The ledger orders
+  `spent_on DESC, id DESC`; the test picked `ids[0]` expecting the older row.
+  Now it selects by amount.
+- **A wait that matched a stale state.** `awaitState { rows.size == 1 }` after
+  two deletions and one undo settled on the *first* one-row state — the moment
+  between the two deletions — because a `StateFlow` hands back its current value
+  before any new one arrives. Awaiting the exact condition being asserted is the
+  fix, and it is the same lesson §21.9 J recorded about ordering between
+  coroutines wearing a different hat.
+- **A fixture describing a ledger that cannot exist.** `IncomeReconciliationTest`
+  seeded income for September through December against a clock pinned to 14
+  August. It only ever worked because `FUTURE_DATE` was enforced where the
+  repository could not see it — so enforcing it properly (§22.4) made M3's exit
+  criterion fail, and the honest fix was the fixture rather than the rule.
+- **Two assertions about a widget that does not behave the way the API
+  suggests.** `DeviceConfigurationOverride.ForcedSize` can shrink a composition
+  but cannot make it wider than the device, and it does not reach a
+  `ModalBottomSheet` at all, because the sheet hosts its content in a separate
+  window. Both limits are now stated where the tests are, rather than being
+  asserted around.
+
+And one that was a real, pre-existing flake this pass happened to shake loose:
+`LedgerPendingTest` awaited `pendingCount` and asserted on `isEmpty`, which is
+derived from `initialLoad` — two independent Room flows, no ordering between
+them. It had been passing on timing luck since M5.
+
+
+### 22.9 Measured
+
+| | target | before (§21.11) | after |
+|---|---|---|---|
+| Instrumented tests | — | 541 (§21.11's 533, plus Tier 1) | **583**, zero failures |
+| JVM tests | — | 263 | **279** |
+| Line coverage, `domain/` + `core/` + `data/repo/` | ≥ 80% (NFR-MAIN-02) | 94.2% | **94.0%** (`data/repo` 91.4%) |
+| Lowest-covered source file in those layers | ≥ 50% (new gate) | ungated | **gated, and it found one** |
+| Text contrast, all 24 token pairs | ≥ 4.5:1 (NFR-USE-05) | untested | **5.27:1 lowest** |
+| `docs/schema_v1.sql` vs `Schema.kt` | identical | ungated | **gated, JVM** |
+| Triggers | — | 14 | **16** |
+| NFR-PERF-10 full restore, cold-booted AVD | ≤ 10 s | — | **3,643 ms** |
+| NFR-PERF-07 full export | ≤ 3 s | — | **571 ms** |
+| NFR-PERF-03 expense commit | ≤ 100 ms | — | **5 ms median, 13 ms worst** |
+| Release APK | ≤ 6 MB (NFR-SIZE-01) | 2,255,564 B | **2,272,848 B (2.17 MB)** |
+| Dex methods | ≤ 40,000 (NFR-SIZE-03) | 22,579 | **22,708**, single dex |
+| Dex classes | — | 4,029 | **4,056** |
+| Merged release permissions | no `INTERNET` (FR-APP-01) | 3 | **3, unchanged** |
+| `<provider>` elements in the merged manifest | 0 (04 §6) | 0 | **0** |
+| Lint (`lintRelease`, `abortOnError`) | clean | clean | **clean, no new baseline entries** |
+
+Line coverage moved by −0.2 points, which is worth a sentence rather than a
+shrug: the pass **added** more uncovered lines than it covered, because most of
+what it wrote is error handling — `toWriteError`'s two storage branches, the
+archived-source refusal, the overflow guard — and error handling is by nature
+the code least reached by a suite aimed at behaviour. The new per-file floor is
+the answer to that: it caught `WriteErrors.kt` at 36% on the first run, and the
+eight tests that fixed it are the ones that make the number mean something.
+### 22.10 Still not done
+
+- **NFR-PERF-04 remains missed**, recorded rather than redefined. §22.6 has the
+  reasoning; the rendering work is not in this pass.
+- **NFR-PERF-10 is still unmeasured on the reference device**, and this pass
+  found out why the emulator is not a substitute: probe timings on a long-lived
+  AVD drift by a factor of four or more. That trap is now in CLAUDE.md.
+- **Nothing composes `MainActivity` in a test**, so the RecoveryScreen-before-lock
+  ordering and the system-bar appearance are both asserted one level down —
+  `ThemeChoice.isDark` and `LockController` are pinned; the `when` that uses them
+  is not. §20.3's claim to the contrary is corrected in place.
+- **The five manual checks this pass implies have not been run on a device**:
+  the theme's effect on the status bar with the phone set the other way, the
+  recovery screen's copy not blocking the main thread, "Start fresh" surviving a
+  relaunch, two ledger swipes inside five seconds, and the lock re-engaging after
+  a share sheet. Each is behaviour the automated tests reach only one level below
+  the composition.
+- **`SpendMix` still does not reconcile with the hero total beside it** when a
+  nature's net is negative. The shares sum to 100% of what is displayed, which
+  is the honest reading of a mix; what they do not sum to is a total that
+  includes the negative. That is a framing question for 05 §5.3 rather than an
+  arithmetic one, and it is written down rather than silently adjusted.

@@ -18,7 +18,7 @@ Requires JDK 17, Android SDK platform 37 / build-tools 36.
 ./gradlew :app:testDebugUnitTest        # JVM: domain/ + core/
 ./gradlew :app:connectedAndroidTest     # instrumented: DAOs, repos, ViewModels, Compose
 ./gradlew :app:coverageReport           # JaCoCo HTML/XML
-./gradlew :app:coverageVerify           # NFR-MAIN-02 80% gate over domain/, core/, data/repo/
+./gradlew :app:coverageVerify           # NFR-MAIN-02's 80% over domain/, core/, data/repo/ — plus a 50% floor per source file
 ./gradlew :app:lintRelease
 ./gradlew :app:assembleRelease          # R8 full mode; unsigned without keystore.properties
 ```
@@ -65,6 +65,7 @@ adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug
 - **The debug `SEED` broadcast did not fire on an API 35 emulator (22 Aug 2026).** `am broadcast` reported `result=0`, ActivityManager logged the broadcast as enqueued, and `SeedReceiver` never logged anything — no rows were written. `src/debug/AndroidManifest.xml` states the opposite ("`am broadcast` from the shell reaches an unexported receiver in a debuggable package"), so one of the two is stale; the cause was not chased down. If seeding matters for what you are doing, verify it landed rather than assuming, or drive `SeedFiveYears.into` from an instrumented test.
 - Layouts target 288 dp of content on a 320 dp phone: `adb shell wm density 360` on a 720 px emulator, `reset` after.
 - Xiaomi/MIUI physical devices need **Install via USB** enabled or the instrumentation APK is refused with `INSTALL_FAILED_USER_RESTRICTED`.
+- **Cold-boot the emulator before trusting `PerformanceProbeTest`.** An AVD that has already run the full suite is several times slower than a fresh one, and the probes assert wall-clock budgets. Measured on one session: NFR-PERF-10's restore took 3,643 ms on a cold-booted AVD and 20,905 ms on the same AVD after a full suite run; NFR-PERF-07's export, which nothing had touched, went 571 ms → 1,907 ms alongside it. The whole suite runs in about 12 minutes cold and 25 aged, which is the cheaper signal that it is time to reboot. Nothing in the app had changed. A failing probe on a long-lived emulator is a measurement, not a regression — reboot and re-measure before believing it.
 
 ## Commit Guidelines (applies to all sub-projects)
 
@@ -158,8 +159,19 @@ Every foreign key is `ON DELETE RESTRICT`, and `CategoryRepository` has no delet
   `awaitState` predicate did not mention is asserting a race. Three tests had
   this and all three passed under `am instrument` and failed under
   `connectedDebugAndroidTest`, because JaCoCo is slower and slower is all it
-  takes (`06-implementation-log.md` §21.9 J).
-- The instrumented suite was run in full on 22 August 2026 — 517 tests, zero failures, API 35 emulator (`06-implementation-log.md` §21.8). It had not been since M2 before that.
+  takes (`06-implementation-log.md` §21.9 J). **A stale match is the same bug**:
+  a `StateFlow` hands back its current value before any new one arrives, so
+  `awaitState { rows.size == 1 }` after two deletions and an undo settles on the
+  one-row state from *between* the deletions (§22.8).
+- The suite reaches the repositories and ViewModels but stops one level below the
+  composition: nothing composes `MainActivity`, so the RecoveryScreen-before-lock
+  ordering and the system-bar appearance are asserted on `LockController` and
+  `ThemeChoice.isDark` rather than on the `when` that uses them (§22.10).
+- `:app:coverageVerify` has **two** rules: NFR-MAIN-02's 80% over the bundle, and
+  a 50% floor per **source file**. An average hides a whole file at zero, which is
+  how six launch-path functions went untested until §22 — and the floor caught
+  `WriteErrors.kt` at 36% on the day it was added.
+- The instrumented suite was run in full on 25 August 2026 — **583 tests, zero failures**, API 35 emulator (`06-implementation-log.md` §22). The JVM suite is 279. Before that it had been run on 22 August (§21.8), and before *that* not since M2.
 
 ## Build config notes that look arbitrary
 

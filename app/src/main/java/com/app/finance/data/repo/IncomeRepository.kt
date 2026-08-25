@@ -1,6 +1,5 @@
 package com.app.finance.data.repo
 
-import android.database.sqlite.SQLiteConstraintException
 import androidx.room.withTransaction
 import com.app.finance.core.money.Money
 import com.app.finance.core.text.NameKey
@@ -137,9 +136,15 @@ class IncomeRepository(
         // refund case, which is why this is not the expense rule.
         if (amount.paisa <= 0L) return SaveOutcome.Rejected(EntryError.NON_POSITIVE_INCOME)
         if (NameKey.isBlank(sourceName)) return SaveOutcome.Rejected(EntryError.BLANK_NAME)
+        // See [com.app.finance.data.repo.ExpenseRepository.validate] — the rule
+        // was enforced in the ViewModel and nowhere a second caller would find
+        // it.
+        if (earnedOn.isAfter(LocalDate.now(clock))) {
+            return SaveOutcome.Rejected(EntryError.FUTURE_DATE)
+        }
 
         val now = clock.millis()
-        return runCatching {
+        return runCatchingWrite {
             db.withTransaction {
                 val sourceId = resolveOrCreateSource(sourceName, kind, now)
                 dao.insertEntry(newEntry(sourceId, amount, earnedOn, note, now))
@@ -158,10 +163,15 @@ class IncomeRepository(
         note: String? = null,
     ): SaveOutcome {
         if (amount.paisa <= 0L) return SaveOutcome.Rejected(EntryError.NON_POSITIVE_INCOME)
-        dao.sourceById(sourceId) ?: return SaveOutcome.Rejected(EntryError.SOURCE_NOT_FOUND)
+        if (earnedOn.isAfter(LocalDate.now(clock))) {
+            return SaveOutcome.Rejected(EntryError.FUTURE_DATE)
+        }
+        val source = dao.sourceById(sourceId)
+            ?: return SaveOutcome.Rejected(EntryError.SOURCE_NOT_FOUND)
+        if (source.isArchived) return SaveOutcome.Rejected(EntryError.SOURCE_ARCHIVED)
 
         val now = clock.millis()
-        return runCatching { dao.insertEntry(newEntry(sourceId, amount, earnedOn, note, now)) }
+        return runCatchingWrite { dao.insertEntry(newEntry(sourceId, amount, earnedOn, note, now)) }
             .fold(
                 onSuccess = { SaveOutcome.Saved(it) },
                 onFailure = { SaveOutcome.Rejected(it.toIncomeError()) },
@@ -185,11 +195,14 @@ class IncomeRepository(
     ): SaveOutcome {
         if (amount.paisa <= 0L) return SaveOutcome.Rejected(EntryError.NON_POSITIVE_INCOME)
         if (NameKey.isBlank(sourceName)) return SaveOutcome.Rejected(EntryError.BLANK_NAME)
+        if (earnedOn.isAfter(LocalDate.now(clock))) {
+            return SaveOutcome.Rejected(EntryError.FUTURE_DATE)
+        }
         val existing = dao.entryById(id)
             ?: return SaveOutcome.Rejected(EntryError.CONSTRAINT_VIOLATION)
 
         val now = clock.millis()
-        return runCatching {
+        return runCatchingWrite {
             db.withTransaction {
                 val sourceId = resolveOrCreateSource(sourceName, IncomeKind.VARIABLE, now)
                 dao.updateEntry(
@@ -226,7 +239,7 @@ class IncomeRepository(
     suspend fun createSource(name: String, kind: IncomeKind): SaveOutcome {
         if (NameKey.isBlank(name)) return SaveOutcome.Rejected(EntryError.BLANK_NAME)
         val now = clock.millis()
-        return runCatching { dao.insertSource(newSource(name, kind, now)) }
+        return runCatchingWrite { dao.insertSource(newSource(name, kind, now)) }
             .fold(
                 onSuccess = { SaveOutcome.Saved(it) },
                 onFailure = { SaveOutcome.Rejected(it.toIncomeError()) },
@@ -236,7 +249,7 @@ class IncomeRepository(
     suspend fun renameSource(id: Long, name: String): SaveOutcome {
         if (NameKey.isBlank(name)) return SaveOutcome.Rejected(EntryError.BLANK_NAME)
         val existing = dao.sourceById(id) ?: return SaveOutcome.Rejected(EntryError.SOURCE_NOT_FOUND)
-        return runCatching {
+        return runCatchingWrite {
             dao.updateSource(
                 existing.copy(
                     name = name.trim(),
@@ -268,7 +281,7 @@ class IncomeRepository(
     suspend fun updateSource(id: Long, name: String, kind: IncomeKind): SaveOutcome {
         if (NameKey.isBlank(name)) return SaveOutcome.Rejected(EntryError.BLANK_NAME)
         val existing = dao.sourceById(id) ?: return SaveOutcome.Rejected(EntryError.SOURCE_NOT_FOUND)
-        return runCatching {
+        return runCatchingWrite {
             db.withTransaction {
                 dao.updateSource(
                     existing.copy(
@@ -326,7 +339,7 @@ class IncomeRepository(
         if (dao.countRulesForSource(id) > 0) {
             return DeleteSourceOutcome.Rejected(EntryError.SOURCE_HAS_RULES)
         }
-        return runCatching { dao.deleteSource(id) }.fold(
+        return runCatchingWrite { dao.deleteSource(id) }.fold(
             onSuccess = { DeleteSourceOutcome.Deleted(source) },
             onFailure = { DeleteSourceOutcome.Rejected(it.toIncomeError()) },
         )
@@ -383,11 +396,39 @@ class IncomeRepository(
      * through the unique index. This is the only route by which typing a name
      * creates a source.
      */
+    /**
+     * The name the user typed, resolved to a source id — creating one if the
+     * name is new.
+     *
+     * **An archived source is refused rather than reused.** `sourceByKey` is
+     * unfiltered on purpose: `ux_income_source_key` is unique across archived
+     * and active alike, so a lookup that skipped archived rows would fall
+     * through to an insert that the index then rejects, and the user would read
+     * "That name is already used here" about a source they cannot see. So the
+     * row is found and then *judged*.
+     *
+     * Reusing it silently is the behaviour this replaces, and it filed income
+     * against a source hidden from every picker and from the source breakdown —
+     * money in the period total that nothing on the Income screen accounted
+     * for. Refusing matches what the expense path already does with an archived
+     * category (`EntryError.CATEGORY_ARCHIVED`).
+     */
     private suspend fun resolveOrCreateSource(name: String, kind: IncomeKind, now: Long): Long {
         val key = NameKey.of(name)
-        dao.sourceByKey(key)?.let { return it.id }
+        dao.sourceByKey(key)?.let { existing ->
+            if (existing.isArchived) throw ArchivedSource()
+            return existing.id
+        }
         return dao.insertSource(newSource(name, kind, now))
     }
+
+    /**
+     * Thrown out of a transaction so the whole entry rolls back — the same
+     * shape [com.app.finance.data.export.Importer] uses for a dangling
+     * reference, and for the same reason: the check happens deep inside the
+     * write and the answer has to travel out past it.
+     */
+    private class ArchivedSource : IllegalStateException("that income source is archived")
 
     private fun newSource(name: String, kind: IncomeKind, now: Long) = IncomeSourceEntity(
         uuid = UUID.randomUUID().toString(),
@@ -419,17 +460,23 @@ class IncomeRepository(
         updatedAt = now,
     )
 
-    private fun Throwable.toIncomeError(): EntryError = when {
-        this !is SQLiteConstraintException -> EntryError.CONSTRAINT_VIOLATION
-        message?.contains("ux_income_source_key") == true -> EntryError.DUPLICATE_NAME
-        message?.contains("UNIQUE", ignoreCase = true) == true -> EntryError.DUPLICATE_NAME
-        message?.contains("amount_minor") == true -> EntryError.NON_POSITIVE_INCOME
-        // Only reachable from an entry insert against a source that has since
-        // gone. `deleteSource` never gets here: it checks both counts first —
-        // entries and rules — and returns its own error for each.
-        message?.contains("FOREIGN KEY", ignoreCase = true) == true -> EntryError.SOURCE_NOT_FOUND
-        else -> EntryError.CONSTRAINT_VIOLATION
-    }
+    /** See [toWriteError] — only the constraint half is this repository's. */
+    private fun Throwable.toIncomeError(): EntryError =
+        if (this is ArchivedSource) EntryError.SOURCE_ARCHIVED
+        else toWriteError("save income") { e ->
+            when {
+                e.message?.contains("ux_income_source_key") == true -> EntryError.DUPLICATE_NAME
+                e.message?.contains("UNIQUE", ignoreCase = true) == true -> EntryError.DUPLICATE_NAME
+                e.message?.contains("amount_minor") == true -> EntryError.NON_POSITIVE_INCOME
+                // Only reachable from an entry insert against a source that
+                // has since gone. `deleteSource` never gets here: it checks
+                // both counts first — entries and rules — and returns its own
+                // error for each.
+                e.message?.contains("FOREIGN KEY", ignoreCase = true) == true ->
+                    EntryError.SOURCE_NOT_FOUND
+                else -> null
+            }
+        }
 
     private companion object {
         /** No source has a negative id, so this matches nothing. */

@@ -48,6 +48,18 @@ object SpendMix {
      * dashboard and the report cannot disagree about what "40% variable" means.
      */
     fun ofTotals(byNature: Map<Nature, Money>): List<SpendSlice> {
+        // A nature whose net is zero or negative is dropped, not shown at 0%.
+        //
+        // The shares therefore sum to 100% of what is *displayed*, which is the
+        // honest reading of a mix — a slice cannot have negative width, and
+        // "Unpredictable −8%" is not a thing a pie can mean. What it does not
+        // sum to is the hero total printed beside it, which includes the
+        // negative: a month with ৳5,000 variable and a ৳1,000 net refund on
+        // unpredictable shows one slice at 100% above a total of ৳4,000.
+        //
+        // That is a framing question and not an arithmetic one, and the mix is
+        // the wrong place to answer it — see 05 §5.3 for the label the
+        // dashboard puts above these.
         val totals = ORDER
             .map { nature -> nature to (byNature[nature] ?: Money.ZERO) }
             .filter { (_, total) -> total.paisa > 0L }

@@ -97,6 +97,10 @@
     <string name="error_source_has_entries">This source has entries. Archive it instead.</string>
     <string name="error_source_has_rules">A repeating entry uses this source. Archive it instead.</string>
     <string name="error_source_not_found">That source no longer exists. Pick another.</string>
+    <string name="error_source_archived">That source is archived. Restore it, or use a different name.</string>
+    <string name="error_category_has_entries">That category already has entries. Pick a different group for this one.</string>
+    <string name="error_storage_full">Your phone is out of space. Free some up, then try again.</string>
+    <string name="error_storage_failed">Storage isn\'t accepting writes right now. Try again in a moment.</string>
     <string name="error_not_saved">That didn\'t save. Check the amount and category, then try again.</string>
 
     <!-- Period switcher. Shared by Budget, and by Dashboard and Income later. -->

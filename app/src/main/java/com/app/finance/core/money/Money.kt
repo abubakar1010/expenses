@@ -131,7 +131,19 @@ value class Money(val paisa: Long) : Comparable<Money> {
             val whole = takaPart.toLongOrNull() ?: return null
             val fraction = if (paisaPart.isEmpty()) 0L else paisaPart.toLongOrNull() ?: return null
 
-            val total = whole * 100 + fraction
+            // `whole * 100` overflows silently past about nine hundred million
+            // billion taka, and `toLongOrNull` cannot catch it because the taka
+            // part on its own still fits. Every amount-entry path caps typing
+            // at [MAX_DIGITS] and never reaches this; the ledger's search box
+            // parses whatever is pasted into it, and a wrapped negative there
+            // would quietly match refunds. Nobody is typing eighteen digits by
+            // accident, but "unparseable" is the honest answer for something
+            // this cannot represent, and a null is already the contract.
+            val total = try {
+                Math.addExact(Math.multiplyExact(whole, 100L), fraction)
+            } catch (_: ArithmeticException) {
+                return null
+            }
             return Money(if (negative) -total else total)
         }
 

@@ -18,6 +18,7 @@ import java.io.InputStream
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -251,9 +252,25 @@ class BackupRepository(
                 it.name.endsWith(BackupCodec.PARTIAL)
         }.forEach { store.delete(it.id) }
 
-        all.filter { BackupCodec.isBackupName(it.name) }
+        // `keeping` guards this filter too, and that was the gap. It read as
+        // though it protected the file just written — that is what the name
+        // says — but it only ever reached the `.part` sweep above. A backup
+        // whose name sorted below `keep` others could therefore be deleted by
+        // its own rotation, seconds after being written and after `Done` had
+        // already been reported. It takes a clock that has moved backwards to
+        // get there, which [intervalElapsed] deliberately treats as *due*, so
+        // the two behaviours lined up to destroy the newest generation.
+        val backups = all.filter { BackupCodec.isBackupName(it.name) }
+
+        // The file just written counts towards `keep` when it is in the list —
+        // and it is not always, because a provider whose rename is a no-op
+        // hands back an id that never appears under the final name. Counting it
+        // explicitly keeps the generation budget exact either way, rather than
+        // deleting one too many on those providers.
+        val budget = if (backups.any { it.id == keeping }) keep - 1 else keep
+        backups.filter { it.id != keeping }
             .sortedByDescending { it.name }
-            .drop(keep)
+            .drop(budget.coerceAtLeast(0))
             .forEach { store.delete(it.id) }
     }
 
@@ -398,8 +415,22 @@ class BackupRepository(
             }
     }
 
+    /**
+     * The name's timestamp, in **UTC**.
+     *
+     * It was `clock.zone`, and rotation sorts these names lexically — so a
+     * local stamp is only monotonic while the local clock is. Fly west, or
+     * correct a phone whose date was wrong, and the next backup is named hours
+     * *behind* the ones already in the folder: it sorts last, and retention
+     * treats the newest file as the oldest generation. [intervalElapsed] takes
+     * a backwards clock as a reason to back up immediately, so the two met.
+     *
+     * A stamp six hours off local time is worth less than an ordering that
+     * cannot inverted, and the app's own list ([list]) is what a user reads
+     * anyway — the file name is what rotation reads.
+     */
     private fun stamp(at: Long): String =
-        LocalDateTime.ofInstant(Instant.ofEpochMilli(at), clock.zone).format(STAMP)
+        LocalDateTime.ofInstant(Instant.ofEpochMilli(at), ZoneOffset.UTC).format(STAMP)
 
     private companion object {
         const val TAG = "Khata"
@@ -412,7 +443,8 @@ class BackupRepository(
          * to Bengali renders the year as ২০২৬. Rotation sorts these names
          * lexically, so a device-locale stamp would produce backups that sort
          * into a different order than they were taken in — and the oldest file
-         * deleted would be whichever one happened to sort last.
+         * deleted would be whichever one happened to sort last. The zone is
+         * fixed for the same reason; see [stamp].
          */
         val STAMP: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd-HHmm", Locale.ROOT)
     }

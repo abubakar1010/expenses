@@ -26,7 +26,11 @@ fun EntryError.messageRes(): Int = when (this) {
     EntryError.FUTURE_DATE -> R.string.error_future_date
     EntryError.NON_POSITIVE_INCOME -> R.string.error_non_positive_income
     EntryError.SOURCE_NOT_FOUND -> R.string.error_source_not_found
+    EntryError.SOURCE_ARCHIVED -> R.string.error_source_archived
     EntryError.SOURCE_HAS_ENTRIES -> R.string.error_source_has_entries
     EntryError.SOURCE_HAS_RULES -> R.string.error_source_has_rules
+    EntryError.CATEGORY_HAS_ENTRIES -> R.string.error_category_has_entries
+    EntryError.STORAGE_FULL -> R.string.error_storage_full
+    EntryError.STORAGE_FAILED -> R.string.error_storage_failed
     EntryError.CONSTRAINT_VIOLATION -> R.string.error_not_saved
 }

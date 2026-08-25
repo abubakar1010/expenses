@@ -48,26 +48,6 @@ interface ExpenseDao {
     )
     suspend fun firstPage(limit: Int): List<ExpenseWithCategory>
 
-    /**
-     * Keyset pagination — 03 §5.5. Deliberately not `OFFSET`, which degrades
-     * linearly as the user scrolls into history and is exactly the case
-     * NFR-PERF-05 measures.
-     *
-     * The row-value comparison `(spent_on, id) < (:lastDay, :lastId)` matches
-     * the composite index directly. SQLite has supported row values since
-     * 3.15; API 26 ships 3.18, so the floor is safe.
-     */
-    @Query(
-        """
-        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature
-          FROM expense e JOIN category c ON c.id = e.category_id
-         WHERE e.status = 0
-           AND (e.spent_on, e.id) < (:lastDay, :lastId)
-         ORDER BY e.spent_on DESC, e.id DESC
-         LIMIT :limit
-        """,
-    )
-    suspend fun pageAfter(lastDay: Long, lastId: Long, limit: Int): List<ExpenseWithCategory>
 
     /**
      * Emits on every change to `expense`, so the ledger re-reads its first page
@@ -126,6 +106,24 @@ interface ExpenseDao {
      * The `ORDER BY` matches `ix_expense_date` exactly, so even with a `LIKE`
      * over notes the read is an index walk with no temp B-tree.
      */
+    /**
+     * Keyset pagination — 03 §5.5. Deliberately not `OFFSET`, which degrades
+     * linearly as the user scrolls into history and is exactly the case
+     * NFR-PERF-05 measures.
+     *
+     * The row-value comparison `(spent_on, id) < (:lastDay, :lastId)` matches
+     * the composite index directly. SQLite has supported row values since
+     * 3.15; API 26 ships 3.18, so the floor is safe.
+     *
+     * This paragraph used to sit on a second, unfiltered `pageAfter` — the
+     * ledger's first paging query, superseded when FR-EXP-08's filters arrived
+     * and this one grew an `:noKeyset` flag to serve both the first page and
+     * every page after it. Nothing had called `pageAfter` since, in either the
+     * DAO or the repository, and it went on being maintained and explained: a
+     * second implementation of the app's most performance-sensitive read, kept
+     * warm by nothing. Removed rather than given the test §22 was going to
+     * write for it.
+     */
     @Query(
         """
         SELECT e.*, c.name AS categoryName, c.nature AS categoryNature
@@ -137,7 +135,7 @@ interface ExpenseDao {
            AND (:anyMethod = 1 OR e.payment_method = :method)
            AND (
                 :noQuery = 1
-                OR e.note LIKE '%' || :query || '%'
+                OR e.note LIKE '%' || :query || '%' ESCAPE '\'
                 OR (:hasAmount = 1 AND e.amount_minor = :exactAmount)
                )
          ORDER BY e.spent_on DESC, e.id DESC

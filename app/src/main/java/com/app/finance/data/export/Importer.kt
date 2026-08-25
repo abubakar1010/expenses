@@ -7,6 +7,7 @@ import com.app.finance.core.time.Period
 import com.app.finance.data.db.Schema
 import com.app.finance.data.db.dao.AppMetaDao
 import com.app.finance.data.db.entity.AppMetaEntity
+import com.app.finance.data.repo.runCatchingWrite
 import java.io.InputStream
 import java.time.LocalDate
 
@@ -124,7 +125,13 @@ class Importer(private val db: AppDatabase) {
     }
 
     suspend fun import(export: KhataExport, mode: ImportMode): ImportOutcome =
-        runCatching {
+        // `runCatchingWrite`, not `runCatching`: this wraps a `withTransaction`,
+        // and a cancellation caught here would be reported to the user as
+        // `REJECTED` — "that backup was refused" about an import that was
+        // simply stopped. Worse, it would be swallowed inside the transaction
+        // block, which is how a transaction gets committed by a coroutine that
+        // has been told to stop.
+        runCatchingWrite {
             db.withTransaction {
                 val counts = when (mode) {
                     ImportMode.REPLACE -> replace(export)

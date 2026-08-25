@@ -155,11 +155,30 @@ interface RecurringDao {
     @Query("DELETE FROM income_entry WHERE id = :id AND status = 1")
     suspend fun dismissIncome(id: Long): Int
 
-    /** FR-REC-03's guard, asked of the database rather than assumed. */
+    /**
+     * FR-REC-03's second guard, asked of the database rather than assumed.
+     *
+     * **`status = 1` — rows still awaiting confirmation, not the whole ledger.**
+     * Unfiltered, this matched anything of the same shape however it got there,
+     * and a rule's occurrence looks exactly like the entry a user makes by hand:
+     * somebody who logged the rent themselves on the 1st before opening the app
+     * silently switched their rent rule off, and it never generated again
+     * because the same entry blocked it every month. Two rules of the same
+     * amount against the same category — a landlord and a garage, say — could
+     * likewise never both generate.
+     *
+     * The narrowing is asymmetric and deliberately so. An auto-posting rule
+     * writes `status = 0`, so this cannot see its own previous output; there the
+     * guard is `last_run_day`, which [com.app.finance.data.repo
+     * .RecurringRepository.evaluate] now actually reads. This one stays because
+     * it is *independent* of the rule's own bookkeeping, which is the whole
+     * value of asking the ledger at all.
+     */
     @Query(
         """
         SELECT COUNT(*) FROM expense
          WHERE category_id = :categoryId AND spent_on = :day AND amount_minor = :amount
+           AND status = 1
         """,
     )
     suspend fun countExpenseOn(categoryId: Long, day: Long, amount: Long): Int
@@ -168,6 +187,7 @@ interface RecurringDao {
         """
         SELECT COUNT(*) FROM income_entry
          WHERE source_id = :sourceId AND earned_on = :day AND amount_minor = :amount
+           AND status = 1
         """,
     )
     suspend fun countIncomeOn(sourceId: Long, day: Long, amount: Long): Int

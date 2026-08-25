@@ -184,4 +184,32 @@ class MoneyTest {
         assertNull(Money.parseOrNull("12.3.4"))
         assertNull(Money.parseOrNull("12a"))
     }
+
+    @Test
+    fun an_amount_too_large_to_represent_is_unparseable_rather_than_wrapped() {
+        // `whole * 100` overflowed silently and `toLongOrNull` could not catch
+        // it, because the taka part on its own still fits in a Long. The result
+        // was a wrapped value — often a *negative* one — presented as a real
+        // amount. Every amount-entry path caps typing at ten digits and never
+        // reaches this; the ledger's search box parses whatever is pasted into
+        // it, and a wrapped negative there silently matches refunds.
+        //
+        // Long.MAX_VALUE is 9,223,372,036,854,775,807 paisa, so the largest
+        // representable amount is ৳92,233,720,368,547,758.07 exactly. The
+        // boundary is asserted from both sides, because an off-by-one guard
+        // that rejects the largest legal amount is its own defect.
+        assertEquals(Long.MAX_VALUE, Money.parseOrNull("92233720368547758.07")?.paisa)
+        assertNull(Money.parseOrNull("92233720368547758.08"))
+        assertNull(Money.parseOrNull("92233720368547759"))
+
+        // Past what `toLongOrNull` itself can read, which was already null and
+        // stays null — the guard must not have changed the easy case.
+        assertNull(Money.parseOrNull("99999999999999999999"))
+
+        // And on the negative side. The magnitude is computed before the sign,
+        // so `Long.MIN_VALUE` is one paisa out of reach; nothing in this app
+        // can produce it and rejecting it is the safe direction.
+        assertEquals(-Long.MAX_VALUE, Money.parseOrNull("-92233720368547758.07")?.paisa)
+        assertNull(Money.parseOrNull("-92233720368547758.08"))
+    }
 }

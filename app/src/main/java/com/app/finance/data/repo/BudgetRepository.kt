@@ -1,6 +1,7 @@
 package com.app.finance.data.repo
 
 import android.database.sqlite.SQLiteConstraintException
+import android.util.Log
 import androidx.room.withTransaction
 import com.app.finance.core.money.Money
 import com.app.finance.core.time.Period
@@ -79,7 +80,7 @@ class BudgetRepository(
         }
 
         val now = clock.millis()
-        return runCatching {
+        return runCatchingWrite {
             db.withTransaction {
                 val existing = budgetDao.forCategory(categoryId, period.ym)
                 if (existing == null) {
@@ -146,7 +147,27 @@ class BudgetRepository(
         if (source.isEmpty()) return 0
 
         val now = clock.millis()
-        return db.withTransaction {
+        // Wrapped, where [setLimit] above it has always been. Nothing here is
+        // known to be able to throw — a leaf that gained a child since last
+        // month would violate `trg_budget_leaf_only`, and
+        // `trg_category_child_of_used_leaf` now makes that structurally
+        // impossible — but this writes as many rows as the user has budgets and
+        // a full disk part-way through would take the whole screen down rather
+        // than report a copy that did not happen.
+        return runCatchingWrite {
+            copyInto(period, source, now)
+        }.getOrElse { error ->
+            Log.w("Khata", "could not copy last month's limits", error)
+            0
+        }
+    }
+
+    private suspend fun copyInto(
+        period: Period,
+        source: List<BudgetEntity>,
+        now: Long,
+    ): Int =
+        db.withTransaction {
             val alreadySet = budgetDao.forPeriod(period.ym).map { it.categoryId }.toSet()
             val toCopy = source.filterNot { it.categoryId in alreadySet }
 
@@ -166,7 +187,6 @@ class BudgetRepository(
             }
             toCopy.size
         }
-    }
 
     /** Undoes a copy by removing exactly what it added. */
     suspend fun removeLimits(categoryIds: List<Long>, period: Period) {
@@ -183,10 +203,14 @@ class BudgetRepository(
         return source.map { it.categoryId }.filterNot { it in alreadySet }
     }
 
-    private fun Throwable.toBudgetError(): EntryError = when {
-        this !is SQLiteConstraintException -> EntryError.CONSTRAINT_VIOLATION
-        message?.contains("leaf categories") == true -> EntryError.BUDGET_ON_NON_LEAF
-        message?.contains("UNIQUE", ignoreCase = true) == true -> EntryError.CONSTRAINT_VIOLATION
-        else -> EntryError.CONSTRAINT_VIOLATION
+    /** See [toWriteError] — only the constraint half is this repository's. */
+    private fun Throwable.toBudgetError(): EntryError = toWriteError("set a budget") {
+        when {
+            it.message?.contains("leaf categories") == true -> EntryError.BUDGET_ON_NON_LEAF
+            // A duplicate `(category, period)` is the upsert doing its job
+            // somewhere it should not have been reached; it has no copy of its
+            // own, so it falls through to the generic branch — and now logs.
+            else -> null
+        }
     }
 }

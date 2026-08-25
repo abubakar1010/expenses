@@ -476,6 +476,76 @@ class BackupRepositoryTest {
 
     // --- helpers --------------------------------------------------------------
 
+    // --- FR-DAT-09: rotation, and the clock it depends on --------------------
+
+    @Test
+    fun a_clock_that_has_moved_backwards_does_not_make_rotation_eat_the_newest_backup() =
+        runBlocking {
+            // Two behaviours that are each right on their own. `intervalElapsed`
+            // treats a negative elapsed as *due* — a phone whose date was
+            // corrected should be backed up rather than wait months for the
+            // clock to catch up. And rotation sorts by name, because more than
+            // one document provider reports a last-modified of zero for
+            // everything it holds.
+            //
+            // The name was stamped in local time, so after a backwards change
+            // the new file sorts *below* the ones already there. It was the
+            // last of six with `keep = 5`, so it was deleted — by its own
+            // rotation, moments after `Done` was reported for it.
+            arm(keep = 2)
+            fx.expenses.insert(Money.ofTaka(100), fx.leafId("Grocery"), fx.today)
+            backup.runNow()
+
+            now = now.plusSeconds(3600)
+            fx.expenses.insert(Money.ofTaka(200), fx.leafId("Grocery"), fx.today)
+            backup.runNow()
+
+            // The clock goes back a day. Both existing backups now sort above
+            // anything this one can be called.
+            now = now.minusSeconds(24 * 3600)
+            fx.expenses.insert(Money.ofTaka(300), fx.leafId("Grocery"), fx.today)
+            val outcome = backup.runNow()
+
+            val written = (outcome as BackupOutcome.Done).name
+            assertTrue(
+                "the backup just written was deleted by its own rotation: $written not in ${store.names}",
+                store.names.contains(written),
+            )
+            assertEquals("the generation budget was not honoured", 2, store.names.size)
+        }
+
+    @Test
+    fun the_name_is_stamped_in_a_fixed_zone_so_the_order_survives_a_move() = runBlocking {
+        // The stamp used `clock.zone`. Two backups an hour apart, taken either
+        // side of a six-hour timezone change, must still sort in the order they
+        // were taken — which is the only thing rotation has to go on.
+        arm(keep = 5)
+        fx.expenses.insert(Money.ofTaka(100), fx.leafId("Grocery"), fx.today)
+        backup.runNow()
+        val first = store.names.single()
+
+        now = now.plusSeconds(3600)
+        fx.expenses.insert(Money.ofTaka(200), fx.leafId("Grocery"), fx.today)
+        backup.runNow()
+        val second = store.names.first { it != first }
+
+        assertTrue("$second should sort after $first", second > first)
+    }
+
+    @Test
+    fun rotation_keeps_exactly_the_number_of_generations_asked_for() = runBlocking {
+        // The retention budget has to stay exact now that the file just written
+        // is excluded from the list before the count is taken.
+        arm(keep = 3)
+        repeat(5) { i ->
+            now = now.plusSeconds(3600L * (i + 1))
+            fx.expenses.insert(Money.ofTaka(100L + i), fx.leafId("Grocery"), fx.today)
+            backup.runNow()
+        }
+
+        assertEquals(3, store.names.size)
+    }
+
     private suspend fun arm(
         interval: BackupInterval = BackupInterval.DAILY,
         keep: Int = 5,

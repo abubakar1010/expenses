@@ -80,7 +80,7 @@ class RecurringRepository(
         val now = clock.millis()
         val firstDue = RecurrenceSchedule.firstDueOnOrAfter(frequency, anchorDay, startingFrom)
 
-        return runCatching {
+        return runCatchingWrite {
             dao.insertRule(
                 RecurringRuleEntity(
                     uuid = UUID.randomUUID().toString(),
@@ -98,9 +98,37 @@ class RecurringRepository(
             )
         }.fold(
             onSuccess = { SaveOutcome.Saved(it) },
-            onFailure = { SaveOutcome.Rejected(EntryError.CONSTRAINT_VIOLATION) },
+            // There was no mapping here at all — every failure was
+            // `CONSTRAINT_VIOLATION`, so a full disk and a rule that violated
+            // its target CHECK produced the same sentence and neither was
+            // logged. See [toWriteError].
+            onFailure = { SaveOutcome.Rejected(it.toRuleError(target)) },
         )
     }
+
+    /** See [toWriteError] — only the constraint half is this repository's. */
+    /**
+     * See [toWriteError] — only the constraint half is this repository's.
+     *
+     * [target] decides which "not found" the user reads, because a rule can
+     * point at either side of the ledger and routing a missing *source* through
+     * the category error prints "Pick a category" on a screen that has none.
+     * The same distinction [EntryError.SOURCE_NOT_FOUND] exists for.
+     */
+    private fun Throwable.toRuleError(target: RuleTarget): EntryError =
+        toWriteError("save a repeating entry") {
+            when {
+                it.message?.contains("FOREIGN KEY", ignoreCase = true) == true ->
+                    if (target == RuleTarget.EXPENSE) EntryError.CATEGORY_NOT_FOUND
+                    else EntryError.SOURCE_NOT_FOUND
+                it.message?.contains("amount_minor") == true -> EntryError.ZERO_AMOUNT
+                // `CHECK (…exactly one of category_id / source_id…)` — 03 §4.5.
+                // Reachable only from a caller that built a rule with neither or
+                // both, which the UI cannot do; it falls through to the generic
+                // branch, which now at least says so in the log.
+                else -> null
+            }
+        }
 
     /** Pausing rather than deleting: a rule the user may want back next year. */
     suspend fun setActive(id: Long, active: Boolean) {
@@ -141,11 +169,18 @@ class RecurringRepository(
      * the app was opened — which is what this does, without a `ContentProvider`
      * on the startup path 04 §6 spent effort keeping clear.
      *
-     * **FR-REC-03 (idempotence)** holds two ways over. The loop advances
+     * **FR-REC-03 (idempotence)** holds three ways over. The loop advances
      * `next_due_day` past [today] before it exits, so a second call the same day
-     * finds nothing due; and each generation checks the ledger for a row with
-     * the same target, day and amount, so even a rule whose bookkeeping was
-     * corrupted cannot produce a duplicate.
+     * finds nothing due; no occurrence at or before `last_run_day` is generated
+     * again, which covers a `next_due_day` recomputed *backwards* by an edit to
+     * the anchor day; and each generation checks the ledger for a **pending**
+     * row of the same target, day and amount, which is independent of the
+     * rule's own bookkeeping.
+     *
+     * That third check used to look at the whole ledger, and a user's own entry
+     * of the same shape is indistinguishable from a rule's — so logging the
+     * rent by hand once switched the rent rule off for good. See
+     * [com.app.finance.data.db.dao.RecurringDao.countExpenseOn].
      *
      * **FR-REC-04 (catch-up)** is why this is a `while` and not an `if`. An app
      * unopened since April generates April's, May's, June's and July's, each
@@ -164,10 +199,20 @@ class RecurringRepository(
                 val frequency = Frequency.fromCode(rule.frequency)
 
                 while (due.toEpochDay() <= todayDay) {
-                    if (generate(rule, due)) {
-                        if (rule.autoPost) posted++ else pending++
+                    // FR-REC-03's first guard, and until now it was only
+                    // *written*. `Entities.lastRunDay` says "generation
+                    // proceeds only when next_due_day > last_run_day"; the
+                    // column was updated on every evaluation and never read, so
+                    // the only thing standing between a rule and a duplicate
+                    // was `next_due_day` — which editing a rule's anchor day
+                    // recomputes, and can recompute *backwards* onto a date
+                    // already generated.
+                    if (lastRun == null || due.toEpochDay() > lastRun) {
+                        if (generate(rule, due)) {
+                            if (rule.autoPost) posted++ else pending++
+                        }
+                        lastRun = due.toEpochDay()
                     }
-                    lastRun = due.toEpochDay()
 
                     val nextDue = RecurrenceSchedule.next(frequency, rule.anchorDay, due)
                     // `next` is documented as strictly after; this is the guard

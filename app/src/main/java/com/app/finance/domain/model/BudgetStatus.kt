@@ -58,9 +58,21 @@ data class BudgetStatus(
         get() = if (limit.paisa <= 0L) 0
         else ((spent.paisa.toDouble() / limit.paisa.toDouble()) * 100).toInt().coerceAtLeast(0)
 
-    /** Zero once the limit is passed; [overspend] carries the excess. */
+    /**
+     * Zero once the limit is passed; [overspend] carries the excess.
+     *
+     * Clamped at *both* ends, and the upper one is the half that was missing.
+     * FR-EXP-06 makes a negative expense a refund, so a category whose refunds
+     * outweigh its spending in a period has `spent < 0` — and `limit - spent`
+     * is then larger than the limit. A ৳1,000 budget with a net of −৳200 read
+     * **"৳1,200 left"** beside a bar drawn at 0%: a figure the user has no
+     * claim to, since the refund is money coming back, not budget they were
+     * granted. [fraction] and [percentConsumed] both clamped already; this did
+     * not.
+     */
     val remaining: Money
-        get() = if (limit.paisa <= 0L) Money.ZERO else maxOf(limit - spent, Money.ZERO)
+        get() = if (limit.paisa <= 0L) Money.ZERO
+        else minOf(maxOf(limit - spent, Money.ZERO), limit)
 
     val overspend: Money
         get() = if (limit.paisa <= 0L) Money.ZERO else maxOf(spent - limit, Money.ZERO)

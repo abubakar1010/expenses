@@ -32,12 +32,7 @@ object SpendMix {
      * [LargestRemainder] is what guarantees that — three near-equal natures
      * rounded independently read 99.
      */
-    fun of(groups: List<BudgetGroup>): List<SpendSlice> = ofTotals(
-        ORDER.associateWith { nature ->
-            groups.filter { it.nature == nature }
-                .fold(Money.ZERO) { acc, group -> acc + group.spent }
-        },
-    )
+    fun of(groups: List<BudgetGroup>): List<SpendSlice> = ofTotals(totalsOf(groups))
 
     /**
      * The same split from per-nature totals rather than from budget groups.
@@ -58,8 +53,8 @@ object SpendMix {
         // unpredictable shows one slice at 100% above a total of ৳4,000.
         //
         // That is a framing question and not an arithmetic one, and the mix is
-        // the wrong place to answer it — see 05 §5.3 for the label the
-        // dashboard puts above these.
+        // the wrong place to answer it. [excludedFrom] is how a screen asks
+        // what was left out, and 05 §5.3 is the rule for saying so.
         val totals = ORDER
             .map { nature -> nature to (byNature[nature] ?: Money.ZERO) }
             .filter { (_, total) -> total.paisa > 0L }
@@ -70,6 +65,37 @@ object SpendMix {
             SpendSlice(nature = nature, total = total, share = shares[i])
         }
     }
+
+    /**
+     * What the slices leave out — the magnitude of every nature whose net is at
+     * or below zero.
+     *
+     * Zero whenever the mix and the total beside it agree, which is almost
+     * always. It is non-zero exactly when FR-EXP-06's refunds outweigh a
+     * nature's spending for the period, and then the percentages are of a
+     * smaller number than the figure printed above them.
+     *
+     * Returned rather than folded into the slices because a refund is not a
+     * share of spending; it is money coming back, and a pie cannot draw it.
+     * 05 §5.3 says what a screen does with this: a caption, and only when it is
+     * non-zero — a line that is always there is a line nobody reads on the day
+     * it matters.
+     */
+    fun excludedFrom(byNature: Map<Nature, Money>): Money =
+        ORDER.fold(Money.ZERO) { acc, nature ->
+            val total = byNature[nature] ?: Money.ZERO
+            if (total.paisa > 0L) acc else acc + total.absoluteValue
+        }
+
+    /** The same question asked of budget groups — see [of]. */
+    fun excludedFrom(groups: List<BudgetGroup>): Money = excludedFrom(totalsOf(groups))
+
+    /** One fold, so [of] and [excludedFrom] cannot disagree about a nature's total. */
+    private fun totalsOf(groups: List<BudgetGroup>): Map<Nature, Money> =
+        ORDER.associateWith { nature ->
+            groups.filter { it.nature == nature }
+                .fold(Money.ZERO) { acc, group -> acc + group.spent }
+        }
 
     private val ORDER = listOf(Nature.VARIABLE, Nature.UNPREDICTABLE, Nature.FIXED)
 }

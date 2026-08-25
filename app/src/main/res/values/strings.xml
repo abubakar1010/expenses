@@ -292,6 +292,7 @@
     <string name="delta_versus_usual">%1$s more than usual</string>
     <string name="delta_spoken">%1$s, %2$s, %3$s more than the last three months</string>
 
+    <string name="mix_excludes">Percentages are of spending only. %1$s of refunds sits outside them.</string>
     <string name="where_it_goes">Where it goes</string>
     <string name="largest_expenses">Largest expenses</string>
     <string name="six_month_trend">Six-month trend</string>

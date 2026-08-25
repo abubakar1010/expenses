@@ -190,6 +190,25 @@ fun ReportsScreen(container: AppContainer, onBack: () -> Unit) {
         if (state.mix.isNotEmpty()) {
             item(key = "mix-header") { SectionHeader(stringResource(R.string.where_it_goes)) }
             items(state.mix, key = { "mix-${it.nature.code}" }) { slice -> MixRow(slice) }
+            // 05 §5.3 — see the dashboard's copy of this. The report reads an
+            // arbitrary range straight from the ledger, so it meets the same
+            // case more often than the dashboard does.
+            if (!state.mixExcluded.isZero) {
+                item(key = "mix-excludes") {
+                    Text(
+                        text = stringResource(
+                            R.string.mix_excludes,
+                            state.mixExcluded.format(locale),
+                        ),
+                        style = KhataTheme.type.caption,
+                        color = KhataTheme.colors.inkSoft,
+                        modifier = Modifier.padding(
+                            horizontal = Space.gutter,
+                            vertical = Space.s2,
+                        ),
+                    )
+                }
+            }
         }
 
         if (state.largest.isNotEmpty()) {

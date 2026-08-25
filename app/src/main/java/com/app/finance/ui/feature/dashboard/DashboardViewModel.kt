@@ -76,6 +76,11 @@ data class DashboardUiState(
     val projections: List<BurnProjection> = emptyList(),
     val deltas: List<CategoryDelta> = emptyList(),
     val mix: List<SpendSlice> = emptyList(),
+    /**
+     * What [mix] leaves out — 05 §5.3. Zero unless a nature's refunds outweigh
+     * its spending, and the caption under the mix appears only when it is not.
+     */
+    val mixExcluded: Money = Money.ZERO,
     val largest: List<ExpenseWithCategory> = emptyList(),
     val trend: ExpenseTrend? = null,
     /** FR-AN-10 — over a trailing twelve periods, never a shorter window. */
@@ -251,6 +256,7 @@ class DashboardViewModel(
                 daysInPeriod = period.daysInMonth(),
             ),
             mix = SpendMix.of(groups),
+            mixExcluded = SpendMix.excludedFrom(groups),
             // Every expense sits on a leaf and every leaf is a row here, so
             // this is the period's total spend — read once, with the figures
             // the user can see it broken into.
@@ -303,6 +309,7 @@ class DashboardViewModel(
         val safeToSpend: SafeToSpend,
         val projections: List<BurnProjection>,
         val mix: List<SpendSlice>,
+        val mixExcluded: Money,
         val spent: Money,
     )
 

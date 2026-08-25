@@ -32,6 +32,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.time.LocalDate
+import androidx.compose.ui.test.assertCountEquals
 
 /**
  * The dashboard as rendered — 05 §5.4 and §10.
@@ -468,4 +469,39 @@ class DashboardScreenTest {
         assertTrue("no fixed group:\n$rendered", !rendered.contains("Fixed Expenses"))
         assertTrue("no unpredictable group:\n$rendered", !rendered.contains("Unpredictable Expenses"))
     }
+    // --- 05 §5.3: the mix says what its percentages are of --------------------
+
+    @Test
+    fun the_mix_carries_no_caption_when_it_reconciles_with_the_total() {
+        // The ordinary case, and the one that decides whether the caption is
+        // noise. If it appears here it appears on every screen every month, and
+        // a line that is always there is a line nobody reads on the day it
+        // matters.
+        spend(9_500, "Grocery")
+        spend(2_000, "Medical")
+        show()
+
+        compose.onNodeWithText("Where it goes").assertIsDisplayed()
+        compose.onAllNodesWithText("sits outside them", substring = true).assertCountEquals(0)
+    }
+
+    @Test
+    fun a_nature_whose_refunds_outweigh_its_spending_is_named_under_the_mix() {
+        // FR-EXP-06 makes a negative expense a refund, so a nature's net can be
+        // below zero for a period. It cannot be drawn as a slice — a pie has no
+        // negative width — so the percentages are of a smaller number than the
+        // figure above them. §22.10 recorded that as an open framing question;
+        // this is the answer.
+        spend(5_000, "Grocery")
+        spend(-1_000, "Medical")
+        show()
+
+        compose.onNodeWithText("Where it goes").assertIsDisplayed()
+        // The remaining slice is the whole of what is drawn...
+        compose.onNodeWithText("100%").assertIsDisplayed()
+        // ...and the caption says how much is not.
+        compose.onNodeWithText("of refunds sits outside them", substring = true)
+            .assertIsDisplayed()
+    }
+
 }

@@ -55,6 +55,69 @@ import com.app.finance.ui.theme.KhataTheme
  * between hitting the 800 ms budget on eMMC storage and missing it regardless
  * of how well the rest is written.
  */
+/**
+ * What the app shows before it shows anything of the ledger.
+ *
+ * Five states rather than five screens, because what is being decided is an
+ * *order* and the order is the part that has consequences.
+ */
+internal enum class RootScreen {
+    /** 04 §8 — the database will not open. */
+    RECOVERY,
+
+    /** A setting the decision depends on has not arrived yet. */
+    LOADING,
+
+    /** FR-APP-04's gate. */
+    LOCK,
+
+    /** FR-DAT-10's restore offer, on a ledger that is still empty. */
+    WELCOME,
+
+    /** The ledger. */
+    APP,
+}
+
+/**
+ * The order in which the launch gates apply.
+ *
+ * A pure function, and that is the point. This was a `when` inside
+ * `setContent`, unreachable by any test: nothing in the suite composes
+ * `MainActivity`, and the obvious way to try — break the database and assert
+ * the recovery screen wins — cannot work, because the same broken database
+ * makes `observeAppLock` catch and emit `false`, so the branch being tested for
+ * precedence is not even in the running.
+ *
+ * The three orderings that matter, each with a reason that was written down
+ * long before anything checked it:
+ *
+ *  1. **Recovery before the lock.** §19.1's defect was a setting read that ran
+ *     ahead of the recovery path. The lock is a second such read, and a gate
+ *     that failed *shut* would lock a user out of the one screen that can
+ *     rescue five years of data. So the lock is never consulted when the
+ *     database is broken — not even to decide whether to wait for it.
+ *  2. **Nothing before a setting it depends on.** A `null` is "not read yet",
+ *     not "off". Defaulting to unlocked for a frame or two is exactly what a
+ *     lock must not do, so an unresolved setting shows a blank instead.
+ *  3. **The lock before the welcome offer.** FR-DAT-10 puts a restore behind
+ *     the gate, because a backup file is the whole ledger and the gate that
+ *     protects the ledger should protect the door it can be replaced through.
+ */
+internal fun rootScreen(
+    databaseFailed: Boolean,
+    lockEnabled: Boolean?,
+    locked: Boolean,
+    welcomeLatch: Boolean?,
+    welcomeDone: Boolean,
+): RootScreen = when {
+    databaseFailed -> RootScreen.RECOVERY
+    lockEnabled == null -> RootScreen.LOADING
+    lockEnabled && locked -> RootScreen.LOCK
+    welcomeLatch == null -> RootScreen.LOADING
+    welcomeLatch && !welcomeDone -> RootScreen.WELCOME
+    else -> RootScreen.APP
+}
+
 class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -260,32 +323,38 @@ class MainActivity : FragmentActivity() {
                 }
 
                 CompositionLocalProvider(LocalLockController provides lockController) {
-                    when {
-                        // **First, and deliberately.** §19.1's defect was a
-                        // setting read that ran ahead of the recovery path; the
-                        // lock is a second one, and putting it in front of
-                        // `RecoveryScreen` would lock a user out of the only
-                        // screen that can rescue their data.
-                        databaseFailed -> RecoveryScreen()
+                    // The ordering lives in [rootScreen], which is a pure
+                    // function with a test. It used to live in a `when` right
+                    // here, where nothing could reach it: composing
+                    // `MainActivity` to check that recovery comes before the
+                    // lock does not work, because the broken database that
+                    // reaches the recovery branch also breaks the `app_meta`
+                    // read the lock setting comes from — `observeAppLock`
+                    // catches, emits false, and the assertion passes without
+                    // testing anything. §20.3 claimed a test for this ordering
+                    // for two milestones; §22.6 corrected that, and this is
+                    // what makes the sentence true.
+                    when (
+                        rootScreen(
+                            databaseFailed = databaseFailed,
+                            lockEnabled = lockEnabled,
+                            locked = lockController.locked,
+                            welcomeLatch = welcomeLatch,
+                            welcomeDone = welcomeDone,
+                        )
+                    ) {
+                        RootScreen.RECOVERY -> RecoveryScreen()
 
-                        // The setting has not arrived yet. A themed blank is
-                        // what the splash already looks like, and it lasts one
-                        // `app_meta` read.
-                        lockEnabled == null -> Box(Modifier.fillMaxSize())
+                        // A themed blank is what the splash already looks like,
+                        // and it lasts one `app_meta` read.
+                        RootScreen.LOADING -> Box(Modifier.fillMaxSize())
 
-                        lockEnabled == true && lockController.locked ->
-                            LockScreen(onUnlocked = lockController::unlock)
+                        RootScreen.LOCK -> LockScreen(onUnlocked = lockController::unlock)
 
-                        // Still resolving. Same blank, same reason.
-                        welcomeLatch == null -> Box(Modifier.fillMaxSize())
-
-                        // FR-DAT-10 — after the lock, because a backup file is
-                        // the whole ledger and the gate that protects the ledger
-                        // should protect the door it can be replaced through.
-                        welcomeLatch == true && !welcomeDone ->
+                        RootScreen.WELCOME ->
                             WelcomeScreen(container, onDone = { welcomeDone = true })
 
-                        else -> KhataApp(container)
+                        RootScreen.APP -> KhataApp(container)
                     }
                 }
             }

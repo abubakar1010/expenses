@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -99,15 +100,29 @@ fun KhataApp(container: AppContainer) {
     var periodYm by rememberSaveable { mutableIntStateOf(Period.now(container.clock).ym) }
     val period = remember(periodYm) { Period(periodYm) }
 
+    // The read has to finish before the write may start, and nothing ordered
+    // them: both effects launched on first composition, on different Room
+    // executors, and the write went out with the *default* period. When it won
+    // the race it destroyed the stored one before the read saw it, and FR-APP-03
+    // silently stopped working — the same shape as §21.9 J, in production code.
+    //
+    // `rememberSaveable`, so a process death does not repeat the read either:
+    // saved state has already restored the right month, and re-reading would
+    // only overwrite it with an older one.
+    var periodRestored by rememberSaveable { mutableStateOf(false) }
+
     LaunchedEffect(Unit) {
+        if (periodRestored) return@LaunchedEffect
         // A stored value from a future schema, or a corrupted one, would throw
         // out of Period's init and take the app down on launch for the sake of
         // remembering a month.
         runCatching { container.appMetaRepo.lastViewedPeriod() }
             .getOrNull()
             ?.let { periodYm = it.ym }
+        periodRestored = true
     }
-    LaunchedEffect(period) {
+    LaunchedEffect(period, periodRestored) {
+        if (!periodRestored) return@LaunchedEffect
         runCatching { container.appMetaRepo.setLastViewedPeriod(period) }
     }
 

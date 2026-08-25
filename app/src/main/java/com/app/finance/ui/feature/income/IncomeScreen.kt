@@ -17,9 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,8 +61,8 @@ import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
+import com.app.finance.ui.common.offerUndo
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -112,6 +110,22 @@ fun IncomeScreen(
     val deletedMessage = stringResource(R.string.income_deleted)
     val savedMessage = stringResource(R.string.income_saved)
     val undoLabel = stringResource(R.string.undo)
+
+    // NFR-USE-03, drained one at a time — the same queue the ledger uses and
+    // for the same reason. It also moves the snackbar out of the editor
+    // sheet's `onDelete` callback: that ran in `scope`, which belongs to this
+    // composable, and the sheet closing on the way out was already tearing the
+    // undo window down early on any recomposition that dropped it.
+    val nextUndo = state.undoQueue.firstOrNull()
+    LaunchedEffect(nextUndo?.id) {
+        val item = nextUndo ?: return@LaunchedEffect
+        snackbarHostState.offerUndo(
+            message = deletedMessage,
+            undoLabel = undoLabel,
+            onExpired = { vm.dropUndo(item.id) },
+            onUndo = { vm.undo(item.id) },
+        )
+    }
 
     Column(Modifier.fillMaxSize()) {
         IncomeHeader(
@@ -246,18 +260,7 @@ fun IncomeScreen(
             onSave = {
                 vm.saveEntry { scope.launch { snackbarHostState.showSnackbar(savedMessage) } }
             },
-            onDelete = {
-                editor.editingId?.let { id ->
-                    vm.deleteEntry(id) {
-                        scope.launch {
-                            snackbarHostState.offerUndo(deletedMessage, undoLabel) {
-                                vm.undoDelete()
-                            }
-                            vm.clearUndo()
-                        }
-                    }
-                }
-            },
+            onDelete = { editor.editingId?.let(vm::deleteEntry) },
             onDismiss = vm::dismissEditor,
         )
     }
@@ -594,31 +597,10 @@ private fun IncomeSkeleton() {
     }
 }
 
-/**
- * NFR-USE-03 — "undoable for at least 5 seconds". The same mechanism the ledger
- * and budget screens use: Material offers ~4 s or ~10 s, so the window is
- * enforced by cancelling an indefinite snackbar at exactly five.
- */
-private suspend fun SnackbarHostState.offerUndo(
-    message: String,
-    undoLabel: String,
-    onUndo: () -> Unit,
-) {
-    val result = withTimeoutOrNull(UNDO_WINDOW_MS) {
-        showSnackbar(
-            message = message,
-            actionLabel = undoLabel,
-            duration = SnackbarDuration.Indefinite,
-        )
-    }
-    if (result == SnackbarResult.ActionPerformed) onUndo()
-}
-
 internal fun dayFormat(locale: Locale): DateTimeFormatter =
     DateTimeFormatter.ofPattern("d MMM yyyy", locale)
 
 private const val MONTHS_IN_YEAR = 12
 private const val SKELETON_ROWS = 4
-private const val UNDO_WINDOW_MS = 5_000L
 private val DOT_SIZE = 10.dp
 private const val DOT_STROKE = 3f

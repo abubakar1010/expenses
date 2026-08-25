@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.util.Log
 import android.view.WindowManager
 import androidx.activity.compose.setContent
+import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
@@ -57,6 +58,11 @@ import com.app.finance.ui.theme.KhataTheme
 class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Edge-to-edge has to be established before the first frame, but which
+        // *icons* the bars draw cannot be decided yet -- that needs the theme
+        // setting, which is a database read §6 keeps off this path. So the
+        // window is laid out here and the appearance is applied below, as the
+        // read lands, by the same `LaunchedEffect` shape FLAG_SECURE uses.
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
 
@@ -170,13 +176,28 @@ class MainActivity : FragmentActivity() {
                 onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
             }
 
-            KhataTheme(
-                darkTheme = when (theme) {
-                    ThemeChoice.SYSTEM -> isSystemInDarkTheme()
-                    ThemeChoice.LIGHT -> false
-                    ThemeChoice.DARK -> true
-                },
-            ) {
+            // One value, used by both the colours and the system bars. They
+            // were resolved separately and drifted: `enableEdgeToEdge()` was
+            // called once with no arguments, so the bars followed
+            // `isNightModeActive` -- the *phone's* setting -- while everything
+            // below followed [ThemeChoice]. Dark app on a light phone meant
+            // dark icons on a dark status bar. `uiMode` is in this activity's
+            // `configChanges` (04 §2.2, to keep a theme toggle from restarting
+            // it), so nothing recreated the activity to resettle it either, and
+            // even "Follow the phone" went stale until the next cold start.
+            val dark = theme.isDark(isSystemInDarkTheme())
+            LaunchedEffect(dark) {
+                // Scrims copied from the library's own defaults rather than
+                // left transparent: on API 26-28 a three-button navigation bar
+                // has no framework contrast enforcement, and transparent there
+                // means invisible buttons. Only `detectDarkMode` changes.
+                enableEdgeToEdge(
+                    statusBarStyle = SystemBarStyle.auto(TRANSPARENT, TRANSPARENT) { dark },
+                    navigationBarStyle = SystemBarStyle.auto(SCRIM_LIGHT, SCRIM_DARK) { dark },
+                )
+            }
+
+            KhataTheme(darkTheme = dark) {
                 var databaseFailed by remember { mutableStateOf(false) }
 
                 // Runs in parallel with the first frame, never before it. On
@@ -273,5 +294,16 @@ class MainActivity : FragmentActivity() {
 
     private companion object {
         const val TAG = "Khata"
+
+        /**
+         * `androidx.activity`'s own `enableEdgeToEdge` defaults, restated
+         * because naming `detectDarkMode` means passing the scrims too.
+         *
+         * They are only ever painted below API 29, where the framework does not
+         * enforce navigation-bar contrast itself.
+         */
+        const val TRANSPARENT = android.graphics.Color.TRANSPARENT
+        const val SCRIM_LIGHT = 0xE6FFFFFF.toInt()
+        const val SCRIM_DARK = 0x801B1B1B.toInt()
     }
 }

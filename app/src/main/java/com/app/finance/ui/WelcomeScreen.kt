@@ -2,8 +2,9 @@ package com.app.finance.ui
 
 import android.app.Activity
 import android.content.Intent
-import androidx.activity.compose.rememberLauncherForActivityResult
+import android.util.Log
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -43,11 +44,12 @@ import com.app.finance.di.viewModelFactory
 import com.app.finance.ui.feature.backup.BackupMessage
 import com.app.finance.ui.feature.backup.BackupViewModel
 import com.app.finance.ui.feature.backup.SecretField
-import com.app.finance.ui.lock.LocalLockController
+import com.app.finance.ui.feature.backup.backupMessage
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
+import com.app.finance.ui.lock.rememberHandoffLauncher
 import kotlinx.coroutines.launch
 
 /**
@@ -87,17 +89,33 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
     val colors = KhataTheme.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val lock = LocalLockController.current
+
+    // Guards the two ways out of this screen against being taken twice, and
+    // against being taken while the flag is still being written.
+    var answering by remember { mutableStateOf(false) }
 
     // The flag and the latch above it, together. The flag stops the question
     // being asked on the next launch; the latch stops it disappearing during
     // this one.
+    //
+    // `onDone()` is called *after* the write, not beside it. It was
+    // `scope.launch { setOnboarded() }` followed immediately by `onDone()`,
+    // which flips the latch, removes this screen from the composition and
+    // cancels the very scope the write is running in -- a coin-toss the write
+    // usually lost. "Start fresh" then asked again on every launch until the
+    // first expense happened to satisfy `observeNeedsWelcome` some other way,
+    // and a fresh install that was left alone asked forever.
     fun answered() {
-        scope.launch { container.settingsRepo.setOnboarded() }
-        onDone()
+        if (answering) return
+        answering = true
+        scope.launch {
+            runCatching { container.settingsRepo.setOnboarded() }
+                .onFailure { error -> Log.w("Khata", "could not record onboarding", error) }
+            onDone()
+        }
     }
 
-    val fileLauncher = rememberLauncherForActivityResult(
+    val fileLauncher = rememberHandoffLauncher(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val source = result.data?.data
@@ -127,7 +145,7 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
         }
     }
 
-    val folderLauncher = rememberLauncherForActivityResult(
+    val folderLauncher = rememberHandoffLauncher(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val tree = result.data?.data
@@ -178,9 +196,8 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
 
         Button(
             onClick = {
-                lock.suppressNextBackground()
-                if (restoredUnprotected) folderLauncher.launch(SafBackupStore.pickFolder())
-                else fileLauncher.launch(openBackup())
+                if (restoredUnprotected) folderLauncher(SafBackupStore.pickFolder())
+                else fileLauncher(openBackup())
             },
             enabled = !state.busy,
             shape = RoundedCornerShape(Radius.input),
@@ -202,19 +219,27 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
 
         // No snackbar host out here — this screen sits above the NavHost — so
         // anything worth saying is said in place.
+        //
+        // *Every* message, through the same renderer the Backup screen uses.
+        // Only `FolderRefused` was handled here, so a restore that was refused
+        // — the wrong passphrase, a truncated file, a backup from a newer
+        // release — closed the sheet and left the screen exactly as it was.
+        // Six carefully distinguished failure reasons (§21.9 F, G) reached the
+        // one screen that had no way to say any of them.
         state.message?.let { message ->
-            if (message is BackupMessage.FolderRefused) {
-                Text(
-                    text = stringResource(R.string.backup_folder_refused),
-                    style = KhataTheme.type.caption,
-                    color = colors.vermilion,
-                )
-            }
+            Text(
+                text = backupMessage(message),
+                style = KhataTheme.type.caption,
+                color = if (message.isFailure) colors.vermilion else colors.inkSoft,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = vm::dismissMessage),
+            )
         }
 
         TextButton(
             onClick = { answered() },
-            enabled = !state.busy,
+            enabled = !state.busy && !answering,
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text(

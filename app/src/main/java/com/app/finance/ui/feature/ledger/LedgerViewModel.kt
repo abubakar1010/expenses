@@ -14,6 +14,7 @@ import com.app.finance.data.repo.RecurringRepository
 import com.app.finance.domain.model.CategoryNode
 import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.domain.model.PaymentMethod
+import com.app.finance.ui.common.Undoable
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -50,8 +51,23 @@ data class LedgerUiState(
     val loadingMore: Boolean = false,
     val endReached: Boolean = false,
     val filterSheetOpen: Boolean = false,
-    /** Held for the five seconds the undo snackbar is on screen. */
-    val lastDeleted: ExpenseEntity? = null,
+    /**
+     * Destructive actions still inside their undo window — FR-EXP-07,
+     * NFR-USE-03.
+     *
+     * A queue, not a slot. There were two slots, one per kind, and each drove a
+     * `LaunchedEffect` keyed on itself: a second swipe within the five seconds
+     * re-keyed the effect, which cancels *without running either branch*, so
+     * neither the restore nor the release happened and the first row's only
+     * surviving copy — it is already gone from the database — was overwritten
+     * and lost. The user got a snackbar that vanished after a second and an
+     * entry that could never come back.
+     *
+     * Keyed on [Undoable.id], appending leaves the head alone, so the first
+     * action keeps the whole window the requirement promises and the second
+     * starts its own when that closes.
+     */
+    val undoQueue: List<Undoable<LedgerUndo>> = emptyList(),
     /**
      * FR-REC-02's one-tap confirmations, above the day groups.
      *
@@ -61,8 +77,6 @@ data class LedgerUiState(
      */
     val pendingExpenses: List<PendingExpense> = emptyList(),
     val pendingIncome: List<PendingIncome> = emptyList(),
-    /** Held for the five seconds the dismiss snackbar is on screen. */
-    val lastDismissed: DismissedEntry? = null,
 ) {
     val pendingCount: Int get() = pendingExpenses.size + pendingIncome.size
 
@@ -167,31 +181,17 @@ class LedgerViewModel(
     fun dismissExpense(id: Long) {
         viewModelScope.launch {
             val row = withContext(io) { recurring.dismissExpense(id) } ?: return@launch
-            _state.update { it.copy(lastDismissed = DismissedEntry.Expense(row)) }
+            queueUndo(LedgerUndo.Dismissed(DismissedEntry.Expense(row)))
         }
     }
 
     fun dismissIncome(id: Long) {
         viewModelScope.launch {
             val row = withContext(io) { recurring.dismissIncome(id) } ?: return@launch
-            _state.update { it.copy(lastDismissed = DismissedEntry.Income(row)) }
+            queueUndo(LedgerUndo.Dismissed(DismissedEntry.Income(row)))
         }
     }
 
-    fun undoDismiss() {
-        val dismissed = _state.value.lastDismissed ?: return
-        viewModelScope.launch {
-            withContext(io) {
-                when (dismissed) {
-                    is DismissedEntry.Expense -> recurring.restoreExpense(dismissed.row)
-                    is DismissedEntry.Income -> recurring.restoreIncome(dismissed.row)
-                }
-            }
-            _state.update { it.copy(lastDismissed = null) }
-        }
-    }
-
-    fun clearDismissed() = _state.update { it.copy(lastDismissed = null) }
 
     // --- filtering (FR-EXP-08) ---------------------------------------------
 
@@ -239,20 +239,48 @@ class LedgerViewModel(
      */
     fun delete(id: Long) {
         viewModelScope.launch {
-            val removed = withContext(io) { repo.delete(id) }
-            _state.update { it.copy(lastDeleted = removed) }
+            val removed = withContext(io) { repo.delete(id) } ?: return@launch
+            queueUndo(LedgerUndo.Deleted(removed))
         }
     }
 
-    fun undoDelete() {
-        val row = _state.value.lastDeleted ?: return
+    // --- the undo queue (NFR-USE-03) ----------------------------------------
+
+    /**
+     * Monotonic and never reused, so a screen keying an effect on it cannot
+     * confuse two actions of the same kind.
+     *
+     * Read and written only from [viewModelScope]'s main dispatcher, which is
+     * why it needs no synchronisation — and computed *outside* `_state.update`,
+     * whose lambda can be run more than once under contention.
+     */
+    private var nextUndoId = 0L
+
+    private fun queueUndo(action: LedgerUndo) {
+        val id = ++nextUndoId
+        _state.update { it.copy(undoQueue = it.undoQueue + Undoable(id, action)) }
+    }
+
+    /** Puts back whatever action [id] names, then releases it. */
+    fun undo(id: Long) {
+        val item = _state.value.undoQueue.firstOrNull { it.id == id } ?: return
         viewModelScope.launch {
-            withContext(io) { repo.restore(row) }
-            _state.update { it.copy(lastDeleted = null) }
+            withContext(io) {
+                when (val action = item.payload) {
+                    is LedgerUndo.Deleted -> repo.restore(action.row)
+                    is LedgerUndo.Dismissed -> when (val entry = action.entry) {
+                        is DismissedEntry.Expense -> recurring.restoreExpense(entry.row)
+                        is DismissedEntry.Income -> recurring.restoreIncome(entry.row)
+                    }
+                }
+            }
+            dropUndo(id)
         }
     }
 
-    fun clearUndo() = _state.update { it.copy(lastDeleted = null) }
+    /** The window closed without a tap: the action stands. */
+    fun dropUndo(id: Long) =
+        _state.update { state -> state.copy(undoQueue = state.undoQueue.filterNot { it.id == id }) }
 
     // --- internals ----------------------------------------------------------
 
@@ -320,4 +348,20 @@ sealed interface DismissedEntry {
     @JvmInline value class Expense(val row: ExpenseEntity) : DismissedEntry
 
     @JvmInline value class Income(val row: IncomeEntryEntity) : DismissedEntry
+}
+
+/**
+ * The two destructive actions this screen offers, so one queue can hold both.
+ *
+ * They used to have a slot each and a `LaunchedEffect` each, both keyed on the
+ * same snackbar host — which means deleting an entry and dismissing a pending
+ * one within five seconds put two coroutines in a race for the host's mutex on
+ * top of each losing its own window. One queue, one effect, one at a time.
+ */
+sealed interface LedgerUndo {
+    /** An expense removed by FR-EXP-07's swipe. */
+    @JvmInline value class Deleted(val row: ExpenseEntity) : LedgerUndo
+
+    /** A pending row turned down rather than confirmed — FR-REC-02. */
+    @JvmInline value class Dismissed(val entry: DismissedEntry) : LedgerUndo
 }

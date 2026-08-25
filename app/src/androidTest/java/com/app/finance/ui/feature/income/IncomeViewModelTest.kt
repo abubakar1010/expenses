@@ -293,18 +293,34 @@ class IncomeViewModelTest {
 
         val vm = vm()
         val state = vm.state.awaitState { !it.initialLoad && it.totalTaka() == 80_000L }
-        vm.deleteEntry(state.entries.first().entry.id) {}
+        vm.deleteEntry(state.entries.first().entry.id)
 
         // Both halves, not just the total. The figure arrives on the rollup flow
-        // and the held row is set by the delete coroutine; awaiting only the
-        // first can observe a state where the second has not landed. It failed
-        // that way under JaCoCo's slower timing — see §21.9 J for the same shape
-        // in the category suite.
-        val afterDelete = vm.state.awaitState { it.totalTaka() == 0L && it.lastDeleted != null }
-        assertTrue(afterDelete.lastDeleted != null)
+        // and the queued row is appended by the delete coroutine; awaiting only
+        // the first can observe a state where the second has not landed. It
+        // failed that way under JaCoCo's slower timing — see §21.9 J for the
+        // same shape in the category suite.
+        val afterDelete = vm.state.awaitState { it.totalTaka() == 0L && it.undoQueue.isNotEmpty() }
 
-        vm.undoDelete()
+        vm.undo(afterDelete.undoQueue.single().id)
         assertEquals(80_000L, vm.state.awaitState { it.totalTaka() == 80_000L }.totalTaka())
+    }
+
+    @Test
+    fun two_deletions_inside_the_window_are_both_still_undoable() = runBlocking {
+        // The single slot here was overwritten exactly as the ledger's was, and
+        // the entry it held is the only copy left once the delete has happened.
+        seed(80_000, "Farming", 6, 4)
+        seed(20_000, "Farming", 6, 5)
+
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad && it.totalTaka() == 100_000L }
+            .entries.take(2).forEach { vm.deleteEntry(it.entry.id) }
+
+        val queue = vm.state.awaitState { it.undoQueue.size == 2 && it.totalTaka() == 0L }.undoQueue
+        queue.forEach { vm.undo(it.id) }
+
+        assertEquals(100_000L, vm.state.awaitState { it.totalTaka() == 100_000L }.totalTaka())
     }
 
     @Test

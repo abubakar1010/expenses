@@ -16,9 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -62,8 +60,8 @@ import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
+import com.app.finance.ui.common.offerUndo
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 
@@ -114,36 +112,28 @@ fun LedgerScreen(
     val confirmedMessage = stringResource(R.string.entry_confirmed)
     val undoLabel = stringResource(R.string.undo)
 
-    // NFR-USE-03: "undoable for at least 5 seconds". Material offers ~4 s
-    // (Short) or ~10 s (Long), so neither is the requirement. Showing it
-    // indefinitely and cancelling after exactly the window gives 5 s.
-    LaunchedEffect(state.lastDeleted) {
-        if (state.lastDeleted == null) return@LaunchedEffect
-        val result = withTimeoutOrNull(UNDO_WINDOW_MS) {
-            snackbarHostState.showSnackbar(
-                message = deletedMessage,
-                actionLabel = undoLabel,
-                withDismissAction = false,
-                duration = SnackbarDuration.Indefinite,
-            )
-        }
-        if (result == SnackbarResult.ActionPerformed) vm.undoDelete() else vm.clearUndo()
-    }
-
-    // Dismissing a pending entry is a delete, so NFR-USE-03 applies to it too —
-    // and here the usual escape hatch is closed: the rule has already advanced
-    // past that due date and will never generate it again.
-    LaunchedEffect(state.lastDismissed) {
-        if (state.lastDismissed == null) return@LaunchedEffect
-        val result = withTimeoutOrNull(UNDO_WINDOW_MS) {
-            snackbarHostState.showSnackbar(
-                message = dismissedMessage,
-                actionLabel = undoLabel,
-                withDismissAction = false,
-                duration = SnackbarDuration.Indefinite,
-            )
-        }
-        if (result == SnackbarResult.ActionPerformed) vm.undoDismiss() else vm.clearDismissed()
+    // NFR-USE-03: "undoable for at least 5 seconds", one action at a time.
+    //
+    // Keyed on the head's id and not on the head itself, which is what makes
+    // the queue behind it worth having: a second swipe appends without
+    // disturbing the effect that is running, so the first entry keeps its whole
+    // window instead of losing it — and its only surviving copy — to a
+    // cancellation that ran neither branch. Dismissing a pending entry is a
+    // delete too, and it shares the queue rather than racing it for the host's
+    // mutex; there the usual escape hatch is closed as well, because the rule
+    // has already advanced past that due date and will never generate it again.
+    val nextUndo = state.undoQueue.firstOrNull()
+    LaunchedEffect(nextUndo?.id) {
+        val item = nextUndo ?: return@LaunchedEffect
+        snackbarHostState.offerUndo(
+            message = when (item.payload) {
+                is LedgerUndo.Deleted -> deletedMessage
+                is LedgerUndo.Dismissed -> dismissedMessage
+            },
+            undoLabel = undoLabel,
+            onUndo = { vm.undo(item.id) },
+            onExpired = { vm.dropUndo(item.id) },
+        )
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -443,7 +433,6 @@ private const val PREFETCH_DISTANCE = 10
 private const val SKELETON_ROWS = 8
 
 /** NFR-USE-03 — "at least 5 seconds". */
-private const val UNDO_WINDOW_MS = 5_000L
 
 /** `progress` sits at 0 or 1 when a row is at rest, and between while swiping. */
 private val SETTLED_RANGE = 0.999f..1.001f

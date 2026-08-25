@@ -5,7 +5,6 @@ import android.content.ClipData
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -66,11 +65,11 @@ import com.app.finance.ui.common.ActionRow
 import com.app.finance.ui.common.KhataChip
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.openBackup
-import com.app.finance.ui.lock.LocalLockController
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
+import com.app.finance.ui.lock.rememberHandoffLauncher
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -113,11 +112,10 @@ fun BackupScreen(
     val state by vm.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val resolver = context.contentResolver
-    val lock = LocalLockController.current
 
     BackHandler(onBack = onBack)
 
-    val folderLauncher = rememberLauncherForActivityResult(
+    val folderLauncher = rememberHandoffLauncher(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val tree = result.data?.data
@@ -128,7 +126,7 @@ fun BackupScreen(
             if (granted == null) vm.reportFolderRefused() else vm.onFolderChosen(granted)
         }
     }
-    val fileLauncher = rememberLauncherForActivityResult(
+    val fileLauncher = rememberHandoffLauncher(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val source = result.data?.data
@@ -186,9 +184,7 @@ fun BackupScreen(
             enabled = !state.busy,
             destructive = state.folderMissing,
             onClick = {
-                // Or the app-lock gate fires when the picker backgrounds us.
-                lock.suppressNextBackground()
-                folderLauncher.launch(SafBackupStore.pickFolder())
+                folderLauncher(SafBackupStore.pickFolder())
             },
         )
 
@@ -259,7 +255,14 @@ fun BackupScreen(
                 if (id == null) {
                     vm.reportNothingToSend()
                 } else {
-                    lock.suppressNextBackground()
+                    // No hand-off suppression here, deliberately. The share
+                    // sheet is fire-and-forget -- there is no result, so there
+                    // is no moment at which a suppression could be taken back
+                    // down, and the one that used to be armed here left the app
+                    // unlocked in the background for as long as the user spent
+                    // in WhatsApp. Coming back to the gate after sending a copy
+                    // of the entire ledger somewhere is the behaviour FR-APP-04
+                    // is for.
                     context.startActivity(shareBackup(Uri.parse(id), state.newestName.orEmpty()))
                 }
             },
@@ -269,8 +272,7 @@ fun BackupScreen(
             hint = stringResource(R.string.backup_restore_hint),
             enabled = !state.busy,
             onClick = {
-                lock.suppressNextBackground()
-                fileLauncher.launch(openBackup())
+                fileLauncher(openBackup())
             },
         )
 
@@ -544,8 +546,17 @@ internal fun SecretField(value: String, hint: String, onChange: (String) -> Unit
     )
 }
 
+/**
+ * Every [BackupMessage] in words — shared with [com.app.finance.ui.WelcomeScreen].
+ *
+ * `internal` rather than private because the welcome screen renders the same
+ * state machine and was rendering exactly one branch of it: a restore that
+ * failed closed the sheet and said nothing, on the screen whose entire purpose
+ * is that a restore failure is visible. Two renderers would have drifted the
+ * same way again.
+ */
 @Composable
-private fun backupMessage(message: BackupMessage): String = when (message) {
+internal fun backupMessage(message: BackupMessage): String = when (message) {
     is BackupMessage.Done -> stringResource(R.string.backup_done, message.name)
     is BackupMessage.Failed -> stringResource(
         when (message.failure) {

@@ -18,6 +18,7 @@ import com.app.finance.domain.usecase.IncomeSummary
 import com.app.finance.domain.usecase.SourceOption
 import com.app.finance.domain.usecase.StableCoverage
 import com.app.finance.ui.common.KeypadKey
+import com.app.finance.ui.common.Undoable
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -82,7 +83,15 @@ data class IncomeUiState(
     val initialLoad: Boolean = true,
     val editor: IncomeEditor? = null,
     val filterSheetOpen: Boolean = false,
-    val lastDeleted: IncomeEntryEntity? = null,
+    /**
+     * Deletions still inside their undo window — FR-IE-08, NFR-USE-03.
+     *
+     * A queue for the reason [com.app.finance.ui.feature.ledger.LedgerUiState
+     * .undoQueue] is one: a single slot was overwritten by a second delete
+     * taken within the five seconds, and the row it held is the only copy left
+     * once the delete has happened.
+     */
+    val undoQueue: List<Undoable<IncomeEntryEntity>> = emptyList(),
 ) {
     val scope: IncomeScope
         get() = when (scopeKind) {
@@ -440,23 +449,31 @@ class IncomeViewModel(
     }
 
     /** FR-IE-08's delete half, with the five-second undo NFR-USE-03 requires. */
-    fun deleteEntry(id: Long, onDeleted: () -> Unit) {
+    fun deleteEntry(id: Long) {
         viewModelScope.launch {
             val row = withContext(io) { income.deleteEntry(id) } ?: return@launch
-            _state.update { it.copy(editor = null, lastDeleted = row) }
-            onDeleted()
+            val undoId = ++nextUndoId
+            _state.update { it.copy(editor = null, undoQueue = it.undoQueue + Undoable(undoId, row)) }
         }
     }
 
-    fun undoDelete() {
-        val row = _state.value.lastDeleted ?: return
+    // --- the undo queue (NFR-USE-03) ----------------------------------------
+
+    /** See [com.app.finance.ui.feature.ledger.LedgerViewModel] — main thread only. */
+    private var nextUndoId = 0L
+
+    /** Puts back the entry [id] names, then releases it. */
+    fun undo(id: Long) {
+        val item = _state.value.undoQueue.firstOrNull { it.id == id } ?: return
         viewModelScope.launch {
-            withContext(io) { income.restoreEntry(row) }
-            _state.update { it.copy(lastDeleted = null) }
+            withContext(io) { income.restoreEntry(item.payload) }
+            dropUndo(id)
         }
     }
 
-    fun clearUndo() = _state.update { it.copy(lastDeleted = null) }
+    /** The window closed without a tap: the deletion stands. */
+    fun dropUndo(id: Long) =
+        _state.update { state -> state.copy(undoQueue = state.undoQueue.filterNot { it.id == id }) }
 
     // --- internals -----------------------------------------------------------
 

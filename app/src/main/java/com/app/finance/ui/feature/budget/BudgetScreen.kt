@@ -14,9 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -64,8 +62,8 @@ import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
+import com.app.finance.ui.common.offerUndo
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Spending limits — FR-BUD-01 … FR-BUD-08.
@@ -432,25 +430,4 @@ private fun BudgetSkeleton() {
     }
 }
 
-/**
- * NFR-USE-03 — "undoable for at least 5 seconds". Same mechanism the ledger
- * uses: Material offers ~4 s or ~10 s, so the window is enforced by cancelling
- * an indefinite snackbar at exactly five.
- */
-private suspend fun SnackbarHostState.offerUndo(
-    message: String,
-    undoLabel: String?,
-    onUndo: () -> Unit,
-) {
-    val result = withTimeoutOrNull(UNDO_WINDOW_MS) {
-        showSnackbar(
-            message = message,
-            actionLabel = undoLabel,
-            duration = SnackbarDuration.Indefinite,
-        )
-    }
-    if (result == SnackbarResult.ActionPerformed) onUndo()
-}
-
 private const val SKELETON_ROWS = 6
-private const val UNDO_WINDOW_MS = 5_000L

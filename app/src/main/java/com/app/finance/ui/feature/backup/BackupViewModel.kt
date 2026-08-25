@@ -42,6 +42,19 @@ sealed interface BackupMessage {
      * dashboard believing backups were set up.
      */
     data object FolderRefused : BackupMessage
+
+    /**
+     * Whether this is something that went wrong, for screens that colour it.
+     *
+     * On the interface rather than at a use site so a message added later has
+     * to answer the question — a new failure defaulting to "fine" would be
+     * reported in the same ink as a success.
+     */
+    val isFailure: Boolean
+        get() = when (this) {
+            is Failed, is RestoreRefused, FolderRefused -> true
+            is Done, is Restored, PassphraseSet, PassphraseCleared, NothingToSend -> false
+        }
 }
 
 enum class PassphraseError { TOO_SHORT, DIFFERS }

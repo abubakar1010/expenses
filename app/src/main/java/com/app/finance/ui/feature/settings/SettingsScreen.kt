@@ -3,7 +3,6 @@ package com.app.finance.ui.feature.settings
 import android.app.Activity
 import android.content.Intent
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -65,6 +64,7 @@ import androidx.compose.material3.Switch
 import com.app.finance.ui.lock.LocalLockController
 import com.app.finance.ui.lock.LockAvailability
 import com.app.finance.ui.lock.lockAvailability
+import com.app.finance.ui.lock.rememberHandoffLauncher
 import androidx.compose.runtime.remember
 
 /**
@@ -114,7 +114,7 @@ fun SettingsScreen(
     val lock = LocalLockController.current
     val lockAvailable = remember(context) { lockAvailability(context) }
 
-    val jsonLauncher = rememberLauncherForActivityResult(
+    val jsonLauncher = rememberHandoffLauncher(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val target = result.data?.data
@@ -122,7 +122,7 @@ fun SettingsScreen(
             vm.exportJson { resolver.openOutputStream(target) }
         }
     }
-    val csvLauncher = rememberLauncherForActivityResult(
+    val csvLauncher = rememberHandoffLauncher(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val target = result.data?.data
@@ -130,7 +130,7 @@ fun SettingsScreen(
             vm.exportCsv { resolver.openOutputStream(target) }
         }
     }
-    val importLauncher = rememberLauncherForActivityResult(
+    val importLauncher = rememberHandoffLauncher(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         val source = result.data?.data
@@ -184,19 +184,19 @@ fun SettingsScreen(
             title = stringResource(R.string.export_json),
             hint = stringResource(R.string.export_json_hint),
             enabled = !state.busy,
-            onClick = { lock.suppressNextBackground(); jsonLauncher.launch(createDocument(MIME_JSON, JSON_NAME)) },
+            onClick = { jsonLauncher(createDocument(MIME_JSON, JSON_NAME)) },
         )
         ActionRow(
             title = stringResource(R.string.export_csv),
             hint = stringResource(R.string.export_csv_hint),
             enabled = !state.busy,
-            onClick = { lock.suppressNextBackground(); csvLauncher.launch(createDocument(MIME_ZIP, CSV_NAME)) },
+            onClick = { csvLauncher(createDocument(MIME_ZIP, CSV_NAME)) },
         )
         ActionRow(
             title = stringResource(R.string.import_backup),
             hint = stringResource(R.string.import_backup_hint),
             enabled = !state.busy,
-            onClick = { lock.suppressNextBackground(); importLauncher.launch(openDocument(MIME_JSON)) },
+            onClick = { importLauncher(openDocument(MIME_JSON)) },
         )
 
         SectionHeader(stringResource(R.string.settings_maintenance))

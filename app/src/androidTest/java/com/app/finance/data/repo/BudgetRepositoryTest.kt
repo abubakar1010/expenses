@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -42,6 +43,33 @@ class BudgetRepositoryTest {
         fx.db.budgetDao().forCategory(categoryId, period.ym)
 
     // --- FR-BUD-01, FR-BUD-02 ----------------------------------------------
+
+    @Test
+    fun an_archived_leaf_whose_last_expense_is_deleted_stops_showing_a_bar() = runBlocking {
+        // The delete trigger decrements a rollup bucket rather than removing
+        // it, so a spent-then-emptied period leaves `(0, 0)` behind forever.
+        // `observeCategoryCells` and `observeIncomeBySource` both guard against
+        // that residue with `txn_count > 0` / `entry_count > 0` and both cite
+        // §15.3 — this is the query §15.3 missed, so an archived leaf kept a
+        // permanent ৳0 bar that no user action could clear.
+        val grocery = fx.leafId("Grocery")
+        val saved = fx.expenses.insert(Money.ofTaka(500), grocery, fx.today) as SaveOutcome.Saved
+        fx.categories.archive(grocery)
+
+        // Still shown while it carries spend — FR-CAT-08, and the reason the
+        // archived clause is not a plain `is_archived = 0`.
+        assertTrue(
+            "an archived leaf with spend in the period must stay visible",
+            fx.budgets.observeBars(aug).first().any { it.id == grocery },
+        )
+
+        fx.expenses.delete(saved.id)
+
+        assertFalse(
+            "the emptied rollup row left a bar nothing can clear",
+            fx.budgets.observeBars(aug).first().any { it.id == grocery },
+        )
+    }
 
     @Test
     fun a_limit_is_stored_for_exactly_one_category_and_period() = runBlocking {

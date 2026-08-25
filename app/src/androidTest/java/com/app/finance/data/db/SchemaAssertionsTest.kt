@@ -9,6 +9,7 @@ import com.app.finance.data.db.entity.CategoryEntity
 import com.app.finance.data.db.entity.ExpenseEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.IncomeSourceEntity
+import com.app.finance.data.db.dao.RollupDao
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -497,27 +498,17 @@ class SchemaAssertionsTest {
     @Test
     fun the_budget_bar_query_never_touches_the_expense_table() {
         // NFR-MAIN-03 requires a documented EXPLAIN QUERY PLAN for every
-        // hot-path query. This is `RollupDao.observeBudgetBars` verbatim — the
-        // budget screen's only read — with the bound parameter substituted, so
-        // the assertion cannot drift away from the query it is about.
-        val plan = queryPlan(
-            """
-            SELECT c.id                      AS id,
-                   c.parent_id               AS parentId,
-                   c.name                    AS name,
-                   c.nature                  AS nature,
-                   IFNULL(b.limit_minor, 0)  AS limitMinor,
-                   IFNULL(r.total_minor, 0)  AS spentMinor
-              FROM category c
-              LEFT JOIN budget b
-                     ON b.category_id = c.id AND b.period_ym = $aug
-              LEFT JOIN rollup_expense_month r
-                     ON r.category_id = c.id AND r.period_ym = $aug
-             WHERE c.parent_id IS NOT NULL
-               AND (c.is_archived = 0 OR r.total_minor IS NOT NULL)
-             ORDER BY c.sort_order
-            """.trimIndent(),
-        )
+        // hot-path query. This **is** `RollupDao.observeBudgetBars` — the same
+        // string the DAO is annotated with, not a transcription of it.
+        //
+        // It used to be a copy, under a comment claiming that "the assertion
+        // cannot drift away from the query it is about". It had drifted: the
+        // copy was missing `c.is_archived AS isArchived`, added to the real
+        // query some milestones earlier, so this test was explaining a query
+        // the app does not run and would have gone on passing however far the
+        // two diverged. `@Query` accepts a compile-time constant, so there is
+        // one string now and the claim is true.
+        val plan = queryPlan(RollupDao.BUDGET_BARS.replace(":period", "$aug"))
 
         // The property that keeps the screen flat as history grows: cost is
         // bounded by the leaf count — dozens — not by how many transactions

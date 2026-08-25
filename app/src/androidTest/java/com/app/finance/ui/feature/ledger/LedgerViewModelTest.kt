@@ -183,11 +183,85 @@ class LedgerViewModelTest {
         val id = vm.state.awaitState { it.days.isNotEmpty() }.days.single().rows.single().expense.id
 
         vm.delete(id)
-        assertNotNull(vm.state.awaitState { it.lastDeleted != null }.lastDeleted)
+        val queued = vm.state.awaitState { it.undoQueue.isNotEmpty() }.undoQueue.single()
         assertTrue(vm.state.awaitState { it.days.isEmpty() }.days.isEmpty())
 
-        vm.undoDelete()
+        vm.undo(queued.id)
         assertEquals(1, vm.state.awaitState { it.days.isNotEmpty() }.days.single().rows.size)
+    }
+
+    @Test
+    fun a_second_deletion_inside_the_undo_window_does_not_take_the_first_one_away() = runBlocking {
+        // NFR-USE-03 — "undoable for at least 5 seconds", and it was not.
+        //
+        // `lastDeleted` was one slot driving a `LaunchedEffect` keyed on itself.
+        // A second swipe re-keyed the effect, and re-keying *cancels* the
+        // running one without executing either branch — so neither the restore
+        // nor the release ran, and the slot was overwritten by the second row.
+        // The first row is already gone from the database; that held copy was
+        // the only one left. It could not be recovered by any action, and the
+        // snackbar offering to do so had vanished after a second.
+        seed(300, "Grocery", daysAgo = 1)
+        seed(400, "Grocery", daysAgo = 0)
+        val vm = vm()
+        val rows = vm.state
+            .awaitState { it.days.sumOf { d -> d.rows.size } == 2 }
+            .days.flatMap { it.rows }
+        // By amount, not by position: the ledger orders `spent_on DESC, id DESC`,
+        // so the newer row leads and an index would be asserting on the sort.
+        val threeHundred = rows.first { it.expense.amountMinor == 300_00L }.expense.id
+        val fourHundred = rows.first { it.expense.amountMinor == 400_00L }.expense.id
+
+        vm.delete(threeHundred)
+        val first = vm.state.awaitState { it.undoQueue.size == 1 }.undoQueue.single()
+        vm.delete(fourHundred)
+        val queue = vm.state.awaitState { it.undoQueue.size == 2 }.undoQueue
+
+        // The head is untouched, which is what the screen keys its effect on:
+        // appending must not restart the window the first row is still inside.
+        assertEquals("the second deletion displaced the first", first.id, queue.first().id)
+
+        // And the first is still restorable, which is the requirement. Under
+        // the single slot it was not: the second delete overwrote the only
+        // surviving copy of it.
+        //
+        // Awaiting the exact condition, not "one row is showing" — there was
+        // already a state with one row in it, between the two deletions, and a
+        // `StateFlow` will hand that back the moment it is asked. CLAUDE.md's
+        // rule about awaiting the state you are about to assert on is not only
+        // about ordering between coroutines; a stale match is the same bug.
+        vm.undo(first.id)
+        val restored = vm.state.awaitState { state ->
+            state.days.flatMap { it.rows }.singleOrNull()?.expense?.amountMinor == 300_00L
+        }
+        assertEquals(
+            "the first deletion could not be undone",
+            300_00L,
+            restored.days.single().rows.single().expense.amountMinor,
+        )
+    }
+
+    @Test
+    fun a_deletion_and_a_dismissal_share_one_queue() = runBlocking {
+        // They used to have a slot and a `LaunchedEffect` each, both pointed at
+        // the same snackbar host — so doing one of each within five seconds put
+        // two coroutines in a race for the host's mutex on top of each losing
+        // its own window.
+        seed(300, "Grocery")
+        val vm = vm()
+        val id = vm.state.awaitState { it.days.isNotEmpty() }.days.single().rows.single().expense.id
+
+        vm.delete(id)
+        val queued = vm.state.awaitState { it.undoQueue.size == 1 }.undoQueue.single()
+        assertTrue(
+            "a swipe should queue a Deleted",
+            queued.payload is LedgerUndo.Deleted,
+        )
+
+        // Dropping the head is what the screen does when the window closes with
+        // no tap: the action stands and the next one gets its turn.
+        vm.dropUndo(queued.id)
+        assertTrue(vm.state.awaitState { it.undoQueue.isEmpty() }.undoQueue.isEmpty())
     }
 
     @Test

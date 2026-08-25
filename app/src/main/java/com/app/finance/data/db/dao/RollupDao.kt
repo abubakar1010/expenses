@@ -58,26 +58,15 @@ interface RollupDao {
      * The archived clause is exact: archived categories are hidden *unless*
      * they carry spend in the period being viewed, which is what FR-CAT-08
      * requires so history never silently loses rows.
+     *
+     * That clause tests `txn_count`, not `total_minor IS NOT NULL`, for the
+     * reason [observeCategoryCells] and [observeIncomeBySource] do — the delete
+     * trigger decrements a bucket rather than removing it, so a period that was
+     * spent in and then emptied leaves `(0, 0)` behind. Joined on presence
+     * alone, an archived leaf kept a permanent ৳0 bar that no user action
+     * could clear. §15.3 fixed the other two and missed this one.
      */
-    @Query(
-        """
-        SELECT c.id                      AS id,
-               c.parent_id               AS parentId,
-               c.name                    AS name,
-               c.nature                  AS nature,
-               IFNULL(b.limit_minor, 0)  AS limitMinor,
-               IFNULL(r.total_minor, 0)  AS spentMinor,
-               c.is_archived             AS isArchived
-          FROM category c
-          LEFT JOIN budget b
-                 ON b.category_id = c.id AND b.period_ym = :period
-          LEFT JOIN rollup_expense_month r
-                 ON r.category_id = c.id AND r.period_ym = :period
-         WHERE c.parent_id IS NOT NULL
-           AND (c.is_archived = 0 OR r.total_minor IS NOT NULL)
-         ORDER BY c.sort_order
-        """,
-    )
+    @Query(BUDGET_BARS)
     fun observeBudgetBars(period: Int): Flow<List<BudgetBarRow>>
 
     @Query("SELECT IFNULL(SUM(total_minor), 0) FROM rollup_expense_month WHERE period_ym = :period")
@@ -206,4 +195,38 @@ interface RollupDao {
      */
     @RawQuery
     suspend fun raw(query: SupportSQLiteQuery): Int
+
+    companion object {
+        /**
+         * The budget screen's only read, as a constant.
+         *
+         * `SchemaAssertionsTest` asserts an `EXPLAIN QUERY PLAN` over this —
+         * NFR-MAIN-03 requires a documented plan for every hot-path query — and
+         * it used to do that against a **hand-copied** transcription that said
+         * of itself "so the assertion cannot drift away from the query it is
+         * about". It had already drifted: the copy was missing
+         * `c.is_archived AS isArchived`, added here some milestones earlier, so
+         * the plan being checked was a plan for a query the app does not run.
+         *
+         * `@Query` takes a compile-time constant, so there is now one string.
+         * The test substitutes `:period` and explains the result.
+         */
+        const val BUDGET_BARS = """
+        SELECT c.id                      AS id,
+               c.parent_id               AS parentId,
+               c.name                    AS name,
+               c.nature                  AS nature,
+               IFNULL(b.limit_minor, 0)  AS limitMinor,
+               IFNULL(r.total_minor, 0)  AS spentMinor,
+               c.is_archived             AS isArchived
+          FROM category c
+          LEFT JOIN budget b
+                 ON b.category_id = c.id AND b.period_ym = :period
+          LEFT JOIN rollup_expense_month r
+                 ON r.category_id = c.id AND r.period_ym = :period
+         WHERE c.parent_id IS NOT NULL
+           AND (c.is_archived = 0 OR r.txn_count > 0)
+         ORDER BY c.sort_order
+        """
+    }
 }

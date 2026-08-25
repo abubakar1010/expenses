@@ -14,9 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -47,8 +45,8 @@ import com.app.finance.ui.common.rememberJavaLocale
 import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
+import com.app.finance.ui.common.offerUndo
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Income sources — FR-IS-01 … FR-IS-06.
@@ -119,7 +117,7 @@ fun SourceManagerScreen(
                     onArchive = {
                         vm.setArchived(row, archived = true) { name ->
                             scope.launch {
-                                snackbarHostState.undoable(
+                                snackbarHostState.offerUndo(
                                     String.format(locale, archivedTemplate, name),
                                     undoLabel,
                                 ) { vm.setArchived(row, archived = false) {} }
@@ -129,7 +127,7 @@ fun SourceManagerScreen(
                     onDelete = {
                         vm.delete(row) { name, source ->
                             scope.launch {
-                                snackbarHostState.undoable(
+                                snackbarHostState.offerUndo(
                                     String.format(locale, deletedTemplate, name),
                                     undoLabel,
                                 ) { vm.undoDelete(source) }
@@ -162,7 +160,7 @@ fun SourceManagerScreen(
                         onDelete = {
                             vm.delete(row) { name, source ->
                                 scope.launch {
-                                    snackbarHostState.undoable(
+                                    snackbarHostState.offerUndo(
                                         String.format(locale, deletedTemplate, name),
                                         undoLabel,
                                     ) { vm.undoDelete(source) }
@@ -319,20 +317,3 @@ private fun TextAction(
     )
 }
 
-/** NFR-USE-03 — at least five seconds, enforced rather than approximated. */
-private suspend fun SnackbarHostState.undoable(
-    message: String,
-    undoLabel: String,
-    onUndo: () -> Unit,
-) {
-    val result = withTimeoutOrNull(UNDO_WINDOW_MS) {
-        showSnackbar(
-            message = message,
-            actionLabel = undoLabel,
-            duration = SnackbarDuration.Indefinite,
-        )
-    }
-    if (result == SnackbarResult.ActionPerformed) onUndo()
-}
-
-private const val UNDO_WINDOW_MS = 5_000L

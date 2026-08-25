@@ -23,9 +23,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -61,8 +59,8 @@ import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
+import com.app.finance.ui.common.offerUndo
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -453,26 +451,3 @@ private fun dayFormat(locale: Locale): DateTimeFormatter =
  */
 private val ANCHOR_CHOICES = listOf(1, 5, 10, 15, 20, 25, 28, 31)
 
-/**
- * NFR-USE-03 — "at least five seconds", enforced rather than approximated.
- *
- * The same mechanism every other destructive action in the app uses: Material
- * offers roughly four seconds or roughly ten, so neither is the requirement,
- * and an indefinite snackbar cancelled at exactly five is.
- */
-private suspend fun SnackbarHostState.offerUndo(
-    message: String,
-    undoLabel: String,
-    onUndo: () -> Unit,
-) {
-    val result = withTimeoutOrNull(UNDO_WINDOW_MS) {
-        showSnackbar(
-            message = message,
-            actionLabel = undoLabel,
-            duration = SnackbarDuration.Indefinite,
-        )
-    }
-    if (result == SnackbarResult.ActionPerformed) onUndo()
-}
-
-private const val UNDO_WINDOW_MS = 5_000L

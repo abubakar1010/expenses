@@ -1,6 +1,9 @@
 package com.app.finance.ui.lock
 
 import android.content.Context
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
 import androidx.biometric.BiometricManager.Authenticators.DEVICE_CREDENTIAL
@@ -87,26 +90,55 @@ fun lockAvailability(context: Context): LockAvailability =
  *    picker; coming back from choosing a file must not demand a second
  *    authentication for an operation the user started thirty seconds ago.
  *
- * [suppressNextBackground] covers both, and is consumed by the stop it was set
- * for rather than left standing.
+ * [beginHandoff] and [endHandoff] bracket both, and the bracketing is the whole
+ * point.
+ *
+ * This was one `suppressNextBackground()` boolean, consumed by the first
+ * `ON_STOP` of **any** cause — and the two failure modes that gives are the
+ * ones that matter. A suppression armed for a picker that never opened sat
+ * there until the user pressed Home, swallowed *that* stop, and left the ledger
+ * sitting unlocked in recents. And "Send a copy" armed it before a plain
+ * `startActivity` to the share sheet, which has no result and therefore no
+ * moment at which the flag came down: tap it, pick WhatsApp, and Khata stayed
+ * unlocked in the background for as long as the user was gone.
+ *
+ * A counter cannot be consumed by an unrelated stop, and
+ * [rememberHandoffLauncher] is the only way to raise it — so a hand-off that is
+ * begun is a hand-off that ends, including when the launch itself throws.
  */
 class LockController {
     var locked by mutableStateOf(true)
         private set
 
-    private var suppress = false
+    /**
+     * How many system activities are currently holding the foreground on the
+     * user's behalf. A count and not a flag because Compose will happily let a
+     * fast double-tap start two.
+     */
+    private var handoffs = 0
 
-    fun suppressNextBackground() {
-        suppress = true
+    fun beginHandoff() {
+        handoffs++
+    }
+
+    fun endHandoff() {
+        if (handoffs > 0) handoffs--
     }
 
     fun onStopped() {
-        if (suppress) suppress = false else locked = true
+        if (handoffs == 0) locked = true
     }
 
-    /** Coming back clears any suppression that was never used. */
+    /**
+     * Back in the foreground: whatever we handed off to is finished with.
+     *
+     * A backstop rather than the mechanism — [endHandoff] has normally already
+     * run by now. It exists so that a count which somehow leaked cannot leave
+     * the app permanently unlockable, which is a worse failure than the one
+     * this class is fixing.
+     */
     fun onStarted() {
-        suppress = false
+        handoffs = 0
     }
 
     fun unlock() {
@@ -115,8 +147,43 @@ class LockController {
 
     /** Turning the setting off unlocks: there is nothing left to gate. */
     fun release() {
-        suppress = false
+        handoffs = 0
         locked = false
+    }
+}
+
+/**
+ * Launches a system activity without letting the app-lock fire underneath it.
+ *
+ * Returns a plain `(I) -> Unit` rather than the launcher, so there is no
+ * `launch()` reachable that has not told [LockController] first — the pairing is
+ * structural instead of remembered at seven call sites.
+ *
+ * A launch that throws ends the hand-off immediately. `ActivityNotFoundException`
+ * means a phone with no document provider at all, which is rare enough that the
+ * old behaviour (crash) was never seen; leaving the count raised on the way past
+ * would be worse than the tap doing nothing.
+ */
+@Composable
+fun <I, O> rememberHandoffLauncher(
+    contract: ActivityResultContract<I, O>,
+    onResult: (O) -> Unit,
+): (I) -> Unit {
+    val lock = LocalLockController.current
+    val launcher = rememberLauncherForActivityResult(contract) { result ->
+        lock.endHandoff()
+        onResult(result)
+    }
+    return remember(launcher, lock) {
+        { input: I ->
+            lock.beginHandoff()
+            runCatching { launcher.launch(input) }
+                .onFailure { error ->
+                    lock.endHandoff()
+                    Log.w("Khata", "nothing on this device could handle the request", error)
+                }
+            Unit
+        }
     }
 }
 

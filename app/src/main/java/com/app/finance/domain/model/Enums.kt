@@ -156,6 +156,23 @@ enum class ThemeChoice(val stored: String) {
     DARK("dark"),
     ;
 
+    /**
+     * Whether this choice means dark, given what the phone is currently set to.
+     *
+     * A method rather than three `when` branches at each use site, because
+     * there are two of them and they must not be allowed to disagree: the
+     * colours come from [ThemeChoice] while the status- and navigation-bar icon
+     * appearance was left following the *system* setting. A dark app on a light
+     * phone drew dark icons on a dark bar, and `uiMode` is in the activity's
+     * `configChanges`, so even SYSTEM went stale the moment the phone's theme
+     * was toggled without the activity being recreated.
+     */
+    fun isDark(systemDark: Boolean): Boolean = when (this) {
+        SYSTEM -> systemDark
+        LIGHT -> false
+        DARK -> true
+    }
+
     companion object {
         fun fromStored(value: String?): ThemeChoice =
             entries.firstOrNull { it.stored == value } ?: SYSTEM

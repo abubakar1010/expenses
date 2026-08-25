@@ -21,7 +21,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +34,9 @@ import com.app.finance.ui.theme.KhataTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -57,22 +61,39 @@ import java.util.zip.ZipOutputStream
 fun RecoveryScreen() {
     val context = LocalContext.current
     val colors = KhataTheme.colors
-    var message by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
     val savedText = stringResource(R.string.recovery_saved)
     val failedText = stringResource(R.string.recovery_failed)
 
+    // `rememberSaveable`, all three. This screen is reached by a database that
+    // will not open, so there is nowhere to persist anything -- but a rotation
+    // is not process death, and losing the interlock below to one would put the
+    // user back in front of a disabled button having already saved their copy.
+    var message by rememberSaveable { mutableStateOf<String?>(null) }
+
     // FR-DAT-10's interlock: the destructive button below stays disabled until
     // the broken ledger has actually been copied somewhere.
-    var copied by remember { mutableStateOf(false) }
+    var copied by rememberSaveable { mutableStateOf(false) }
+    var saving by rememberSaveable { mutableStateOf(false) }
 
     val saveLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { result ->
         if (result.resultCode != Activity.RESULT_OK) return@rememberLauncherForActivityResult
         val target = result.data?.data
-        val ok = target != null && copyDatabase(context, target)
-        copied = copied || ok
-        message = if (ok) savedText else failedText
+        // Off the main thread. This zips the database and both sidecars -- five
+        // years of ledger is megabytes, and it ran inside the result callback,
+        // which is the main thread: seconds of blocking I/O and an ANR on the
+        // one screen that exists to rescue data. StrictMode's `penaltyDeath`
+        // does not catch it because this path is unreachable in a debug build
+        // with a healthy database.
+        saving = true
+        scope.launch {
+            val ok = target != null && withContext(Dispatchers.IO) { copyDatabase(context, target) }
+            copied = copied || ok
+            message = if (ok) savedText else failedText
+            saving = false
+        }
     }
 
     Column(
@@ -104,10 +125,13 @@ fun RecoveryScreen() {
                     },
                 )
             },
+            enabled = !saving,
             shape = RoundedCornerShape(Radius.input),
             colors = ButtonDefaults.buttonColors(
                 containerColor = colors.indigo,
                 contentColor = colors.card,
+                disabledContainerColor = colors.rule,
+                disabledContentColor = colors.inkSoft,
             ),
             modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
         ) {
@@ -129,7 +153,7 @@ fun RecoveryScreen() {
         // printed beside it.
         Button(
             onClick = { discardAndReopen(context) },
-            enabled = copied,
+            enabled = copied && !saving,
             shape = RoundedCornerShape(Radius.input),
             colors = ButtonDefaults.buttonColors(
                 containerColor = colors.vermilion,

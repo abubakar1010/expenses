@@ -119,7 +119,14 @@ fun DashboardScreen(
 
     Column(modifier.fillMaxSize()) {
         PeriodSwitcher(
-            period = state.period,
+            // The hoisted period, not the ViewModel's copy of it, for the
+            // reason 04 forbids a second source: `state.period` lags by a
+            // round trip through `setPeriod`, and the switcher computes its
+            // next target from what it is *shown*. A second "‹" inside that
+            // window recomputed the same month, `onPeriodChange` was handed a
+            // value equal to the one already hoisted, and the step was
+            // swallowed. Budget and Income were already passing `period`.
+            period = period,
             onChange = onPeriodChange,
             // 05 §5.4's ⚙. Drawn at last, now that there is a screen behind it.
             trailing = {

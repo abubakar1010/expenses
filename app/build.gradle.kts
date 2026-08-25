@@ -301,11 +301,43 @@ tasks.register<JacocoCoverageVerification>("coverageVerify") {
     sourceDirectories.setFrom(coverageReport.get().sourceDirectories)
 
     violationRules {
+        // NFR-MAIN-02's number, over the three layers it names.
         rule {
             limit {
                 counter = "LINE"
                 value = "COVEREDRATIO"
                 minimum = "0.80".toBigDecimal()
+            }
+        }
+
+        // And a floor under every individual **source file**, which the rule
+        // above does not give. A bundle ratio is an average: at 94% overall
+        // there is room for a whole file to sit at zero and the gate to stay
+        // green — which is what had happened to `AppMetaRepository`'s
+        // last-viewed-period pair, `SettingsRepository.setOnboarded`, and four
+        // of `RecurringRepository`'s income functions. All on the launch path
+        // or on a destructive action; none touched by a test.
+        //
+        // `SOURCEFILE` and not `CLASS`, after trying `CLASS` first. Kotlin
+        // emits a class per suspend continuation, per inlined comparator, per
+        // companion and per interface `DefaultImpls`, each with one or two
+        // lines that nothing can meaningfully cover — so a per-class rule
+        // spends its time reporting the compiler rather than the code, and the
+        // exclude list needed to quieten it would be longer than the rule.
+        // A source file is also what a person means by "nobody is exercising
+        // this".
+        //
+        // Deliberately 0.50 and not 0.80: this is not a second attempt at
+        // NFR-MAIN-02, it is a tripwire. A per-file rule set at the aggregate
+        // would fail on small files for reasons unrelated to the risk being
+        // managed, and a gate that has to be argued with is a gate that gets
+        // deleted.
+        rule {
+            element = "SOURCEFILE"
+            limit {
+                counter = "LINE"
+                value = "COVEREDRATIO"
+                minimum = "0.50".toBigDecimal()
             }
         }
     }

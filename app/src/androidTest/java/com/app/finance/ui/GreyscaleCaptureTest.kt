@@ -29,6 +29,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.time.LocalDate
+import org.junit.Assert.assertTrue
+import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.SemanticsNode
 
 /**
  * NFR-USE-05 — "state is never conveyed by colour alone".
@@ -38,6 +42,16 @@ import java.time.LocalDate
  * renders each surface, desaturates it by luminance, and writes a PNG that a
  * person reads: over-budget must still say over, a pending row must still be
  * marked, and a falling trend must still be legible as falling.
+ *
+ * **The PNGs are the evidence; the assertions are the gate.** For its first two
+ * milestones this class had five `@Test`s and not one assertion — both
+ * occurrences of the word in the file were inside comments. Every test rendered
+ * a screen, wrote a file and called `Log.i`, and §20.7 recorded "It passes".
+ * What passed was a person looking at five images, once, and nothing in the
+ * suite could ever have failed. So each capture now also asserts the *word* the
+ * screen must be saying: the colour is a second channel, and the requirement is
+ * that it is never the only one. A label that quietly becomes a coloured dot
+ * fails here rather than in somebody's hands.
  *
  * Doing it here rather than with `adb screencap` makes it repeatable and pins
  * the data — a capture of whatever happened to be on the phone that day proves
@@ -99,7 +113,11 @@ class GreyscaleCaptureTest {
         )
     }
 
-    private fun capture(name: String, content: @Composable () -> Unit) {
+    /**
+     * Renders, waits, writes the greyscale PNG, and hands back every word on
+     * the screen so the caller can assert on it.
+     */
+    private fun capture(name: String, content: @Composable () -> Unit): List<String> {
         compose.setContent { KhataTheme { content() } }
         compose.waitForIdle()
         // The flows land after Compose goes idle; this is the same wait every
@@ -109,6 +127,42 @@ class GreyscaleCaptureTest {
 
         val shot = compose.onRoot().captureToImage().asAndroidBitmap()
         write(name, shot.desaturated())
+        return labels(compose.onRoot().fetchSemanticsNode())
+    }
+
+    /**
+     * Every `Text` and `contentDescription` in the tree, flattened.
+     *
+     * Both, because the two channels serve different readers and NFR-USE-05
+     * covers the visual one: a state that reaches TalkBack through a
+     * `contentDescription` but is drawn as a bare coloured dot still fails the
+     * requirement. Where the app merges a row into one spoken sentence
+     * (`semantics(mergeDescendants = true)`) that sentence is the label, and it
+     * is checked for the word.
+     */
+    private fun labels(node: SemanticsNode): List<String> =
+        buildList {
+            node.config.getOrNull(SemanticsProperties.Text)
+                ?.forEach { add(it.text) }
+            node.config.getOrNull(SemanticsProperties.ContentDescription)
+                ?.forEach { add(it) }
+            node.children.forEach { addAll(labels(it)) }
+        }
+
+    /**
+     * Asserts the screen says [expected], in words, somewhere.
+     *
+     * Deliberately a substring match over the whole tree rather than a
+     * `onNodeWithText`: what the requirement cares about is that the state is
+     * *stated*, not which node states it, and pinning the node would make every
+     * layout change a failure of an accessibility test.
+     */
+    private fun assertSays(screen: String, expected: String, labels: List<String>) {
+        assertTrue(
+            "$screen conveys this state by colour alone: nothing on it says " +
+                "\"$expected\". What it says: $labels",
+            labels.any { it.contains(expected, ignoreCase = true) },
+        )
     }
 
     /**
@@ -163,7 +217,7 @@ class GreyscaleCaptureTest {
     @Test
     fun dashboard() {
         seedStates()
-        capture("1-dashboard") {
+        val said = capture("1-dashboard") {
             DashboardScreen(
                 container = fx.container,
                 period = aug,
@@ -172,12 +226,19 @@ class GreyscaleCaptureTest {
                 onOpenSettings = {},
             )
         }
+
+        // Grocery is ৳9,050 against a ৳8,000 limit, so the "needs attention"
+        // block has to *say* over. Vermilion alone is the failure this
+        // requirement names, and it is also invisible to the ~8% of men here
+        // with a red-green deficiency, which is the reason behind the reason.
+        assertSays("The dashboard", "over", said)
+        assertSays("The dashboard", "Grocery", said)
     }
 
     @Test
     fun budget() {
         seedStates()
-        capture("2-budget") {
+        val said = capture("2-budget") {
             BudgetScreen(
                 container = fx.container,
                 period = aug,
@@ -186,12 +247,22 @@ class GreyscaleCaptureTest {
                 onManageCategories = {},
             )
         }
+
+        // Three signals per bar, and only one of them is colour: the fill, the
+        // percentage, and the sentence beneath. The sentence is the one being
+        // pinned, because a bar and a percentage are both still readable when
+        // desaturated while telling you nothing about *which side of the line*
+        // you are on.
+        assertSays("The budget screen", "over", said)
+        // And the leaf that is comfortably under says how much is left, rather
+        // than being distinguished only by a greener bar.
+        assertSays("The budget screen", "left", said)
     }
 
     @Test
     fun ledger() {
         seedStates()
-        capture("3-ledger") {
+        val said = capture("3-ledger") {
             LedgerScreen(
                 container = fx.container,
                 snackbarHostState = SnackbarHostState(),
@@ -199,12 +270,18 @@ class GreyscaleCaptureTest {
                 onAdd = {},
             )
         }
+
+        // "Waiting to be confirmed" is exactly the state a design reaches for a
+        // tint to express — a faded row, a coloured left edge — and a faded row
+        // in greyscale is just a row. It is a heading and a button here.
+        assertSays("The ledger", "Waiting to confirm", said)
+        assertSays("The ledger", "Confirm", said)
     }
 
     @Test
     fun income() {
         seedStates()
-        capture("4-income") {
+        val said = capture("4-income") {
             IncomeScreen(
                 container = fx.container,
                 period = aug,
@@ -213,14 +290,38 @@ class GreyscaleCaptureTest {
                 onManageSources = {},
             )
         }
+
+        // 05 §5.7: the stable/variable mark is "a shape difference, not a
+        // colour difference, so it survives both greyscale and
+        // colourblindness" — a filled dot against a hollow one. The shape is in
+        // the PNG; the word is what can be asserted, and the row's spoken form
+        // carries it.
+        assertTrue(
+            "the income rows name neither kind: $said",
+            said.any { it.contains("Stable", true) || it.contains("Variable", true) },
+        )
+        assertSays("The income screen", "Salary", said)
     }
 
     @Test
     fun reports() {
         seedStates()
-        capture("5-reports") {
+        val said = capture("5-reports") {
             ReportsScreen(container = fx.container, onBack = {})
         }
+
+        // The spend mix is the screen's one genuinely colour-coded element.
+        // Each slice is labelled with its nature and its share in words, so the
+        // breakdown reads without the palette at all.
+        //
+        // Variable and Unpredictable, not Fixed: the only fixed-nature row the
+        // fixture seeds is the House Rent occurrence, and that one is `status =
+        // 1`. A pending row is in no figure anywhere until it is confirmed, so
+        // the mix is right to leave it out — asserting "Fixed" here was
+        // asserting that the pending exclusion is broken.
+        assertSays("The reports screen", "Variable", said)
+        assertSays("The reports screen", "Unpredictable", said)
+        assertSays("The reports screen", "%", said)
     }
 
     private companion object {

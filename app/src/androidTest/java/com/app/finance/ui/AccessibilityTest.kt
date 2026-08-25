@@ -29,6 +29,16 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.test.then
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.assertWidthIsEqualTo
+import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.ForcedSize
+import androidx.compose.ui.test.FontScale
+import androidx.compose.ui.test.DeviceConfigurationOverride
+import androidx.compose.runtime.Composable
 
 /**
  * 05-ui-ux-guide.md §10 opens with "Requirements, not aspirations. Each is
@@ -139,54 +149,138 @@ class AccessibilityTest {
         compose.onNodeWithText("Grocery").assertHeightIsAtLeast(48.dp)
     }
 
-    // --- font scale (NFR-COMP-04: 0.85x to 1.3x at 320 dp) ------------------
+    /** One posted row, so the ledger has a line to measure. */
+    private fun seedRow() = runBlocking {
+        fx.expenses.insert(Money.ofTaka(1_250), fx.leafId("Grocery"), fx.today)
+    }
 
-    @Test
-    fun the_entry_sheet_renders_at_the_largest_supported_font_scale() {
+    // --- size and font scale (NFR-COMP-03, NFR-COMP-04) ---------------------
+
+    /**
+     * Renders [content] as if on a screen [width] wide at [fontScale].
+     *
+     * **The width is the half that was missing.** These tests carried the
+     * comment "0.85x to 1.3x **at 320 dp**" and set only the font scale, so
+     * they ran at whatever the test device happened to be — 393 dp on the
+     * emulator this suite is run on, which is 73 dp of slack the requirement
+     * does not promise. NFR-COMP-03's floor is 320 dp, and 320 dp at 1.3× is
+     * the corner where everything in this app is tightest: 05 §2 budgets 288 dp
+     * of content inside 16 dp gutters.
+     */
+    private fun renderAt(width: Dp, fontScale: Float, content: @Composable () -> Unit) {
         compose.setContent {
-            CompositionLocalProvider(
-                LocalDensity provides Density(
-                    density = LocalDensity.current.density,
-                    fontScale = 1.3f,
-                ),
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.ForcedSize(DpSize(width, 640.dp)) then
+                    DeviceConfigurationOverride.FontScale(fontScale),
             ) {
-                KhataTheme {
-                    QuickAddSheet(
-                        container = fx.container,
-                        onDismiss = {},
-                        onSaved = {},
-                        onDeleted = {},
-                    )
-                }
+                KhataTheme { content() }
             }
         }
         compose.waitForIdle()
-        // Save must remain reachable — it is the one control the flow exists
-        // for, and it is the first thing a taller type scale pushes off-screen.
-        compose.onNodeWithText("Save expense").assertIsDisplayed()
+    }
+
+    /**
+     * Asserts the node is inside the screen rather than merely *in* the
+     * composition.
+     *
+     * `assertIsDisplayed` was the whole of the old assertion and it is a weaker
+     * claim than it reads as: it passes for a node whose bounds merely
+     * intersect the window, so a Save button with half its label past the right
+     * edge satisfies it. Unclipped bounds are what a person would look at.
+     */
+    private fun SemanticsNodeInteraction.assertFitsWithin(width: Dp) {
+        val bounds = getUnclippedBoundsInRoot()
+        assertTrue(
+            "runs off a $width screen: left=${bounds.left}, right=${bounds.right}",
+            bounds.left >= (-1).dp && bounds.right <= width + 1.dp,
+        )
     }
 
     @Test
-    fun the_entry_sheet_renders_at_the_smallest_supported_font_scale() {
-        compose.setContent {
-            CompositionLocalProvider(
-                LocalDensity provides Density(
-                    density = LocalDensity.current.density,
-                    fontScale = 0.85f,
-                ),
-            ) {
-                KhataTheme {
-                    QuickAddSheet(
-                        container = fx.container,
-                        onDismiss = {},
-                        onSaved = {},
-                        onDeleted = {},
-                    )
-                }
-            }
+    fun the_entry_sheet_survives_the_largest_supported_font_scale() {
+        // Save is the control the whole flow exists for, and it is the first
+        // thing a taller type scale pushes out of the layout.
+        //
+        // **The width is not asserted here, and that is a fact about the
+        // widget rather than a gap being papered over.** `QuickAddSheet` is a
+        // `ModalBottomSheet`, which hosts its content in a separate window
+        // sized by the real display — so [renderAt]'s forced size constrains a
+        // composition the sheet's content is not in, and `onRoot()` becomes
+        // ambiguous once that second window exists. The 320 dp corner for the
+        // sheet stays a manual check (`adb shell wm density 360` on a 720 px
+        // emulator, per CLAUDE.md); the automated width coverage is on the
+        // ledger below, where the override does reach.
+        renderAt(width = 320.dp, fontScale = 1.3f) {
+            QuickAddSheet(container = fx.container, onDismiss = {}, onSaved = {}, onDeleted = {})
         }
-        compose.waitForIdle()
+
         compose.onNodeWithText("Save expense").assertIsDisplayed()
+        compose.onNodeWithText("Save expense").assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test
+    fun the_entry_sheet_survives_the_smallest_supported_font_scale() {
+        renderAt(width = 320.dp, fontScale = 0.85f) {
+            QuickAddSheet(container = fx.container, onDismiss = {}, onSaved = {}, onDeleted = {})
+        }
+
+        compose.onNodeWithText("Save expense").assertIsDisplayed()
+        // Small type must not shrink the touch target: 05 §10 and NFR-USE-04
+        // are about the finger, not the glyph.
+        compose.onNodeWithText("Save expense").assertHeightIsAtLeast(48.dp)
+    }
+
+    @Test
+    fun the_ledger_fits_the_narrowest_screen_at_the_largest_supported_font_scale() {
+        // NFR-COMP-03's floor and NFR-COMP-04's ceiling together, on content
+        // the override can actually constrain. A row is `name … amount` on one
+        // line, which is the layout that fails first when the type grows and
+        // the screen does not — and the amount is the half that gets pushed
+        // off, which is the half that matters.
+        //
+        // These tests carried the comment "0.85x to 1.3x **at 320 dp**" and set
+        // only the font scale, so they ran at whatever the device happened to
+        // be — 393 dp on this emulator, 73 dp of slack the requirement does not
+        // promise.
+        seedRow()
+        renderAt(width = 320.dp, fontScale = 1.3f) {
+            LedgerScreen(
+                container = fx.container,
+                snackbarHostState = SnackbarHostState(),
+                onEdit = {},
+                onAdd = {},
+            )
+        }
+
+        compose.onNodeWithText("Grocery").assertFitsWithin(320.dp)
+        // Proves the override took effect. Without this the test would silently
+        // measure the emulator again, which is how the ones it replaces came to
+        // claim a width they were not testing.
+        compose.onRoot().assertWidthIsEqualTo(320.dp)
+    }
+
+    @Test
+    fun the_ledger_fits_the_widest_screen_the_requirement_names() {
+        // NFR-COMP-03's ceiling — "320 dp to 480 dp; no tablet layouts
+        // required". It had no evidence of any kind. What fails at 480 dp is
+        // the opposite of what fails at 320: a layout that centres nothing and
+        // stretches across the whole width.
+        seedRow()
+        renderAt(width = 480.dp, fontScale = 1.0f) {
+            LedgerScreen(
+                container = fx.container,
+                snackbarHostState = SnackbarHostState(),
+                onEdit = {},
+                onAdd = {},
+            )
+        }
+
+        // The content, not the root. `ForcedSize` lays the subtree out at
+        // 480 dp — which is what NFR-COMP-03's ceiling is about — but it cannot
+        // make the *window* wider than the device, so asserting on `onRoot()`
+        // here would only be asserting the emulator's own 393 dp. The 320 dp
+        // test above can assert the root, because shrinking works.
+        compose.onNodeWithText("Grocery").assertFitsWithin(480.dp)
     }
 
     // --- the entry flow itself (FR-EXP-01) ----------------------------------

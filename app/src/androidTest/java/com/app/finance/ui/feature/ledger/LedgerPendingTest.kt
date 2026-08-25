@@ -101,7 +101,14 @@ class LedgerPendingTest {
     fun a_pending_entry_is_not_in_the_ledger_below_it() = runBlocking {
         // Every other read filters `status = 0`, and none of them changed.
         generateRent()
-        val state = vm().state.awaitState { it.pendingCount == 1 }
+        // Both halves. `isEmpty` is `!initialLoad && days.isEmpty()`, and
+        // `initialLoad` is cleared by the *page* flow while `pendingCount`
+        // arrives on the pending one — two independent Room flows with no
+        // ordering between them, so awaiting only the second can settle on a
+        // state where the first has not landed and `isEmpty` is still false.
+        // §21.9 J and §22.3 are the same shape; this one had been passing on
+        // timing luck since M5.
+        val state = vm().state.awaitState { it.pendingCount == 1 && !it.initialLoad }
         assertTrue("the day groups are empty", state.days.isEmpty())
         assertTrue("and the ledger reports itself empty", state.isEmpty)
     }
@@ -112,7 +119,7 @@ class LedgerPendingTest {
         // alternatives. A first-run user with two unconfirmed entries must see
         // them, not an invitation to add their first expense.
         generateRent()
-        val state = vm().state.awaitState { it.pendingCount == 1 }
+        val state = vm().state.awaitState { it.pendingCount == 1 && !it.initialLoad }
         assertTrue("the empty state is showing", state.isEmpty)
         assertEquals("and so is the section", 1, state.pendingCount)
     }

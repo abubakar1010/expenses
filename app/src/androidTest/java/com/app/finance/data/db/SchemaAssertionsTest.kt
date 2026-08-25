@@ -4,6 +4,7 @@ import android.database.sqlite.SQLiteConstraintException
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.data.db.entity.BudgetEntity
+import com.app.finance.core.text.NameKey
 import com.app.finance.data.db.entity.CategoryEntity
 import com.app.finance.data.db.entity.ExpenseEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
@@ -717,6 +718,94 @@ class SchemaAssertionsTest {
         db.openHelper.writableDatabase.query("EXPLAIN QUERY PLAN\n$sql").use {
             buildString { while (it.moveToNext()) append(it.getString(it.columnCount - 1)).append('\n') }
         }
+
+    @Test
+    fun a_category_cannot_be_made_its_own_parent() = runBlocking {
+        // `BEFORE UPDATE` sees the row's OLD values, so `parent_id = id` on a
+        // childless root used to read that root's own NULL parent and pass the
+        // depth guard, while the foreign key was satisfied by the
+        // self-reference. The result was a row that is neither root nor leaf.
+        val fixed = scalar("SELECT id FROM category WHERE name_key = 'fixed expenses'")
+
+        assertThrows(SQLiteConstraintException::class.java) {
+            exec("UPDATE category SET parent_id = $fixed WHERE id = $fixed")
+        }
+
+        assertEquals(
+            "the root stopped being a root",
+            0L,
+            scalar("SELECT COUNT(*) FROM category WHERE id = parent_id"),
+        )
+    }
+
+    @Test
+    fun a_category_that_carries_expenses_cannot_gain_a_child() = runBlocking<Unit> {
+        // The leaf-only rule was defended only from the reference side: an
+        // expense may not point at a category with children, but nothing
+        // stopped a category with expenses being *given* children. `Importer`
+        // reaches this path — it inserts categories straight through BackupDao.
+        val grocery = scalar("SELECT id FROM category WHERE name_key = 'grocery'")
+        db.expenseDao().insert(
+            ExpenseEntity(
+                uuid = "e-leaf", categoryId = grocery, amountMinor = 1_000,
+                spentOn = augDay, periodYm = aug, createdAt = now, updatedAt = now,
+            ),
+        )
+
+        assertThrows(SQLiteConstraintException::class.java) {
+            exec(
+                """
+                INSERT INTO category (uuid, parent_id, name, name_key, nature, created_at, updated_at)
+                VALUES ('c-under-used', $grocery, 'Rice', 'rice', 1, $now, $now)
+                """.trimIndent(),
+            )
+        }
+    }
+
+    @Test
+    fun a_category_cannot_be_moved_under_one_that_carries_expenses() = runBlocking<Unit> {
+        // The same rule for a re-parent rather than an insert.
+        val grocery = scalar("SELECT id FROM category WHERE name_key = 'grocery'")
+        val transport = scalar("SELECT id FROM category WHERE name_key = 'transport'")
+        db.expenseDao().insert(
+            ExpenseEntity(
+                uuid = "e-move", categoryId = grocery, amountMinor = 1_000,
+                spentOn = augDay, periodYm = aug, createdAt = now, updatedAt = now,
+            ),
+        )
+
+        assertThrows(SQLiteConstraintException::class.java) {
+            exec("UPDATE category SET parent_id = $grocery WHERE id = $transport")
+        }
+    }
+
+    @Test
+    fun every_seeded_name_key_is_the_one_the_app_would_compute() = runBlocking {
+        // The seed used to fold its keys with Kotlin's default-locale
+        // `lowercase()`, so on a Turkish or Azerbaijani phone the seeded
+        // "Internet" carried `ınternet` — a key no write path would ever
+        // produce. `ux_category_parent_key` then stopped guarding it and
+        // merge-import's natural-key match missed it.
+        //
+        // This is the invariant, not the locale: every stored key must equal
+        // what `NameKey.of` gives for the same name. `NameKeyTest` separately
+        // proves `NameKey.of` does not depend on the device locale, and the two
+        // together are what make the seed safe anywhere.
+        db.backupDao().allCategories().forEach { category ->
+            assertEquals(
+                "seeded category '${category.name}' carries a key the app would not compute",
+                NameKey.of(category.name),
+                category.nameKey,
+            )
+        }
+        db.backupDao().allSources().forEach { source ->
+            assertEquals(
+                "seeded source '${source.name}' carries a key the app would not compute",
+                NameKey.of(source.name),
+                source.nameKey,
+            )
+        }
+    }
 
     @Test
     fun seeded_uuids_are_present_and_distinct() = runBlocking {

@@ -188,7 +188,7 @@ fun QuickAddSheet(
                     modifier = Modifier
                         .fillMaxWidth()
                         .defaultMinSize(minHeight = Sizes.minTouchTarget)
-                        .clickable { vm.delete { id -> vm.reset(); onDeleted(id) } }
+                        .clickable { vm.delete(onDeleted) }
                         .semantics { role = Role.Button }
                         .padding(vertical = Space.s2),
                 )

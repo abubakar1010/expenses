@@ -203,10 +203,9 @@ class BudgetViewModel(
             _state.update { it.copy(editor = editor.copy(error = EntryError.ZERO_LIMIT)) }
             return
         }
+        val period = _state.value.period
         viewModelScope.launch {
-            val outcome = withContext(io) {
-                budgets.setLimit(editor.categoryId, _state.value.period, amount)
-            }
+            val outcome = withContext(io) { budgets.setLimit(editor.categoryId, period, amount) }
             when (outcome) {
                 is SaveOutcome.Saved -> {
                     _state.update { it.copy(editor = null) }
@@ -224,20 +223,30 @@ class BudgetViewModel(
      * [onCleared] carries the removed limit back so the screen can offer the
      * five seconds NFR-USE-03 requires of every destructive action.
      */
-    fun clearLimit(onCleared: (Long, Money) -> Unit) {
+    fun clearLimit(onCleared: (Long, Money, Period) -> Unit) {
         val editor = _state.value.editor ?: return
+        // Read once, here, rather than inside the coroutine. The period is part
+        // of *which* limit this is, exactly as the category id is, and the user
+        // can change it from the switcher at the top of this same screen.
+        val period = _state.value.period
         viewModelScope.launch {
-            val removed = withContext(io) {
-                budgets.clearLimit(editor.categoryId, _state.value.period)
-            }
+            val removed = withContext(io) { budgets.clearLimit(editor.categoryId, period) }
             _state.update { it.copy(editor = null) }
-            if (removed != null) onCleared(editor.categoryId, removed)
+            if (removed != null) onCleared(editor.categoryId, removed, period)
         }
     }
 
-    fun undoClear(categoryId: Long, limit: Money) {
+    /**
+     * [period] is carried in rather than read, and that is the whole point.
+     *
+     * The switcher is on this screen and the snackbar lives five seconds, so
+     * reading the current period here restored the limit into whichever month
+     * the user had stepped to — leaving the one they cleared still cleared, and
+     * writing a limit into a month they never touched.
+     */
+    fun undoClear(categoryId: Long, limit: Money, period: Period) {
         viewModelScope.launch {
-            withContext(io) { budgets.setLimit(categoryId, _state.value.period, limit) }
+            withContext(io) { budgets.setLimit(categoryId, period, limit) }
         }
     }
 
@@ -253,19 +262,27 @@ class BudgetViewModel(
      *   that had to restore replaced values would be a different, riskier
      *   operation.
      */
-    fun copyFromLastMonth(onCopied: (Int, List<Long>) -> Unit) {
+    fun copyFromLastMonth(onCopied: (Int, List<Long>, Period) -> Unit) {
+        val period = _state.value.period
         viewModelScope.launch {
-            val period = _state.value.period
             val added = withContext(io) { budgets.copyableFromPreviousPeriod(period) }
             if (added.isEmpty()) return@launch
             withContext(io) { budgets.copyFromPreviousPeriod(period) }
-            onCopied(added.size, added)
+            onCopied(added.size, added, period)
         }
     }
 
-    fun undoCopy(added: List<Long>) {
+    /**
+     * The dangerous half of the same bug, and the reason both are Tier 1.
+     *
+     * This *removes* limits. Aimed at the period the user had stepped to rather
+     * than the one that was copied into, it deletes limits they set themselves —
+     * an undo that destroys data, which is the one thing NFR-USE-03 exists to
+     * prevent.
+     */
+    fun undoCopy(added: List<Long>, period: Period) {
         viewModelScope.launch {
-            withContext(io) { budgets.removeLimits(added, _state.value.period) }
+            withContext(io) { budgets.removeLimits(added, period) }
         }
     }
 

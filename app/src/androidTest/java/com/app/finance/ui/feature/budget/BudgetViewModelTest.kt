@@ -14,7 +14,9 @@ import com.app.finance.domain.model.Nature
 import com.app.finance.ui.common.KeypadKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -90,6 +92,66 @@ class BudgetViewModelTest {
     private fun BudgetUiState.stateOf(name: String) = leafOrNull(name)?.status?.state
 
     // --- structure ----------------------------------------------------------
+
+    // --- undo must reverse the period it acted on ----------------------------
+
+    @Test
+    fun undoing_a_cleared_limit_restores_it_to_the_month_it_was_cleared_from() = runBlocking {
+        // The period switcher sits on this screen and the snackbar lives five
+        // seconds, so stepping months between the action and the Undo is
+        // ordinary use, not a contrived race.
+        fx.budgets.setLimit(fx.leafId("Grocery"), aug, Money.ofTaka(8_000))
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad }
+
+        vm.editLimit(fx.leafId("Grocery"), "Grocery")
+        vm.state.awaitState { it.editor != null }
+
+        var cleared: Triple<Long, Money, Period>? = null
+        vm.clearLimit { id, limit, period -> cleared = Triple(id, limit, period) }
+        vm.state.awaitState { it.editor == null }
+        val (id, limit, period) = requireNotNull(cleared)
+
+        // The user steps back a month while the snackbar is still up.
+        vm.setPeriod(jul)
+        vm.state.awaitState { it.period == jul }
+        vm.undoClear(id, limit, period)
+
+        withTimeout(5_000) {
+            while (fx.budgets.limitFor(id, aug) == null) delay(25)
+        }
+        assertEquals("the limit came back to the wrong month", Money.ofTaka(8_000), fx.budgets.limitFor(id, aug))
+        assertNull("undo wrote into the month the user had stepped to", fx.budgets.limitFor(id, jul))
+    }
+
+    @Test
+    fun undoing_a_copy_does_not_delete_the_limits_of_another_month() = runBlocking {
+        // The dangerous half. `undoCopy` removes limits; aimed at the wrong
+        // period it removes ones the user set themselves.
+        val grocery = fx.leafId("Grocery")
+        fx.budgets.setLimit(grocery, jul, Money.ofTaka(3_000))
+
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad }
+
+        var copied: Pair<List<Long>, Period>? = null
+        vm.copyFromLastMonth { _, added, period -> copied = added to period }
+        withTimeout(5_000) { while (copied == null) delay(25) }
+        val (added, period) = requireNotNull(copied)
+
+        vm.setPeriod(jul)
+        vm.state.awaitState { it.period == jul }
+        vm.undoCopy(added, period)
+
+        withTimeout(5_000) {
+            while (fx.budgets.limitFor(grocery, aug) != null) delay(25)
+        }
+        assertEquals(
+            "undo deleted a limit the user set in another month",
+            Money.ofTaka(3_000),
+            fx.budgets.limitFor(grocery, jul),
+        )
+    }
 
     @Test
     fun groups_are_ordered_variable_then_unpredictable_then_fixed() = runBlocking {
@@ -302,7 +364,7 @@ class BudgetViewModelTest {
 
         vm.editLimit(fx.leafId("Grocery"), "Grocery")
         vm.state.awaitState { it.editor != null }
-        vm.clearLimit { _, _ -> }
+        vm.clearLimit { _, _, _ -> }
 
         assertFalse(vm.state.awaitState { it.hasLimit("Grocery") == false }.leaf("Grocery").hasLimit)
     }
@@ -370,14 +432,19 @@ class BudgetViewModelTest {
 
         var reported = 0
         var added: List<Long> = emptyList()
-        vm.copyFromLastMonth { count, ids -> reported = count; added = ids }
+        vm.copyFromLastMonth { count, ids, _ -> reported = count; added = ids }
 
+        // Wait for the callback, then for the tree. Awaiting only the tree and
+        // asserting `reported` is §21.9 J's race a third time: the flow and the
+        // callback are two independent signals and neither ordering is
+        // guaranteed. It passed until a timing change elsewhere made it not.
+        withTimeout(5_000) { while (reported == 0) delay(25) }
         vm.state.awaitState { it.hasLimit("Transport") == true }
         assertEquals(1, reported)
         assertEquals(listOf(fx.leafId("Transport")), added)
         assertEquals(Money.ofTaka(9_000), fx.budgets.limitFor(fx.leafId("Grocery"), aug))
 
-        vm.undoCopy(added)
+        vm.undoCopy(added, aug)
         assertFalse(vm.state.awaitState { it.hasLimit("Transport") == false }.leaf("Transport").hasLimit)
         assertEquals(
             "undo must not touch what was already there",
@@ -397,7 +464,7 @@ class BudgetViewModelTest {
         val vm = vm(aug)
         vm.state.awaitState { it.copyableCount == 1 }
 
-        vm.copyFromLastMonth { _, _ -> }
+        vm.copyFromLastMonth { _, _, _ -> }
 
         assertEquals(0, vm.state.awaitState { it.copyableCount == 0 }.copyableCount)
     }
@@ -417,7 +484,7 @@ class BudgetViewModelTest {
 
         var removed: Money? = null
         var removedFrom: Long? = null
-        vm.clearLimit { categoryId, limit -> removedFrom = categoryId; removed = limit }
+        vm.clearLimit { categoryId, limit, _ -> removedFrom = categoryId; removed = limit }
 
         vm.state.awaitState { it.hasLimit("Grocery") == false }
         assertEquals(Money.ofTaka(8_000), removed)
@@ -434,10 +501,10 @@ class BudgetViewModelTest {
 
         var removed: Money? = null
         var removedFrom: Long? = null
-        vm.clearLimit { categoryId, limit -> removedFrom = categoryId; removed = limit }
+        vm.clearLimit { categoryId, limit, _ -> removedFrom = categoryId; removed = limit }
         vm.state.awaitState { it.hasLimit("Grocery") == false }
 
-        vm.undoClear(removedFrom!!, removed!!)
+        vm.undoClear(removedFrom!!, removed!!, aug)
 
         val state = vm.state.awaitState { it.hasLimit("Grocery") == true }
         assertEquals(Money.ofTaka(8_000), state.leaf("Grocery").status.limit)
@@ -451,7 +518,7 @@ class BudgetViewModelTest {
         vm.state.awaitState { it.editor != null }
 
         var called = false
-        vm.clearLimit { _, _ -> called = true }
+        vm.clearLimit { _, _, _ -> called = true }
 
         vm.state.awaitState { it.editor == null }
         assertFalse("no snackbar for a limit that was never there", called)

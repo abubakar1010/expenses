@@ -65,7 +65,7 @@ class SchemaValidationTest {
         val triggers = second.openHelper.writableDatabase
             .query("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger'")
             .use { if (it.moveToFirst()) it.getInt(0) else 0 }
-        assertEquals("all fourteen triggers must survive reopen", 14, triggers)
+        assertEquals("all sixteen triggers must survive reopen", 16, triggers)
 
         second.close()
     }

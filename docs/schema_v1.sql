@@ -17,6 +17,8 @@
 --   [ADDED] trg_category_depth_update          (§4.4)
 --   [ADDED] trg_category_inherit_nature_upd    (§4.4, FR-CAT-06)
 --   [ADDED] trg_budget_leaf_only_upd           (§4.5)
+--   [ADDED] trg_category_child_of_used_leaf     (§22 — the tree side of §4.5)
+--   [ADDED] trg_category_child_of_used_leaf_upd (§22)
 --   [ADDED] the full PRAGMA block              (§4.1 — only foreign_keys was present)
 --   [ADDED] seed data                          (§7)
 --   [ADDED] app_meta schema_version row        (§4.9)
@@ -213,7 +215,8 @@ BEFORE UPDATE OF parent_id ON category
 WHEN NEW.parent_id IS NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'category depth limited to two levels')
-    WHERE (SELECT parent_id FROM category WHERE id = NEW.parent_id) IS NOT NULL
+    WHERE NEW.parent_id = NEW.id
+       OR (SELECT parent_id FROM category WHERE id = NEW.parent_id) IS NOT NULL
        OR EXISTS (SELECT 1 FROM category WHERE parent_id = NEW.id);
 END;
 
@@ -273,6 +276,29 @@ BEFORE UPDATE OF category_id ON expense
 BEGIN
     SELECT RAISE(ABORT, 'expenses may only reference leaf categories')
     WHERE EXISTS (SELECT 1 FROM category WHERE parent_id = NEW.category_id);
+END;
+
+-- [ADDED] The leaf-only rule, defended from the tree side as well as the
+-- reference side: nothing stopped a category that already carries expenses or
+-- budgets from being given a child, which turns those rows into references to a
+-- non-leaf after the fact. Importer reaches this path.
+
+CREATE TRIGGER trg_category_child_of_used_leaf
+BEFORE INSERT ON category
+WHEN NEW.parent_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'a category with expenses or budgets may not gain a child')
+    WHERE EXISTS (SELECT 1 FROM expense WHERE category_id = NEW.parent_id)
+       OR EXISTS (SELECT 1 FROM budget  WHERE category_id = NEW.parent_id);
+END;
+
+CREATE TRIGGER trg_category_child_of_used_leaf_upd
+BEFORE UPDATE OF parent_id ON category
+WHEN NEW.parent_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'a category with expenses or budgets may not gain a child')
+    WHERE EXISTS (SELECT 1 FROM expense WHERE category_id = NEW.parent_id)
+       OR EXISTS (SELECT 1 FROM budget  WHERE category_id = NEW.parent_id);
 END;
 
 -- ================================================== expense rollups (§4.7)

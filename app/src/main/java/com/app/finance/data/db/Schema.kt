@@ -1,5 +1,7 @@
 package com.app.finance.data.db
 
+import com.app.finance.core.text.NameKey
+
 /**
  * The canonical SQLite schema — version 1.
  *
@@ -285,15 +287,27 @@ internal object Schema {
         """,
         // ADDED. 03 §4.4 states this trigger exists ("An equivalent BEFORE
         // UPDATE trigger prevents re-parenting…") but the SQL file omitted it.
-        // Two ways a move creates a third level: the new parent already has a
-        // parent, or this category has children of its own.
+        // Three ways a move breaks the tree: the new parent already has a
+        // parent, this category has children of its own, or it is made its own
+        // parent.
+        //
+        // The third was reachable. At `BEFORE UPDATE` the row still holds its
+        // OLD values, so setting `parent_id = id` on a childless root read that
+        // root's own `parent_id` — NULL — and passed the first clause; the
+        // second found no children and passed; and the foreign key is satisfied
+        // by a self-reference. The row became neither root nor leaf: absent
+        // from `roots()`, excluded from `observeSelectableLeaves` because it is
+        // its own child, and enough to make `WIPE_ORDER`'s two-statement
+        // category delete fail with RESTRICT. Nothing re-parents today, but
+        // this trigger is the stated defence and it did not hold.
         """
         CREATE TRIGGER IF NOT EXISTS trg_category_depth_update
         BEFORE UPDATE OF parent_id ON category
         WHEN NEW.parent_id IS NOT NULL
         BEGIN
             SELECT RAISE(ABORT, 'category depth limited to two levels')
-            WHERE (SELECT parent_id FROM category WHERE id = NEW.parent_id) IS NOT NULL
+            WHERE NEW.parent_id = NEW.id
+               OR (SELECT parent_id FROM category WHERE id = NEW.parent_id) IS NOT NULL
                OR EXISTS (SELECT 1 FROM category WHERE parent_id = NEW.id);
         END
         """,
@@ -360,6 +374,44 @@ internal object Schema {
         BEGIN
             SELECT RAISE(ABORT, 'expenses may only reference leaf categories')
             WHERE EXISTS (SELECT 1 FROM category WHERE parent_id = NEW.category_id);
+        END
+        """,
+
+        // ADDED. The leaf-only rule, defended from the *tree* side.
+        //
+        // Everything above guards the reference: an expense or a budget may not
+        // point at a category that has children. Nothing guarded the reverse —
+        // giving a child to a category that already carries expenses or
+        // budgets, which turns those existing rows into references to a
+        // non-leaf after the fact.
+        //
+        // `CategoryRepository.createSubcategory` closes the in-app path, but
+        // `Importer` inserts categories through `BackupDao` with no such check,
+        // and a merge from another phone can legitimately add a child under a
+        // category that is a spent-into leaf here. The rows then vanish from
+        // `observeBudgetBars` while staying in the rollup total — the two
+        // become computable to different answers — and any recurring rule
+        // targeting the category aborts generation for every rule in that
+        // transaction.
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_category_child_of_used_leaf
+        BEFORE INSERT ON category
+        WHEN NEW.parent_id IS NOT NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'a category with expenses or budgets may not gain a child')
+            WHERE EXISTS (SELECT 1 FROM expense WHERE category_id = NEW.parent_id)
+               OR EXISTS (SELECT 1 FROM budget  WHERE category_id = NEW.parent_id);
+        END
+        """,
+        // ADDED — the same rule, for a move that re-parents onto a used leaf.
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_category_child_of_used_leaf_upd
+        BEFORE UPDATE OF parent_id ON category
+        WHEN NEW.parent_id IS NOT NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'a category with expenses or budgets may not gain a child')
+            WHERE EXISTS (SELECT 1 FROM expense WHERE category_id = NEW.parent_id)
+               OR EXISTS (SELECT 1 FROM budget  WHERE category_id = NEW.parent_id);
         END
         """,
 
@@ -466,6 +518,7 @@ internal object Schema {
         "trg_category_inherit_nature", "trg_category_inherit_nature_upd",
         "trg_budget_leaf_only", "trg_budget_leaf_only_upd",
         "trg_expense_leaf_only", "trg_expense_leaf_only_upd",
+        "trg_category_child_of_used_leaf", "trg_category_child_of_used_leaf_upd",
         "trg_rollup_exp_ins", "trg_rollup_exp_del", "trg_rollup_exp_upd",
         "trg_rollup_inc_ins", "trg_rollup_inc_del", "trg_rollup_inc_upd",
     ).map { "DROP TRIGGER IF EXISTS $it" }
@@ -494,47 +547,59 @@ internal object Schema {
      */
     private const val NOW = "CAST(strftime('%s','now') AS INTEGER) * 1000"
 
-    private fun root(name: String, key: String, nature: Int, sort: Int) = """
+    private fun root(name: String, nature: Int, sort: Int) = """
         INSERT INTO category (uuid, parent_id, name, name_key, nature, is_system, sort_order, created_at, updated_at)
-        VALUES ($UUID4, NULL, '$name', '$key', $nature, 1, $sort, $NOW, $NOW)
+        VALUES ($UUID4, NULL, '$name', '${NameKey.of(name)}', $nature, 1, $sort, $NOW, $NOW)
     """.trimIndent()
 
-    private fun child(parentKey: String, name: String, key: String, nature: Int, sort: Int) = """
+    private fun child(parentName: String, name: String, nature: Int, sort: Int) = """
         INSERT INTO category (uuid, parent_id, name, name_key, nature, is_system, sort_order, created_at, updated_at)
         VALUES ($UUID4,
-                (SELECT id FROM category WHERE parent_id IS NULL AND name_key = '$parentKey'),
-                '$name', '$key', $nature, 0, $sort, $NOW, $NOW)
+                (SELECT id FROM category WHERE parent_id IS NULL AND name_key = '${NameKey.of(parentName)}'),
+                '$name', '${NameKey.of(name)}', $nature, 0, $sort, $NOW, $NOW)
     """.trimIndent()
 
     /**
      * FR-CAT-01 and FR-CAT-02. The subcategory set is the superset from
      * 03 §7, which satisfies the smaller minimum the SRS states.
      *
-     * `name_key` values are written literally rather than computed with SQL's
-     * `lower()`, for the same reason the application computes them on every
-     * write: `lower()` is ASCII-only. These seeds happen to be ASCII, but
-     * having two different normalisation rules in the system is how they drift.
+     * `name_key` comes from [NameKey.of] — the same function every write path
+     * uses — rather than from SQL's `lower()` or from Kotlin's.
+     *
+     * SQL's `lower()` is ASCII-only, which is the reason originally recorded
+     * here. But the keys were then folded with Kotlin's default-locale
+     * `lowercase()`, which is a *third* rule and a locale-sensitive one: on a
+     * Turkish or Azerbaijani device `"Internet".lowercase()` is `ınternet`, so
+     * the seeded leaf carried a key no write path would ever produce.
+     * `ux_category_parent_key` then stopped guarding it, a second "Internet"
+     * was accepted, and merge-import's natural-key match (§18.1) missed it and
+     * rolled the whole import back.
+     *
+     * `NameKeyTest` proves `NameKey.of` does not depend on the device locale.
+     * This is the other half: one rule, used everywhere, including here.
+     * Having two different normalisation rules in the system is how they drift,
+     * and this file said so while holding the third.
      */
     val SEED: List<String> = buildList {
-        add(root("Fixed Expenses", "fixed expenses", nature = 0, sort = 0))
-        add(root("Variable Expenses", "variable expenses", nature = 1, sort = 1))
-        add(root("Unpredictable Expenses", "unpredictable expenses", nature = 2, sort = 2))
+        add(root("Fixed Expenses", nature = 0, sort = 0))
+        add(root("Variable Expenses", nature = 1, sort = 1))
+        add(root("Unpredictable Expenses", nature = 2, sort = 2))
 
         listOf("House Rent", "Utilities", "Internet", "Education Fees")
-            .forEachIndexed { i, n -> add(child("fixed expenses", n, n.lowercase(), 0, i)) }
+            .forEachIndexed { i, n -> add(child("Fixed Expenses", n, 0, i)) }
 
         listOf("Grocery", "Transport", "Mobile Recharge", "Dining Out", "Household")
-            .forEachIndexed { i, n -> add(child("variable expenses", n, n.lowercase(), 1, i)) }
+            .forEachIndexed { i, n -> add(child("Variable Expenses", n, 1, i)) }
 
         listOf("Medical", "Gifts", "Repairs", "New Clothes")
-            .forEachIndexed { i, n -> add(child("unpredictable expenses", n, n.lowercase(), 2, i)) }
+            .forEachIndexed { i, n -> add(child("Unpredictable Expenses", n, 2, i)) }
 
         // One income source, because the first thing the user will do is record
         // a salary and an empty picker on first run is a needless obstacle.
         add(
             """
             INSERT INTO income_source (uuid, name, name_key, kind, sort_order, created_at, updated_at)
-            VALUES ($UUID4, 'Salary', 'salary', 0, 0, $NOW, $NOW)
+            VALUES ($UUID4, 'Salary', '${NameKey.of("Salary")}', 0, 0, $NOW, $NOW)
             """.trimIndent(),
         )
 

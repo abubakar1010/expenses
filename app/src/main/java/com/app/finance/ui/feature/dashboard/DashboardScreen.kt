@@ -226,6 +226,17 @@ fun DashboardScreen(
                     items(state.mix, key = { "mix-${it.nature.code}" }) { slice ->
                         MixRow(slice, locale)
                     }
+                    // 05 §5.3, and only when there is something to say. A
+                    // nature whose refunds outweigh its spending is dropped
+                    // from the mix — a slice cannot have negative width — so
+                    // the percentages are of a smaller number than the figure
+                    // above them. Naming the gap costs one line in the rare
+                    // case and nothing in the ordinary one.
+                    if (!state.mixExcluded.isZero) {
+                        item(key = "mix-excludes") {
+                            MixCaption(state.mixExcluded.format(locale))
+                        }
+                    }
                 }
 
                 if (state.largest.isNotEmpty()) {
@@ -513,6 +524,24 @@ private fun DeltaRow(delta: CategoryDelta, locale: Locale) {
 }
 
 /** FR-AN-07 — "shows how much is actually controllable" (PRD §6.4). */
+/**
+ * The line under the mix that says what its percentages are of.
+ *
+ * `caption` and `inkSoft` deliberately: 05 §5.3 puts this below the slices
+ * rather than beside the total, because it explains the slices. It is not a
+ * warning and nothing has gone wrong — the arithmetic is right and the note is
+ * what makes it legible.
+ */
+@Composable
+private fun MixCaption(excluded: String) {
+    Text(
+        text = stringResource(R.string.mix_excludes, excluded),
+        style = KhataTheme.type.caption,
+        color = KhataTheme.colors.inkSoft,
+        modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s2),
+    )
+}
+
 @Composable
 private fun MixRow(slice: SpendSlice, locale: Locale) {
     LedgerRow(

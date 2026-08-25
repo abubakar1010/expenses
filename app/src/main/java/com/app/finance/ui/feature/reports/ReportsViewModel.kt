@@ -27,6 +27,8 @@ data class ReportsUiState(
     val total: Money = Money.ZERO,
     val count: Int = 0,
     val mix: List<SpendSlice> = emptyList(),
+    /** What [mix] leaves out — 05 §5.3. See [DashboardUiState.mixExcluded]. */
+    val mixExcluded: Money = Money.ZERO,
     val largest: List<ExpenseWithCategory> = emptyList(),
     val loading: Boolean = true,
 ) {
@@ -72,6 +74,7 @@ class ReportsViewModel(
                     total = total,
                     count = count,
                     mix = SpendMix.ofTotals(mix),
+                    mixExcluded = SpendMix.excludedFrom(mix),
                     largest = largest,
                     loading = false,
                 )

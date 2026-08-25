@@ -34,12 +34,20 @@ value class Money(val paisa: Long) : Comparable<Money> {
     val absoluteValue: Money get() = Money(paisa.absoluteValue)
 
     /**
-     * Divides into [parts] equal shares, rounding toward zero.
+     * Divides into [parts] equal shares, rounding **toward zero**.
      *
      * Used by safe-to-spend, which divides a remaining limit by the days left
-     * in the period. Rounding down is deliberate: telling the user they may
-     * spend one paisa more than they actually may is the wrong direction to err
-     * in a budgeting app.
+     * in the period. For the non-negative values that caller passes — it
+     * clamps first — toward zero and downward are the same thing, and downward
+     * is the direction that matters: telling the user they may spend one paisa
+     * more than they actually may is the wrong way to err in a budgeting app.
+     *
+     * The two only part company below zero, where toward-zero rounds *up*.
+     * Nothing here does that, and the KDoc used to say "rounding down" as
+     * though it were unconditional — which §22.7 nearly filed as a defect
+     * against `divideBy` before reading its caller. It is the sentence that was
+     * wrong, not the arithmetic; `MoneyTest` has asserted the negative case
+     * deliberately since M1.
      */
     fun divideBy(parts: Int): Money {
         require(parts != 0) { "cannot divide Money by zero parts" }

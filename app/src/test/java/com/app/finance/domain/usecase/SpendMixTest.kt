@@ -134,4 +134,108 @@ class SpendMixTest {
         assertEquals(Money.ofTaka(6_000), mix.first().total)
         assertEquals(100, mix.sumOf { it.share })
     }
+
+    // --- what the slices leave out (05 §5.3) ---------------------------------
+
+    @Test
+    fun `nothing is excluded when every nature has spending`() {
+        // The ordinary case, and the one that decides whether the caption is
+        // noise: it must be silent here, on every screen, always.
+        val groups = listOf(
+            group(Nature.VARIABLE, 10_000),
+            group(Nature.UNPREDICTABLE, 2_000),
+            group(Nature.FIXED, 15_000),
+        )
+
+        assertEquals(Money.ZERO, SpendMix.excludedFrom(groups))
+    }
+
+    @Test
+    fun `nothing is excluded when a nature simply has no spending`() {
+        // Absent is not the same as negative. A nature with no rows at all is
+        // dropped by 05 §5.4's rule and leaves nothing outside the total.
+        val groups = listOf(group(Nature.VARIABLE, 10_000))
+
+        assertTrue(SpendMix.of(groups).size == 1)
+        assertEquals(Money.ZERO, SpendMix.excludedFrom(groups))
+    }
+
+    @Test
+    fun `a nature whose refunds outweigh its spending is what the caption is for`() {
+        // FR-EXP-06 makes a negative expense a refund, so a nature's net for a
+        // period can be below zero. It cannot be drawn as a slice — a pie has
+        // no negative width — so it is dropped, and the percentages are then of
+        // a smaller number than the hero figure beside them.
+        val groups = listOf(
+            group(Nature.VARIABLE, 5_000),
+            group(Nature.UNPREDICTABLE, -1_000),
+        )
+
+        val mix = SpendMix.of(groups)
+        assertEquals("the refunded nature must not be drawn", 1, mix.size)
+        assertEquals(Nature.VARIABLE, mix.single().nature)
+        assertEquals(100, mix.single().share)
+
+        // And this is the gap the caption names: ৳5,000 of slices above a
+        // ৳4,000 total.
+        assertEquals(Money.ofTaka(1_000), SpendMix.excludedFrom(groups))
+    }
+
+    @Test
+    fun `a nature at exactly zero is excluded but contributes nothing to say`() {
+        // The boundary. `total.paisa > 0` drops it, so it is not a slice — and
+        // its magnitude is zero, so the caption stays silent. A caption reading
+        // "৳0 of refunds sits outside them" would be worse than none.
+        val groups = listOf(
+            group(Nature.VARIABLE, 5_000),
+            group(Nature.UNPREDICTABLE, 1_000, -1_000),
+        )
+
+        assertEquals(1, SpendMix.of(groups).size)
+        assertEquals(Money.ZERO, SpendMix.excludedFrom(groups))
+    }
+
+    @Test
+    fun `every excluded nature is counted, not just the first`() {
+        val groups = listOf(
+            group(Nature.VARIABLE, 5_000),
+            group(Nature.UNPREDICTABLE, -1_000),
+            group(Nature.FIXED, -250),
+        )
+
+        assertEquals(Money.ofTaka(1_250), SpendMix.excludedFrom(groups))
+    }
+
+    @Test
+    fun `both entry points agree about what was left out`() {
+        // `of` folds groups into per-nature totals and `ofTotals` is handed
+        // them directly; the two must not be able to disagree, which is why
+        // they share one fold.
+        val groups = listOf(
+            group(Nature.VARIABLE, 5_000),
+            group(Nature.UNPREDICTABLE, -1_000),
+        )
+        val totals = mapOf(
+            Nature.VARIABLE to Money.ofTaka(5_000),
+            Nature.UNPREDICTABLE to Money.ofTaka(-1_000),
+        )
+
+        assertEquals(SpendMix.excludedFrom(groups), SpendMix.excludedFrom(totals))
+        assertEquals(SpendMix.of(groups), SpendMix.ofTotals(totals))
+    }
+
+    @Test
+    fun `the slices plus what was excluded account for the whole period`() {
+        // The reconciliation the caption is promising. Displayed spend plus the
+        // refunds held outside it equals the net total the screen prints above.
+        val groups = listOf(
+            group(Nature.VARIABLE, 5_000),
+            group(Nature.UNPREDICTABLE, -1_000),
+        )
+
+        val displayed = SpendMix.of(groups).fold(Money.ZERO) { acc, s -> acc + s.total }
+        val net = displayed - SpendMix.excludedFrom(groups)
+
+        assertEquals(Money.ofTaka(4_000), net)
+    }
 }

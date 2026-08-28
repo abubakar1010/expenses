@@ -159,6 +159,55 @@ interface ExpenseDao {
         limit: Int,
     ): List<ExpenseWithCategory>
 
+    /**
+     * What the whole filtered set comes to — FR-EXP-11.
+     *
+     * The predicate is [page]'s, minus the keyset clause and the limit, and
+     * that difference is the point. [page] holds only the pages scrolled so far
+     * because FR-EXP-10 forbids loading the history into memory, so summing the
+     * rows in hand would produce a figure that *grows as the user scrolls* —
+     * worse than showing nothing, because it looks like an answer.
+     *
+     * No join to `category`. [page] joins only to select the category's name
+     * and nature for display; `expense.category_id` is `NOT NULL` behind an
+     * enforced foreign key (`PRAGMA foreign_keys = ON`, 03 §1), so an inner
+     * join cannot drop a row and its absence here cannot change the result. It
+     * only saves a lookup per row on a scan that may cover 20,000 of them.
+     *
+     * NFR-REL-02 requires this to reconcile exactly with a direct sum, and the
+     * one thing that could break that is this predicate and [page]'s drifting
+     * apart — two hand-copied queries, which is how the EXPLAIN test in §22.5
+     * went wrong. `the_total_is_every_matching_row_not_the_loaded_ones` and
+     * `the_total_agrees_with_the_sum_of_every_page` are the guards.
+     */
+    @Query(
+        """
+        SELECT IFNULL(SUM(e.amount_minor), 0) AS totalMinor, COUNT(*) AS txnCount
+          FROM expense e
+         WHERE e.status = 0
+           AND e.spent_on BETWEEN :fromDay AND :toDay
+           AND (:anyCategory = 1 OR e.category_id IN (:categoryIds))
+           AND (:anyMethod = 1 OR e.payment_method = :method)
+           AND (
+                :noQuery = 1
+                OR e.note LIKE '%' || :query || '%' ESCAPE '\'
+                OR (:hasAmount = 1 AND e.amount_minor = :exactAmount)
+               )
+        """,
+    )
+    suspend fun filteredTotal(
+        fromDay: Long,
+        toDay: Long,
+        anyCategory: Int,
+        categoryIds: List<Long>,
+        anyMethod: Int,
+        method: Int,
+        noQuery: Int,
+        query: String,
+        hasAmount: Int,
+        exactAmount: Long,
+    ): FilteredTotal
+
     /** Top N of the period, descending — one of the eight dashboard metrics. */
     @Query(
         """
@@ -216,3 +265,6 @@ interface ExpenseDao {
 data class NatureTotal(val nature: Int, val totalMinor: Long, val txnCount: Int)
 
 data class DayTotal(val day: Long, val total: Long)
+
+/** What the current ledger filter matches, in full — FR-EXP-11. */
+data class FilteredTotal(val totalMinor: Long, val txnCount: Int)

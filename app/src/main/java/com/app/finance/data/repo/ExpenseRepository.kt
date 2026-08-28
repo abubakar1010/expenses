@@ -7,6 +7,7 @@ import com.app.finance.core.time.Period
 import com.app.finance.data.db.AppDatabase
 import com.app.finance.data.db.dao.AppMetaDao
 import com.app.finance.data.db.dao.ExpenseWithCategory
+import com.app.finance.data.db.dao.FilteredTotal
 import com.app.finance.data.db.entity.AppMetaEntity
 import com.app.finance.data.db.entity.ExpenseEntity
 import com.app.finance.domain.model.EntryError
@@ -155,12 +156,63 @@ class ExpenseRepository(
         filters: LedgerFilters,
         after: ExpenseWithCategory? = null,
     ): List<ExpenseWithCategory> {
-        val categoryIds = resolveCategoryIds(filters)
+        val p = resolvePredicate(filters)
 
         return expenseDao.page(
             noKeyset = if (after == null) 1 else 0,
             lastDay = after?.expense?.spentOn ?: 0L,
             lastId = after?.expense?.id ?: 0L,
+            fromDay = p.fromDay,
+            toDay = p.toDay,
+            anyCategory = p.anyCategory,
+            categoryIds = p.categoryIds,
+            anyMethod = p.anyMethod,
+            method = p.method,
+            noQuery = p.noQuery,
+            query = p.query,
+            hasAmount = p.hasAmount,
+            exactAmount = p.exactAmount,
+            limit = PAGE_SIZE,
+        )
+    }
+
+    /**
+     * What the filter matches in total, across every page — FR-EXP-11.
+     *
+     * Deliberately not derived from [filteredPage]'s results. FR-EXP-10 keeps
+     * only the scrolled pages in memory, so a total summed from those would
+     * climb as the user scrolls and settle on the truth only at the very
+     * bottom. One aggregate over the same predicate is the only figure that
+     * reconciles with the ledger the way NFR-REL-02 demands.
+     */
+    suspend fun filteredTotal(filters: LedgerFilters): FilteredTotal {
+        val p = resolvePredicate(filters)
+
+        return expenseDao.filteredTotal(
+            fromDay = p.fromDay,
+            toDay = p.toDay,
+            anyCategory = p.anyCategory,
+            categoryIds = p.categoryIds,
+            anyMethod = p.anyMethod,
+            method = p.method,
+            noQuery = p.noQuery,
+            query = p.query,
+            hasAmount = p.hasAmount,
+            exactAmount = p.exactAmount,
+        )
+    }
+
+    /**
+     * The filter, resolved to the bound values both queries take.
+     *
+     * Extracted when [filteredTotal] arrived and became a second reader of the
+     * same predicate. The SQL is still written out twice — Room needs a literal
+     * `@Query` — but the *values* are computed once, so only the text can
+     * drift, and a test watches for that.
+     */
+    private suspend fun resolvePredicate(filters: LedgerFilters): Predicate {
+        val categoryIds = resolveCategoryIds(filters)
+        return Predicate(
             fromDay = filters.from?.toEpochDay() ?: EPOCH_DAY_MIN,
             toDay = filters.to?.toEpochDay() ?: EPOCH_DAY_MAX,
             anyCategory = if (categoryIds == null) 1 else 0,
@@ -173,9 +225,22 @@ class ExpenseRepository(
             query = filters.query.trim().escapeForLike(),
             hasAmount = if (filters.exactAmount != null) 1 else 0,
             exactAmount = filters.exactAmount?.paisa ?: Long.MIN_VALUE,
-            limit = PAGE_SIZE,
         )
     }
+
+    /** [LedgerFilters] flattened into the arguments the DAO binds. */
+    private data class Predicate(
+        val fromDay: Long,
+        val toDay: Long,
+        val anyCategory: Int,
+        val categoryIds: List<Long>,
+        val anyMethod: Int,
+        val method: Int,
+        val noQuery: Int,
+        val query: String,
+        val hasAmount: Int,
+        val exactAmount: Long,
+    )
 
     /** Null means "no category filter"; a list means "these leaves only". */
     private suspend fun resolveCategoryIds(filters: LedgerFilters): List<Long>? = when {

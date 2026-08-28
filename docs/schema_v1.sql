@@ -1,4 +1,4 @@
--- Khata — canonical SQLite schema, version 1.
+-- Khata — canonical SQLite schema, version 3.
 --
 -- Generated from app/src/main/java/com/app/finance/data/db/Schema.kt, which is
 -- what actually creates the database at runtime. Regenerate both together.
@@ -51,7 +51,7 @@ PRAGMA cache_size   = -2000;    -- 2 MB page cache, modest for 2 GB devices
 -- ============================================================= tables
 
 CREATE TABLE income_source (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     uuid        TEXT    NOT NULL UNIQUE,
     name        TEXT    NOT NULL,
     name_key    TEXT    NOT NULL,
@@ -70,7 +70,7 @@ CREATE UNIQUE INDEX ux_income_source_key ON income_source(name_key);
 CREATE INDEX ix_income_source_active ON income_source(is_archived, sort_order);
 
 CREATE TABLE category (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     uuid        TEXT    NOT NULL UNIQUE,
     parent_id   INTEGER REFERENCES category(id) ON DELETE RESTRICT,
     name        TEXT    NOT NULL,
@@ -92,8 +92,26 @@ CREATE TABLE category (
 CREATE UNIQUE INDEX ux_category_parent_key ON category(IFNULL(parent_id, -1), name_key);
 CREATE INDEX ix_category_parent ON category(parent_id, is_archived, sort_order);
 
+-- Somebody you split expenses with (FR-SHR-01). They never use this app; this
+-- is your private note of a name, which is why it carries no contact details.
+-- name_key and its unique index are category's, reused: one Rahim however you
+-- capitalise him, so a balance cannot be split in two by a typo.
+CREATE TABLE person (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    uuid        TEXT    NOT NULL UNIQUE,
+    name        TEXT    NOT NULL,
+    name_key    TEXT    NOT NULL,
+    sort_order  INTEGER NOT NULL DEFAULT 0,
+    is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0,1)),
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX ux_person_name_key ON person(name_key);
+CREATE INDEX ix_person_active ON person(is_archived, sort_order);
+
 CREATE TABLE income_entry (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     uuid         TEXT    NOT NULL UNIQUE,
     source_id    INTEGER NOT NULL REFERENCES income_source(id) ON DELETE RESTRICT,
     amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
@@ -110,7 +128,7 @@ CREATE INDEX ix_income_entry_date   ON income_entry(earned_on DESC);
 CREATE INDEX ix_income_entry_source ON income_entry(source_id, period_ym);
 
 CREATE TABLE budget (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     uuid         TEXT    NOT NULL UNIQUE,
     category_id  INTEGER NOT NULL REFERENCES category(id) ON DELETE RESTRICT,
     period_ym    INTEGER NOT NULL,
@@ -127,7 +145,7 @@ CREATE INDEX ix_budget_period ON budget(period_ym);
 -- amount_minor <> 0 rather than > 0: negative amounts are how refunds are
 -- modelled (FR-EXP-06). Zero is rejected as meaningless.
 CREATE TABLE expense (
-    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    id             INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     uuid           TEXT    NOT NULL UNIQUE,
     category_id    INTEGER NOT NULL REFERENCES category(id) ON DELETE RESTRICT,
     amount_minor   INTEGER NOT NULL CHECK (amount_minor <> 0),
@@ -136,6 +154,7 @@ CREATE TABLE expense (
     payment_method INTEGER NOT NULL DEFAULT 0 CHECK (payment_method IN (0,1,2,3,4,5)),
     note           TEXT,
     status         INTEGER NOT NULL DEFAULT 0 CHECK (status IN (0,1)),
+    payer_person_id INTEGER REFERENCES person(id) ON DELETE RESTRICT,
     created_at     INTEGER NOT NULL,
     updated_at     INTEGER NOT NULL
 );
@@ -146,6 +165,54 @@ CREATE INDEX ix_expense_date     ON expense(spent_on DESC, id DESC);
 CREATE INDEX ix_expense_period   ON expense(period_ym, category_id);
 CREATE INDEX ix_expense_category ON expense(category_id, spent_on DESC);
 CREATE INDEX ix_expense_method   ON expense(payment_method, period_ym);
+CREATE INDEX ix_expense_payer    ON expense(payer_person_id);
+
+-- One other person's portion of a shared expense (FR-SHR-02).
+--
+-- Rows exist ONLY where expense.payer_person_id IS NULL — only when you paid,
+-- and so only when somebody owes you. If a friend paid and three of you split
+-- it, the other two owe them, not you; that is not your ledger and is not
+-- stored. trg_share_only_when_i_paid enforces it from both sides.
+--
+-- There is deliberately no total-bill column anywhere: the bill is
+-- expense.amount_minor + SUM(share_minor), so the parts define the whole and a
+-- rounding leak cannot be represented.
+CREATE TABLE expense_share (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    uuid        TEXT    NOT NULL UNIQUE,
+    expense_id  INTEGER NOT NULL REFERENCES expense(id) ON DELETE RESTRICT,
+    person_id   INTEGER NOT NULL REFERENCES person(id) ON DELETE RESTRICT,
+    share_minor INTEGER NOT NULL CHECK (share_minor > 0),
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX ux_share_expense_person ON expense_share(expense_id, person_id);
+CREATE INDEX ix_share_person ON expense_share(person_id);
+
+-- Money between you and a person that is NOT consumption (FR-SHR-04): a
+-- repayment, or a loan made outright.
+--
+-- Neither an expense nor an income entry, and read by no rollup trigger. A
+-- friend settling up is your own money coming home; counting it as income would
+-- lift the savings rate every time somebody paid you back.
+--
+-- Signed: positive means they paid you, negative means you paid them. One
+-- signed column rather than a direction flag, so the balance is a single SUM
+-- that cannot disagree with itself.
+CREATE TABLE settlement (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    uuid           TEXT    NOT NULL UNIQUE,
+    person_id      INTEGER NOT NULL REFERENCES person(id) ON DELETE RESTRICT,
+    amount_minor   INTEGER NOT NULL CHECK (amount_minor <> 0),
+    settled_on     INTEGER NOT NULL,
+    payment_method INTEGER NOT NULL DEFAULT 0 CHECK (payment_method IN (0,1,2,3,4,5)),
+    note           TEXT,
+    created_at     INTEGER NOT NULL,
+    updated_at     INTEGER NOT NULL
+);
+
+CREATE INDEX ix_settlement_person ON settlement(person_id, settled_on DESC);
 
 -- Derived data, written only by trigger. WITHOUT ROWID because these are always
 -- accessed by the full composite primary key, so the rowid indirection is pure
@@ -169,7 +236,7 @@ CREATE TABLE rollup_income_month (
 -- The table-level CHECK is the exclusive-or between the two target types, so a
 -- rule can never be simultaneously an income and an expense template.
 CREATE TABLE recurring_rule (
-    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    id           INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     uuid         TEXT    NOT NULL UNIQUE,
     target       INTEGER NOT NULL CHECK (target IN (0,1)),
     category_id  INTEGER REFERENCES category(id) ON DELETE RESTRICT,
@@ -391,6 +458,38 @@ BEGIN
         entry_count = entry_count + 1;
 END;
 
+-- ====================================== shared-expense guards [v2] (FR-SHR-02)
+-- A share row says "this person owes me their part of this", which is only ever
+-- true when YOU paid. So a share may not sit on an expense somebody else
+-- settled at the counter.
+--
+-- Guarded from both sides, because either half alone leaves the rule reachable:
+-- adding a share to a friend-paid expense, and marking an already-shared
+-- expense as friend-paid, produce the same impossible row. Left unguarded the
+-- balance would double-count -- the share saying they owe you while
+-- payer_person_id says you owe them.
+CREATE TRIGGER trg_share_only_when_i_paid
+BEFORE INSERT ON expense_share
+BEGIN
+    SELECT RAISE(ABORT, 'a share may only be recorded on an expense you paid')
+    WHERE (SELECT payer_person_id FROM expense WHERE id = NEW.expense_id) IS NOT NULL;
+END;
+
+CREATE TRIGGER trg_share_only_when_i_paid_upd
+BEFORE UPDATE OF expense_id ON expense_share
+BEGIN
+    SELECT RAISE(ABORT, 'a share may only be recorded on an expense you paid')
+    WHERE (SELECT payer_person_id FROM expense WHERE id = NEW.expense_id) IS NOT NULL;
+END;
+
+CREATE TRIGGER trg_payer_excludes_shares
+BEFORE UPDATE OF payer_person_id ON expense
+WHEN NEW.payer_person_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'an expense with shares was not paid by someone else')
+    WHERE EXISTS (SELECT 1 FROM expense_share WHERE expense_id = NEW.id);
+END;
+
 -- ================================================== seed data [ADDED] (§7)
 -- Inserted in the same transaction as schema creation, so there is no
 -- observable state in which the app has a schema but nothing to spend against.
@@ -417,7 +516,7 @@ INSERT INTO category (uuid, parent_id, name, name_key, nature, is_system, sort_o
 INSERT INTO income_source (uuid, name, name_key, kind, sort_order, created_at, updated_at) VALUES
     ('<uuid>', 'Salary', 'salary', 0, 0, <now>, <now>);
 
-INSERT INTO app_meta (key, value, updated_at) VALUES ('schema_version', '1', <now>);
+INSERT INTO app_meta (key, value, updated_at) VALUES ('schema_version', '3', <now>);
 
 -- ============================================ integrity and repair (§6)
 -- The user-invocable "rebuild aggregates" action in Settings, and the recovery

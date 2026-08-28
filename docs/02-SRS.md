@@ -159,6 +159,10 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 **FR-EXP-10** The ledger MUST page results and MUST NOT load the full transaction history into memory.
 - *Accept:* Scrolling a 20,000-row ledger maintains ≥ 55 fps on the reference device with heap growth under 10 MB.
 
+**FR-EXP-11** While a filter or search is active, the ledger MUST display the total amount and the match count for the **entire** filtered set — every row the filter matches, not the pages loaded so far. The figure MUST NOT change as the user scrolls.
+- *Accept:* With 120 matching expenses and one page of 50 loaded, the displayed total equals a direct `SUM(amount_minor)` over all 120; loading the remaining pages leaves it unchanged.
+- *Note:* This is the one aggregate on the ledger that FR-EXP-09's per-day subtotals cannot give. A day subtotal answers "what did I spend that day"; a filtered total answers "what does this filter come to", and the two are only the same when the filter selects a single day. FR-EXP-10 is what makes it a query rather than a sum of what is on screen.
+
 ### 2.6 Analytics — FR-AN
 
 **FR-AN-01** The dashboard MUST display **safe to spend today** = (remaining limits of variable + unpredictable leaves) ÷ (days remaining in period, inclusive of today). When the numerator is negative the value MUST render as zero with an over-budget indicator.

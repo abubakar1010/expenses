@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.finance.core.money.Money
 import com.app.finance.data.db.dao.ExpenseWithCategory
+import com.app.finance.data.db.dao.FilteredTotal
 import com.app.finance.data.db.dao.PendingExpense
 import com.app.finance.data.db.dao.PendingIncome
 import com.app.finance.data.db.entity.ExpenseEntity
@@ -37,6 +38,17 @@ data class LedgerDay(
 
 data class LedgerUiState(
     val days: List<LedgerDay> = emptyList(),
+    /**
+     * What the filter matches in total — FR-EXP-11.
+     *
+     * Not `days.sumOf { it.total }`. The day groups hold the pages scrolled so
+     * far and nothing more (FR-EXP-10), so summing them would show a figure
+     * that climbs while the user scrolls and is only right at the bottom of the
+     * list. This comes from one aggregate over the whole predicate.
+     */
+    val filteredTotal: Money = Money.ZERO,
+    /** How many rows that total is over — the count half of the same aggregate. */
+    val filteredCount: Int = 0,
     val filters: LedgerFilters = LedgerFilters.NONE,
     val tree: List<CategoryNode> = emptyList(),
     /**
@@ -94,6 +106,17 @@ data class LedgerUiState(
 
     /** An empty result means something different when a filter is applied. */
     val isFilteredEmpty: Boolean get() = isEmpty && !filters.isDefault
+
+    /**
+     * The filtered total earns its place only while a filter is narrowing the
+     * list — FR-EXP-11.
+     *
+     * Unfiltered it would be the sum of the entire history, sitting above a
+     * screen that is not asking that question, and it would be the one figure
+     * on it that never changes. The day subtotals FR-EXP-09 requires are what
+     * an unfiltered ledger is for.
+     */
+    val showsFilteredTotal: Boolean get() = !filters.isDefault && !initialLoad && days.isNotEmpty()
 }
 
 /**
@@ -126,6 +149,14 @@ class LedgerViewModel(
     val state: StateFlow<LedgerUiState> = _state.asStateFlow()
 
     private var rows = emptyList<ExpenseWithCategory>()
+
+    /**
+     * The filtered set's aggregate, held beside [rows] because it does not move
+     * with them: paging in another fifty rows reveals more of the same filter,
+     * it does not widen it. Only [reload] — a filter change, or the ledger
+     * itself changing — can move this figure.
+     */
+    private var total = FilteredTotal(totalMinor = 0L, txnCount = 0)
     private var pagesLoaded = 1
     private var loadJob: Job? = null
 
@@ -296,8 +327,10 @@ class LedgerViewModel(
         loadJob?.cancel()
         loadJob = viewModelScope.launch {
             val filters = _state.value.filters
-            val fresh = withContext(io) {
-                buildList {
+            // Both in one hop to `io`, and both from the same `filters`, so the
+            // figure above the list always describes the list below it.
+            val (fresh, freshTotal) = withContext(io) {
+                val pages = buildList {
                     addAll(repo.filteredPage(filters))
                     var page = 1
                     while (page < pagesLoaded) {
@@ -308,8 +341,10 @@ class LedgerViewModel(
                         page++
                     }
                 }
+                pages to repo.filteredTotal(filters)
             }
             rows = fresh
+            total = freshTotal
             publish(
                 endReached = fresh.size < repo.pageSize * pagesLoaded,
                 loadingMore = false,
@@ -331,6 +366,8 @@ class LedgerViewModel(
         _state.update {
             it.copy(
                 days = grouped,
+                filteredTotal = Money(total.totalMinor),
+                filteredCount = total.txnCount,
                 initialLoad = false,
                 loadingMore = loadingMore,
                 endReached = endReached,

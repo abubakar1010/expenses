@@ -144,6 +144,13 @@ fun LedgerScreen(
             onFilters = vm::openFilters,
         )
 
+        // FR-EXP-11. Above the list rather than under it: the answer to "how
+        // much is this filter worth" should not require scrolling to the end of
+        // what the filter matched.
+        if (state.showsFilteredTotal) {
+            FilterTotal(total = state.filteredTotal, count = state.filteredCount)
+        }
+
         // FR-REC-02, above the day groups and above the empty states.
         //
         // Outside the `when` deliberately: a first-run user whose only rows are
@@ -355,6 +362,33 @@ private fun SwipeableRow(
         // the swipe instead of sliding out from under it.
         content = {
             Box(Modifier.background(colors.paper)) { content() }
+        },
+    )
+}
+
+/**
+ * `12 MATCHES` with what they come to on the right — FR-EXP-11.
+ *
+ * Shares [SectionHeader] with the day groups on purpose. It is the same kind of
+ * statement — a heading and the money under it — and giving the filtered total
+ * its own card would make the ledger's most transient figure its loudest.
+ *
+ * The count is not decoration. FR-EXP-10 means the rows on screen are only the
+ * pages scrolled so far, so an amount alone would invite the reader to check it
+ * against what they can see and find it too large. Saying what it counts is
+ * what makes it legible.
+ */
+@Composable
+private fun FilterTotal(total: Money, count: Int) {
+    SectionHeader(
+        text = pluralStringResource(R.plurals.filter_match_count, count, count),
+        trailing = {
+            MoneyText(
+                money = total,
+                style = KhataTheme.type.caption,
+                color = KhataTheme.colors.ink,
+                spokenSuffix = stringResource(R.string.filter_total, ""),
+            )
         },
     )
 }

@@ -13,6 +13,7 @@ import com.app.finance.data.export.Importer
 import com.app.finance.data.repo.DashboardRepository
 import com.app.finance.data.repo.ExpenseRepository
 import com.app.finance.data.repo.IncomeRepository
+import com.app.finance.data.repo.PersonRepository
 import com.app.finance.data.repo.RecurringRepository
 import com.app.finance.data.repo.ReportsRepository
 import com.app.finance.data.repo.SettingsRepository
@@ -66,6 +67,7 @@ class AppContainer(
     val dashboardRepo: DashboardRepository by lazy { DashboardRepository(db) }
     val reportsRepo: ReportsRepository by lazy { ReportsRepository(db) }
     val recurringRepo: RecurringRepository by lazy { RecurringRepository(db, clock) }
+    val personRepo: PersonRepository by lazy { PersonRepository(db, clock) }
     val settingsRepo: SettingsRepository by lazy { SettingsRepository(db, clock) }
     val exporter: Exporter by lazy { Exporter(db) }
     val importer: Importer by lazy { Importer(db) }

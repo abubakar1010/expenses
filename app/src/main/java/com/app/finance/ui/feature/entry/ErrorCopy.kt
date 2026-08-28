@@ -33,4 +33,9 @@ fun EntryError.messageRes(): Int = when (this) {
     EntryError.STORAGE_FULL -> R.string.error_storage_full
     EntryError.STORAGE_FAILED -> R.string.error_storage_failed
     EntryError.CONSTRAINT_VIOLATION -> R.string.error_not_saved
+    EntryError.PERSON_NOT_FOUND -> R.string.error_person_not_found
+    EntryError.PERSON_ARCHIVED -> R.string.error_person_archived
+    EntryError.PERSON_HAS_HISTORY -> R.string.error_person_has_history
+    EntryError.SHARE_ON_FOREIGN_PAYMENT -> R.string.error_share_on_foreign_payment
+    EntryError.SPLIT_DOES_NOT_BALANCE -> R.string.error_split_does_not_balance
 }

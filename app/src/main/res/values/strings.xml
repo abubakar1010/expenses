@@ -111,6 +111,12 @@
     <string name="error_storage_full">Your phone is out of space. Free some up, then try again.</string>
     <string name="error_storage_failed">Storage isn\'t accepting writes right now. Try again in a moment.</string>
     <string name="error_not_saved">That didn\'t save. Check the amount and category, then try again.</string>
+    <!-- Shared expenses (FR-SHR-*). Problem, then the fix, per 05 §9. -->
+    <string name="error_person_not_found">That person isn\'t in your list. Add them first.</string>
+    <string name="error_person_archived">That person is archived. Restore them to split with them.</string>
+    <string name="error_person_has_history">This person appears in your expenses. Archive them instead.</string>
+    <string name="error_share_on_foreign_payment">Someone else paid this one, so nobody owes you for it.</string>
+    <string name="error_split_does_not_balance">The shares don\'t add up to the bill. Check the amounts.</string>
 
     <!-- Period switcher. Shared by Budget, and by Dashboard and Income later. -->
     <string name="previous_period">Previous month</string>

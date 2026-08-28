@@ -136,6 +136,44 @@ enum class EntryError {
 
     /** A constraint fired that the layer above did not anticipate. */
     CONSTRAINT_VIOLATION,
+
+    /** FR-SHR-01 — the person a share or settlement names is not there. */
+    PERSON_NOT_FOUND,
+
+    /**
+     * FR-SHR-01 — archived, so they cannot take a new share.
+     *
+     * The same shape as [SOURCE_ARCHIVED]: archiving hides somebody from
+     * pickers without touching the history that references them, so their old
+     * balance stays readable and correct.
+     */
+    PERSON_ARCHIVED,
+
+    /**
+     * FR-SHR-01 — they still appear in an expense, a share, or a settlement.
+     *
+     * Every foreign key to `person` is `ON DELETE RESTRICT`, so removing
+     * somebody with history would mean rewriting it. Archive instead, exactly
+     * as with categories.
+     */
+    PERSON_HAS_HISTORY,
+
+    /**
+     * FR-SHR-02 — a share was recorded against an expense somebody else paid.
+     *
+     * `trg_share_only_when_i_paid`. A share means "they owe me", which is only
+     * true when you were the one who paid.
+     */
+    SHARE_ON_FOREIGN_PAYMENT,
+
+    /**
+     * FR-SHR-02 — the parts do not add up to the bill that was typed.
+     *
+     * There is no stored total, so this is caught before the write rather than
+     * by a constraint: the allocator must place every paisa of the bill into
+     * exactly one share or into your own.
+     */
+    SPLIT_DOES_NOT_BALANCE,
 }
 
 sealed interface SaveOutcome {

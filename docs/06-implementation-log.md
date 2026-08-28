@@ -4754,3 +4754,122 @@ exemption at 700 ms and the budget at 300.
 
 The rest of §22.10's table is above, and every line of it names hardware or a
 system dialog that no instrumentation can press.
+
+---
+
+## 24. FR-EXP-11: what the filter comes to
+
+**Date:** 28 August 2026
+
+The ledger grouped by day and subtotalled by day, which is FR-EXP-09 and all
+FR-EXP-09 ever asked for. What it could not answer was the question a filter is
+usually applied *in order to* ask: narrow to Grocery, or to last week, or to one
+payment method — and then, how much is that?
+
+Reported from use, not found by audit.
+
+### 24.1 Why it is a query and not a sum
+
+The obvious implementation is one line in `publish()`:
+
+```kotlin
+filteredTotal = Money(rows.sumOf { it.expense.amountMinor })
+```
+
+and it is wrong in a way that looks perfectly right on every ledger small enough
+to fit on one page. `rows` holds the pages scrolled so far and nothing else,
+because FR-EXP-10 forbids holding more:
+
+> "The ledger MUST page results and MUST NOT load the full transaction history
+> into memory."
+
+`PAGE_SIZE` is 50. On a filter matching 120 rows that line reports the first
+fifty — ৳500 of a ৳1,200 answer — and then **climbs as the user scrolls**,
+reaching the truth only at the bottom of the list. A total that moves while you
+read it is worse than no total, because it looks settled. The same argument rules
+out `days.sumOf { it.total }`, which is the same quantity wearing FR-EXP-09's
+clothes.
+
+So the figure is a second aggregate over the same predicate, and FR-EXP-11 says
+so in the requirement rather than leaving it to whoever edits `publish()` next:
+
+> "the total amount and the match count for the **entire** filtered set — every
+> row the filter matches, not the pages loaded so far. The figure MUST NOT change
+> as the user scrolls."
+
+### 24.2 One predicate, two queries
+
+Room needs a literal `@Query`, so `page` and the new `filteredTotal` each spell
+the `WHERE` out. Two hand-copied copies of one predicate is exactly the shape
+§22.5 caught drifting — the EXPLAIN test that had already stopped matching the
+query it claimed to describe, and failed nothing when it did.
+
+Two things guard it:
+
+- **The bound values are computed once.** `resolvePredicate` was extracted from
+  `filteredPage` when the second reader arrived, so root-to-leaf resolution, the
+  `LIKE` escaping, the sentinels and the epoch-day bounds cannot diverge. Only
+  the SQL text can.
+- **A test walks every page and compares.** `the_total_agrees_with_the_sum_of_every_page`
+  runs five filters — none, leaf, date, note, and all three at once — pages each
+  to exhaustion, and asserts the aggregate matches both the row count and the
+  sum. That is the reconciliation NFR-REL-02 asks for, taken against the pages
+  themselves rather than against the same read a second way.
+
+The total query drops the join to `category`. `page` joins only to select the
+category's name and nature for display, and `expense.category_id` is `NOT NULL`
+behind a foreign key enforced by `PRAGMA foreign_keys = ON`, so an inner join
+cannot drop a row — the join cannot change the result, only cost a lookup per
+row on a scan that may cover 20,000 of them.
+
+### 24.3 Two smaller decisions
+
+**It appears only while a filter is active.** Unfiltered, the same figure is the
+sum of the entire history: correct, useless, and the one number on the screen
+that never changes. `showsFilteredTotal` is what keeps it off an unfiltered
+ledger, where FR-EXP-09's day subtotals are the point.
+
+**The count is not decoration.** FR-EXP-10 guarantees the rows on screen are
+never all of them, so an amount alone invites the reader to check it against
+what they can see and conclude it is too large. `12 MATCHES · ৳4,250` says what
+the figure is a total *of*. It reuses `SectionHeader`, the same shape as a day
+group, because it is the same kind of statement and giving the ledger's most
+transient figure its own card would make it the loudest thing on the screen.
+
+### 24.4 Test inventory
+
+| Suite | Where | Change |
+|---|---|---|
+| `LedgerViewModelTest` | `androidTest/…/ledger` | +6 — the 120-row case, scrolling, reconciliation, the filter moving, when it shows, and the empty result |
+| `ExpenseRepositoryTest` | `androidTest/data/repo` | +3 — the five-filter drift guard, `SUM` over no rows, and a pending row staying out |
+
+**Verified by mutation**, the standard §23.5 set:
+
+| Mutation | Fails |
+|---|---|
+| `filteredTotal` back to `rows.sumOf { … }`, `filteredCount` to `rows.size` | `the_filtered_total_covers_every_match_…` and `scrolling_does_not_move_…`, 2 of 22 |
+
+Both of those are the reported defect exactly, which is the point of running it:
+the tests fail for the reason they exist rather than incidentally.
+
+### 24.5 Measured
+
+| | before (§23.6) | after |
+|---|---|---|
+| `LedgerViewModelTest` + `ExpenseRepositoryTest` | 37 | **46**, zero failures |
+| JVM tests | 299 | **299**, unchanged — nothing added to `domain/` or `core/` |
+| Lint (`lintRelease`, `abortOnError`) | clean | **clean** |
+
+Run on the Redmi 13C rather than an emulator, which these suites tolerate: they
+drive Room and a ViewModel and never ask for a window, so the foreground trap
+recorded in CLAUDE.md this session does not reach them.
+
+### 24.6 Not done
+
+- **The full 596 has not been re-run.** Only the two affected suites were, and
+  the ledger's Compose tests (`LedgerUndoScreenTest`, `LedgerPendingTest`) do not
+  apply a filter, so `showsFilteredTotal` is false throughout and the new header
+  never renders in them. No test yet asserts the header *appears* on screen —
+  the state that drives it is covered six ways, the composition is not.
+- **`coverageVerify` has not been re-run.** `am instrument` writes no JaCoCo
+  `.ec`, and the gate needs Gradle's `connectedDebugAndroidTest`.

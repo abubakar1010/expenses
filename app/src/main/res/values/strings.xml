@@ -69,6 +69,15 @@
         <item quantity="other">%1$d filters</item>
     </plurals>
     <string name="clear_filters">Clear</string>
+    <!-- FR-EXP-11's header over a filtered ledger. The count says what the
+         figure beside it is a total *of*, which a bare amount above a paged
+         list does not: the rows on screen are never all of them. -->
+    <plurals name="filter_match_count">
+        <item quantity="one">%1$d match</item>
+        <item quantity="other">%1$d matches</item>
+    </plurals>
+    <!-- Spoken, so TalkBack does not read a bare number after the count. -->
+    <string name="filter_total">%1$s in total</string>
     <string name="filter_any_category">Any category</string>
     <string name="filter_any_method">Any payment method</string>
     <string name="filter_any_date">Any date</string>

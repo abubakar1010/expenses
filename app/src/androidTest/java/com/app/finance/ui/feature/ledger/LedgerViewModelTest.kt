@@ -353,4 +353,122 @@ class LedgerViewModelTest {
         assertEquals(1, state.days.sumOf { it.rows.size })
         assertEquals("Grocery", state.days.first().rows.first().categoryName)
     }
+
+    // --- FR-EXP-11: what the filter comes to --------------------------------
+
+    private fun scalar(sql: String): Long =
+        fx.db.openHelper.writableDatabase.query(sql)
+            .use { if (it.moveToFirst()) it.getLong(0) else 0L }
+
+    @Test
+    fun the_filtered_total_covers_every_match_not_just_the_loaded_page() = runBlocking {
+        // FR-EXP-11's acceptance case, and the whole reason the figure is a
+        // query instead of `days.sumOf { it.total }`: PAGE_SIZE is 50, so a
+        // 120-row filter leaves well over half its own total off screen.
+        repeat(120) { i -> seed(10, "Grocery", daysAgo = (i % 30).toLong()) }
+        seed(9_999, "Transport")
+
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad && it.days.isNotEmpty() }
+        vm.applyFilters(LedgerFilters(leafId = fx.leafId("Grocery")))
+
+        val state = vm.state.awaitState { it.filteredCount == 120 }
+        assertEquals(Money.ofTaka(1_200), state.filteredTotal)
+
+        // One page is loaded — which is what would have made summing the rows
+        // in memory report ৳500 for a filter worth ৳1,200.
+        assertEquals(50, state.days.sumOf { it.rows.size })
+    }
+
+    @Test
+    fun scrolling_does_not_move_the_filtered_total() = runBlocking {
+        // "The figure MUST NOT change as the user scrolls." A total that grows
+        // while you read it is worse than no total, because it looks settled.
+        repeat(120) { i -> seed(10, "Grocery", daysAgo = (i % 30).toLong()) }
+
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad && it.days.isNotEmpty() }
+        vm.applyFilters(LedgerFilters(leafId = fx.leafId("Grocery")))
+        val before = vm.state.awaitState { it.filteredCount == 120 }.filteredTotal
+
+        vm.loadMore()
+        val after = vm.state.awaitState { it.days.sumOf { d -> d.rows.size } == 100 }
+        assertEquals("a second page revealed more rows, not more filter", before, after.filteredTotal)
+        assertEquals(120, after.filteredCount)
+    }
+
+    @Test
+    fun the_filtered_total_reconciles_with_a_direct_sum_over_the_ledger() = runBlocking {
+        // NFR-REL-02, the same standard every other rendered aggregate is held
+        // to: the figure equals a sum taken straight off the ledger, not the
+        // same read performed a second way.
+        val grocery = fx.leafId("Grocery")
+        seed(100, "Grocery")
+        seed(250, "Grocery", daysAgo = 3)
+        seed(-40, "Grocery", daysAgo = 4)
+        seed(70, "Transport")
+
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad && it.days.isNotEmpty() }
+        vm.applyFilters(LedgerFilters(leafId = grocery))
+        val state = vm.state.awaitState { it.filteredCount == 3 }
+
+        assertEquals(
+            scalar(
+                "SELECT IFNULL(SUM(amount_minor), 0) FROM expense " +
+                    "WHERE status = 0 AND category_id = $grocery",
+            ),
+            state.filteredTotal.paisa,
+        )
+    }
+
+    @Test
+    fun the_total_follows_the_filter_it_describes() = runBlocking {
+        seed(100, "Grocery")
+        seed(200, "Grocery", daysAgo = 10)
+
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad && it.days.isNotEmpty() }
+
+        vm.applyFilters(LedgerFilters(from = fx.today.minusDays(2)))
+        assertEquals(Money.ofTaka(100), vm.state.awaitState { it.filteredCount == 1 }.filteredTotal)
+
+        vm.applyFilters(LedgerFilters(from = fx.today.minusDays(20)))
+        assertEquals(Money.ofTaka(300), vm.state.awaitState { it.filteredCount == 2 }.filteredTotal)
+    }
+
+    @Test
+    fun the_total_is_not_shown_until_a_filter_is_active() = runBlocking {
+        seed(100, "Grocery")
+
+        val vm = vm()
+        val unfiltered = vm.state.awaitState { !it.initialLoad && it.days.isNotEmpty() }
+        assertFalse(
+            "an unfiltered ledger is not asking what everything comes to",
+            unfiltered.showsFilteredTotal,
+        )
+
+        vm.setQuery("100")
+        val searched = vm.state.awaitState { it.filters.hasQuery && it.filteredCount == 1 }
+        assertTrue(searched.showsFilteredTotal)
+        assertEquals(Money.ofTaka(100), searched.filteredTotal)
+    }
+
+    @Test
+    fun a_filter_that_matches_nothing_totals_zero_rather_than_the_last_answer() = runBlocking {
+        // The stale-figure case: the total has to be cleared by the reload that
+        // empties the list, not left showing what the previous filter was worth.
+        seed(100, "Grocery")
+
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad && it.days.isNotEmpty() }
+        vm.applyFilters(LedgerFilters(leafId = fx.leafId("Grocery")))
+        assertEquals(Money.ofTaka(100), vm.state.awaitState { it.filteredCount == 1 }.filteredTotal)
+
+        vm.setQuery("nothing matches this")
+        val empty = vm.state.awaitState { it.isFilteredEmpty }
+        assertEquals(Money.ZERO, empty.filteredTotal)
+        assertEquals(0, empty.filteredCount)
+        assertFalse("nothing to total", empty.showsFilteredTotal)
+    }
 }

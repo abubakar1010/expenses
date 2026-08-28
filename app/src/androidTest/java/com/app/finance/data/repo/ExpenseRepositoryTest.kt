@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.TestFixture
 import com.app.finance.core.money.Money
 import com.app.finance.data.db.dao.AppMetaDao
+import com.app.finance.data.db.dao.ExpenseWithCategory
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.domain.model.PaymentMethod
@@ -347,6 +348,93 @@ class ExpenseRepositoryTest {
 
         assertEquals(1, hits.size)
         assertEquals("a\\b", hits.single().expense.note)
+    }
+
+    // --- FR-EXP-11: the total, and the predicate it shares with the pages ----
+
+    /** Walks every page of [filters], the way a user scrolling to the end would. */
+    private suspend fun everyPage(filters: LedgerFilters): List<ExpenseWithCategory> = buildList {
+        var cursor: ExpenseWithCategory? = null
+        while (true) {
+            val page = fx.expenses.filteredPage(filters, after = cursor)
+            if (page.isEmpty()) break
+            addAll(page)
+            cursor = page.last()
+        }
+    }
+
+    @Test
+    fun the_total_agrees_with_the_sum_of_every_page() = runBlocking {
+        // `page` and `filteredTotal` hand-copy one predicate, because Room needs
+        // a literal @Query for each. The values they bind come from one place so
+        // only the SQL text can drift — and this is what notices when it does.
+        // §22.5 records the EXPLAIN test that hand-copied a query and had
+        // already drifted without anything failing.
+        val grocery = fx.leafId("Grocery")
+        val transport = fx.leafId("Transport")
+        repeat(70) { i ->
+            fx.expenses.insert(
+                amount = Money.ofTaka(10 + i.toLong()),
+                categoryId = if (i % 5 == 0) transport else grocery,
+                spentOn = fx.today.minusDays((i % 14).toLong()),
+                note = if (i % 3 == 0) "rice" else null,
+            )
+        }
+
+        // Each filter exercises a different arm of the shared predicate.
+        val cases = listOf(
+            LedgerFilters.NONE,
+            LedgerFilters(leafId = grocery),
+            LedgerFilters(from = fx.today.minusDays(6)),
+            LedgerFilters(query = "rice"),
+            LedgerFilters(leafId = grocery, from = fx.today.minusDays(6), query = "rice"),
+        )
+
+        for (filters in cases) {
+            val pages = everyPage(filters)
+            val total = fx.expenses.filteredTotal(filters)
+            assertEquals(
+                "row count disagrees for $filters",
+                pages.size,
+                total.txnCount,
+            )
+            assertEquals(
+                "total disagrees for $filters",
+                pages.sumOf { it.expense.amountMinor },
+                total.totalMinor,
+            )
+        }
+    }
+
+    @Test
+    fun the_total_of_a_filter_that_matches_nothing_is_zero_not_null() = runBlocking {
+        // `SUM` over no rows is NULL in SQLite; the IFNULL is what keeps this a
+        // Long rather than a crash on a search that found nothing.
+        val total = fx.expenses.filteredTotal(LedgerFilters(query = "no such note"))
+        assertEquals(0L, total.totalMinor)
+        assertEquals(0, total.txnCount)
+    }
+
+    @Test
+    fun a_pending_row_is_not_in_the_filtered_total() = runBlocking {
+        // status = 1 is excluded from every rollup trigger and every aggregate
+        // read in the app; this is an aggregate read.
+        val grocery = fx.leafId("Grocery")
+        fx.expenses.insert(Money.ofTaka(100), grocery, fx.today)
+
+        val posted = fx.expenses.filteredTotal(LedgerFilters(leafId = grocery))
+        assertEquals(Money.ofTaka(100).paisa, posted.totalMinor)
+        assertEquals(1, posted.txnCount)
+
+        fx.db.openHelper.writableDatabase.execSQL(
+            "INSERT INTO expense (uuid, category_id, amount_minor, spent_on, period_ym, " +
+                "payment_method, status, created_at, updated_at) " +
+                "VALUES ('pending-row', $grocery, 500000, ${fx.today.toEpochDay()}, 202608, 0, 1, 0, 0)",
+        )
+
+        val after = fx.expenses.filteredTotal(LedgerFilters(leafId = grocery))
+        assertEquals("a pending row joined an aggregate", posted.totalMinor, after.totalMinor)
+        assertEquals(1, after.txnCount)
     }
 
 }

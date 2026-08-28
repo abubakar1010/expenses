@@ -4569,7 +4569,7 @@ line says what would unblock it.
 | The PBKDF2 cost | Same |
 | `RecoveryScreen`'s copy running off the main thread | Undrivable. The work starts in an `ActivityResult` callback and no test can press the system picker — the wall `SafBackupStore` has always hit |
 | The lock after a **share sheet** specifically | Same. `LockControllerTest` pins the state machine and `MainActivityTest` pins the lifecycle wiring; the sheet itself cannot be driven |
-| NFR-COMP-03 at 480 dp, asserted on the root | `DeviceConfigurationOverride.ForcedSize` can shrink a composition but cannot widen the window past the device. The content-level assertion is in place |
+| NFR-COMP-03 at 480 dp, asserted on the root | ~~`DeviceConfigurationOverride.ForcedSize` can shrink a composition but cannot widen the window past the device.~~ **Reason corrected 28 Aug 2026** — true of `ForcedSize`, but not of the device. `wm density` changes dp-per-pixel, so a 720 px panel at density 240 *is* a 480 dp window, and CLAUDE.md already uses the lever in the other direction (`wm density 360` for a 320 dp phone). Still open, but the blocker is now the work rather than the instrument: the check is unwritten and unrun, and it has to be driven by adb around a targeted run rather than asserted in-suite, because changing density mid-suite recreates every activity. Untried on a real ROM — MIUI may clamp the change. The content-level assertion remains in place |
 | `SafBackupStore`, NFR-REL-05's dogfooding clause | Recorded as permanently manual since §21.12 |
 
 ---

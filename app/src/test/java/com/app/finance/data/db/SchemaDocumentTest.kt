@@ -52,7 +52,15 @@ class SchemaDocumentTest {
 
     @Test
     fun every_index_in_the_schema_is_in_the_document_exactly_as_written() {
-        assertMatches("CREATE INDEX", Schema.INDICES, alsoAccept = "CREATE UNIQUE INDEX")
+        // Both lists: the document describes the schema as it exists on a
+        // device, and `ux_category_parent_key` is part of that even though Room
+        // must not see it during a migration. A reader of the SQL should not
+        // have to know about Room's validation to know what indices are there.
+        assertMatches(
+            "CREATE INDEX",
+            Schema.INDICES + Schema.ROOM_INVISIBLE_INDICES,
+            alsoAccept = "CREATE UNIQUE INDEX",
+        )
     }
 
     @Test

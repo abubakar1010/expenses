@@ -273,9 +273,26 @@ fun SourceDto.toEntity() = IncomeSourceEntity(
 fun BudgetDto.toEntity() =
     BudgetEntity(id, uuid, categoryId, periodYm, limitMinor, createdAt, updatedAt)
 
+// Named rather than positional from here on: `expense` gained
+// `payer_person_id` between `status` and `created_at` in v2, and a positional
+// call silently re-binds every argument after an insertion rather than failing.
+// It failed here only because the arity changed too.
+//
+// `payerPersonId` is not carried yet — the shared-expense arrays arrive with
+// the rest of FR-SHR in the export format, and until then a restored expense is
+// one you paid, which is what every v1 expense was.
 fun ExpenseDto.toEntity() = ExpenseEntity(
-    id, uuid, categoryId, amountMinor, spentOn, periodYm,
-    paymentMethod, note, status, createdAt, updatedAt,
+    id = id,
+    uuid = uuid,
+    categoryId = categoryId,
+    amountMinor = amountMinor,
+    spentOn = spentOn,
+    periodYm = periodYm,
+    paymentMethod = paymentMethod,
+    note = note,
+    status = status,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
 )
 
 fun IncomeEntryDto.toEntity() = IncomeEntryEntity(

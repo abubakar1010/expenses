@@ -3,7 +3,24 @@ package com.app.finance.data.db
 import com.app.finance.core.text.NameKey
 
 /**
- * The canonical SQLite schema — version 1.
+ * The canonical SQLite schema — version 3.
+ *
+ * This object always describes the **current** schema. What an upgrading
+ * database had before it lives in [Migrations], frozen, and must stay there:
+ * a migration that read from here would rewrite its own history every time
+ * this file changed.
+ *
+ *  - **Version 2** declared the primary keys `NOT NULL`, which they always
+ *    were. `id INTEGER PRIMARY KEY AUTOINCREMENT` reads back from
+ *    `PRAGMA table_info` as `notnull = 0`, while the Room entities expect
+ *    `notNull = true` — a mismatch that had been latent since M1 because Room
+ *    only compares `TableInfo` *after a migration*, and there had never been
+ *    one. See [Migrations.MIGRATION_1_2]; it carries no feature, on purpose.
+ *  - **Version 3** added shared expenses (FR-SHR-*): `person`,
+ *    `expense_share`, `settlement`, and `expense.payer_person_id`. Nothing
+ *    existing changed meaning — `expense.amount_minor` is still *your* share
+ *    and still the only thing the rollup triggers read, which is why not one
+ *    of them was touched.
  *
  * This object, not Room's entity annotations, is what actually creates the
  * database. Room cannot express four things this schema depends on:
@@ -31,7 +48,7 @@ import com.app.finance.core.text.NameKey
  */
 internal object Schema {
 
-    const val VERSION = 1
+    const val VERSION = 3
 
     /**
      * Applied on every connection open, before any query (03 §4.1).
@@ -51,6 +68,158 @@ internal object Schema {
         "PRAGMA cache_size = -2000", // 2 MB page cache; modest, for 2 GB devices
     )
 
+    // ------------------------------------------------- version 2 (FR-SHR-*)
+
+    /*
+     * The v2 additions are named constants rather than literals inside
+     * [TABLES], because both a fresh install and a migrated one have to end up
+     * with byte-identical tables. Room's `TableInfo` validator compares the two
+     * on the next open, so a difference between the creation path and the
+     * migration path surfaces as a crash on somebody's phone rather than here.
+     * One string, used twice, cannot drift.
+     */
+
+    /**
+     * FR-SHR-01. Somebody you split a bill with.
+     *
+     * They never use this app — this is your record of a name, not an account,
+     * which is why it carries no contact details and nothing that could leave
+     * the device. `name_key` and its unique index are `category`'s exactly: one
+     * Rahim however you capitalise him, so a balance cannot be split in two by
+     * a typo.
+     */
+    private const val PERSON_TABLE = """
+        CREATE TABLE IF NOT EXISTS person (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            uuid        TEXT    NOT NULL UNIQUE,
+            name        TEXT    NOT NULL,
+            name_key    TEXT    NOT NULL,
+            sort_order  INTEGER NOT NULL DEFAULT 0,
+            is_archived INTEGER NOT NULL DEFAULT 0 CHECK (is_archived IN (0,1)),
+            created_at  INTEGER NOT NULL,
+            updated_at  INTEGER NOT NULL
+        )
+        """
+
+    /**
+     * FR-SHR-02. One other person's portion of a shared expense.
+     *
+     * Rows exist **only where `expense.payer_person_id IS NULL`** — only when
+     * you paid, and so only when somebody owes you. If Rahim paid and three of
+     * you split it, the other two owe *Rahim*; that is not your ledger and is
+     * not stored. `trg_share_only_when_i_paid` enforces it from both sides.
+     *
+     * There is deliberately no total-bill column: the bill is
+     * `expense.amount_minor + SUM(share_minor)`, so the parts *define* the
+     * whole and a rounding leak cannot be represented.
+     */
+    private const val EXPENSE_SHARE_TABLE = """
+        CREATE TABLE IF NOT EXISTS expense_share (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            uuid        TEXT    NOT NULL UNIQUE,
+            expense_id  INTEGER NOT NULL REFERENCES expense(id) ON DELETE RESTRICT,
+            person_id   INTEGER NOT NULL REFERENCES person(id) ON DELETE RESTRICT,
+            share_minor INTEGER NOT NULL CHECK (share_minor > 0),
+            created_at  INTEGER NOT NULL,
+            updated_at  INTEGER NOT NULL
+        )
+        """
+
+    /**
+     * FR-SHR-04. Money between you and a person that is **not consumption** —
+     * a repayment, or a loan made outright.
+     *
+     * Neither an expense nor an income entry, and read by no rollup trigger. A
+     * friend settling up is your own money coming home; counting it as income
+     * would lift the savings rate every time somebody paid you back.
+     *
+     * Signed: positive means they paid you, negative means you paid them. One
+     * signed column rather than a direction flag, so the balance is a single
+     * `SUM` that cannot disagree with itself.
+     */
+    private const val SETTLEMENT_TABLE = """
+        CREATE TABLE IF NOT EXISTS settlement (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            uuid           TEXT    NOT NULL UNIQUE,
+            person_id      INTEGER NOT NULL REFERENCES person(id) ON DELETE RESTRICT,
+            amount_minor   INTEGER NOT NULL CHECK (amount_minor <> 0),
+            settled_on     INTEGER NOT NULL,
+            payment_method INTEGER NOT NULL DEFAULT 0 CHECK (payment_method IN (0,1,2,3,4,5)),
+            note           TEXT,
+            created_at     INTEGER NOT NULL,
+            updated_at     INTEGER NOT NULL
+        )
+        """
+
+    /**
+     * The three tables version 3 introduced, in parents-before-children order.
+     *
+     * `trimIndent()` because [TABLES] applies it to every element, and these
+     * have to be *equal* to their copies in there — anything comparing the two
+     * lists otherwise finds no overlap and silently does nothing. That is not
+     * hypothetical: `SchemaMigrationTest` builds its version-1 fixture as
+     * `TABLES - SHARED_TABLES`, and without this it created the very tables it
+     * was supposed to leave out, so the migration found them already present
+     * and skipped past the shape it was meant to produce.
+     */
+    val SHARED_TABLES: List<String> =
+        listOf(PERSON_TABLE, EXPENSE_SHARE_TABLE, SETTLEMENT_TABLE).map { it.trimIndent() }
+
+    val SHARED_INDICES: List<String> = listOf(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_person_name_key ON person(name_key)",
+        "CREATE INDEX IF NOT EXISTS ix_person_active ON person(is_archived, sort_order)",
+
+        // One row per person per expense: splitting the same bill with the same
+        // person twice is a mistake, not a second debt.
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_share_expense_person " +
+            "ON expense_share(expense_id, person_id)",
+        // The balance query's access path — every share owed by one person.
+        "CREATE INDEX IF NOT EXISTS ix_share_person ON expense_share(person_id)",
+        // The other half of the balance, and the ledger's person filter.
+        "CREATE INDEX IF NOT EXISTS ix_expense_payer ON expense(payer_person_id)",
+
+        "CREATE INDEX IF NOT EXISTS ix_settlement_person ON settlement(person_id, settled_on DESC)",
+    )
+
+    /**
+     * A share row says "this person owes me their part of this", which is only
+     * ever true when *you* paid. So a share may not sit on an expense somebody
+     * else settled at the counter.
+     *
+     * Guarded from both sides, because either half alone leaves the rule
+     * reachable: adding a share to a friend-paid expense, and marking an
+     * already-shared expense as friend-paid, produce the same impossible row.
+     * Left unguarded the balance would double-count — the share saying they owe
+     * you while `payer_person_id` says you owe them.
+     */
+    val SHARED_TRIGGERS: List<String> = listOf(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_share_only_when_i_paid
+        BEFORE INSERT ON expense_share
+        BEGIN
+            SELECT RAISE(ABORT, 'a share may only be recorded on an expense you paid')
+            WHERE (SELECT payer_person_id FROM expense WHERE id = NEW.expense_id) IS NOT NULL;
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_share_only_when_i_paid_upd
+        BEFORE UPDATE OF expense_id ON expense_share
+        BEGIN
+            SELECT RAISE(ABORT, 'a share may only be recorded on an expense you paid')
+            WHERE (SELECT payer_person_id FROM expense WHERE id = NEW.expense_id) IS NOT NULL;
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_payer_excludes_shares
+        BEFORE UPDATE OF payer_person_id ON expense
+        WHEN NEW.payer_person_id IS NOT NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'an expense with shares was not paid by someone else')
+            WHERE EXISTS (SELECT 1 FROM expense_share WHERE expense_id = NEW.id);
+        END
+        """,
+    ).map { it.trimIndent() }
+
     // ---------------------------------------------------------------- tables
 
     /**
@@ -60,7 +229,7 @@ internal object Schema {
     val TABLES: List<String> = listOf(
         """
         CREATE TABLE IF NOT EXISTS income_source (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             uuid        TEXT    NOT NULL UNIQUE,
             name        TEXT    NOT NULL,
             name_key    TEXT    NOT NULL,
@@ -74,7 +243,7 @@ internal object Schema {
         """,
         """
         CREATE TABLE IF NOT EXISTS category (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             uuid        TEXT    NOT NULL UNIQUE,
             parent_id   INTEGER REFERENCES category(id) ON DELETE RESTRICT,
             name        TEXT    NOT NULL,
@@ -89,9 +258,10 @@ internal object Schema {
             updated_at  INTEGER NOT NULL
         )
         """,
+        PERSON_TABLE,
         """
         CREATE TABLE IF NOT EXISTS income_entry (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            id           INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             uuid         TEXT    NOT NULL UNIQUE,
             source_id    INTEGER NOT NULL REFERENCES income_source(id) ON DELETE RESTRICT,
             amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
@@ -105,7 +275,7 @@ internal object Schema {
         """,
         """
         CREATE TABLE IF NOT EXISTS budget (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            id           INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             uuid         TEXT    NOT NULL UNIQUE,
             category_id  INTEGER NOT NULL REFERENCES category(id) ON DELETE RESTRICT,
             period_ym    INTEGER NOT NULL,
@@ -118,7 +288,7 @@ internal object Schema {
         // are modelled (FR-EXP-06). Zero is rejected as meaningless.
         """
         CREATE TABLE IF NOT EXISTS expense (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            id             INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             uuid           TEXT    NOT NULL UNIQUE,
             category_id    INTEGER NOT NULL REFERENCES category(id) ON DELETE RESTRICT,
             amount_minor   INTEGER NOT NULL CHECK (amount_minor <> 0),
@@ -127,10 +297,13 @@ internal object Schema {
             payment_method INTEGER NOT NULL DEFAULT 0 CHECK (payment_method IN (0,1,2,3,4,5)),
             note           TEXT,
             status         INTEGER NOT NULL DEFAULT 0 CHECK (status IN (0,1)),
+            payer_person_id INTEGER REFERENCES person(id) ON DELETE RESTRICT,
             created_at     INTEGER NOT NULL,
             updated_at     INTEGER NOT NULL
         )
         """,
+        EXPENSE_SHARE_TABLE,
+        SETTLEMENT_TABLE,
         // WITHOUT ROWID: always accessed by the full composite primary key, so
         // eliminating the rowid indirection cuts both storage and lookup cost.
         """
@@ -155,7 +328,7 @@ internal object Schema {
         // income and an expense template.
         """
         CREATE TABLE IF NOT EXISTS recurring_rule (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            id           INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
             uuid         TEXT    NOT NULL UNIQUE,
             target       INTEGER NOT NULL CHECK (target IN (0,1)),
             category_id  INTEGER REFERENCES category(id) ON DELETE RESTRICT,
@@ -208,6 +381,10 @@ internal object Schema {
         "DELETE FROM rollup_expense_month",
         "DELETE FROM rollup_income_month",
         "DELETE FROM recurring_rule",
+        // Both reference `person`, and `expense_share` also references
+        // `expense`, so both must go before either parent.
+        "DELETE FROM settlement",
+        "DELETE FROM expense_share",
         "DELETE FROM expense",
         "DELETE FROM budget",
         "DELETE FROM income_entry",
@@ -222,13 +399,18 @@ internal object Schema {
         "DELETE FROM category WHERE parent_id IS NOT NULL",
         "DELETE FROM category",
         "DELETE FROM income_source",
+        // After `expense`, `expense_share` and `settlement`, all of which
+        // reference it.
+        "DELETE FROM person",
         "DELETE FROM app_meta",
     )
 
     /** Reverse of [TABLES] — children before parents, so drops never violate a FK. */
     val DROP_TABLES: List<String> = listOf(
         "app_meta", "recurring_rule", "rollup_income_month", "rollup_expense_month",
+        "settlement", "expense_share",
         "expense", "budget", "income_entry", "category", "income_source",
+        "person",
     ).map { "DROP TABLE IF EXISTS $it" }
 
     // --------------------------------------------------------------- indices
@@ -241,11 +423,6 @@ internal object Schema {
         "CREATE INDEX IF NOT EXISTS ix_income_entry_date ON income_entry(earned_on DESC)",
         "CREATE INDEX IF NOT EXISTS ix_income_entry_source ON income_entry(source_id, period_ym)",
 
-        // IFNULL(parent_id, -1) because SQL treats NULLs as distinct, which
-        // would otherwise permit two root categories with the same name.
-        // Scoping uniqueness to the parent is also what lets both
-        // "Fixed → Misc" and "Variable → Misc" exist (FR-CAT-07).
-        "CREATE UNIQUE INDEX IF NOT EXISTS ux_category_parent_key ON category(IFNULL(parent_id, -1), name_key)",
         "CREATE INDEX IF NOT EXISTS ix_category_parent ON category(parent_id, is_archived, sort_order)",
 
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_budget_cat_period ON budget(category_id, period_ym)",
@@ -260,6 +437,35 @@ internal object Schema {
         "CREATE INDEX IF NOT EXISTS ix_expense_method ON expense(payment_method, period_ym)",
 
         "CREATE INDEX IF NOT EXISTS ix_rule_due ON recurring_rule(is_active, next_due_day)",
+    ) + SHARED_INDICES
+
+    /**
+     * The one index Room must never see — and the reason it is separate.
+     *
+     * `IFNULL(parent_id, -1)` is what makes uniqueness scope to the parent
+     * while still catching two roots of the same name, because SQL treats NULLs
+     * as distinct (FR-CAT-07). `@Index` cannot express a functional index, so
+     * [com.app.finance.data.db.entity.CategoryEntity] deliberately does not
+     * declare it.
+     *
+     * That was harmless while nothing compared the two views. **Room compares
+     * every index after a migration** — and only after a migration — and it
+     * rejects an index it did not expect just as firmly as a missing one. So an
+     * index the entities cannot describe makes *every* migration fail on
+     * `category`, whatever the migration was for.
+     *
+     * The resolution keeps it genuinely invisible: created by [CanonicalSchema]
+     * on first creation and re-created on every open, never by a migration. At
+     * the moment Room validates, `category` carries only the indices its entity
+     * declares; a few statements later the constraint is back. The gap is
+     * inside one open, before any write can reach the table.
+     *
+     * `IF NOT EXISTS` makes the per-open cost a `sqlite_master` lookup, which
+     * is the price of the one thing this schema does that Room cannot see.
+     */
+    val ROOM_INVISIBLE_INDICES: List<String> = listOf(
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_category_parent_key " +
+            "ON category(IFNULL(parent_id, -1), name_key)",
     )
 
     // -------------------------------------------------------------- triggers
@@ -511,7 +717,7 @@ internal object Schema {
                 entry_count = entry_count + 1;
         END
         """,
-    ).map { it.trimIndent() }
+    ).map { it.trimIndent() } + SHARED_TRIGGERS
 
     val DROP_TRIGGERS: List<String> = listOf(
         "trg_category_depth_insert", "trg_category_depth_update",
@@ -521,6 +727,8 @@ internal object Schema {
         "trg_category_child_of_used_leaf", "trg_category_child_of_used_leaf_upd",
         "trg_rollup_exp_ins", "trg_rollup_exp_del", "trg_rollup_exp_upd",
         "trg_rollup_inc_ins", "trg_rollup_inc_del", "trg_rollup_inc_upd",
+        "trg_share_only_when_i_paid", "trg_share_only_when_i_paid_upd",
+        "trg_payer_excludes_shares",
     ).map { "DROP TRIGGER IF EXISTS $it" }
 
     // ------------------------------------------------------------------ seed

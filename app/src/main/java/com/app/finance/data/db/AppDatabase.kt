@@ -12,17 +12,22 @@ import com.app.finance.data.db.dao.BudgetDao
 import com.app.finance.data.db.dao.CategoryDao
 import com.app.finance.data.db.dao.ExpenseDao
 import com.app.finance.data.db.dao.IncomeDao
+import com.app.finance.data.db.dao.PersonDao
 import com.app.finance.data.db.dao.RecurringDao
 import com.app.finance.data.db.dao.RollupDao
+import com.app.finance.data.db.dao.SettlementDao
 import com.app.finance.data.db.entity.AppMetaEntity
 import com.app.finance.data.db.entity.BudgetEntity
 import com.app.finance.data.db.entity.CategoryEntity
 import com.app.finance.data.db.entity.ExpenseEntity
+import com.app.finance.data.db.entity.ExpenseShareEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.IncomeSourceEntity
+import com.app.finance.data.db.entity.PersonEntity
 import com.app.finance.data.db.entity.RecurringRuleEntity
 import com.app.finance.data.db.entity.RollupExpenseMonthEntity
 import com.app.finance.data.db.entity.RollupIncomeMonthEntity
+import com.app.finance.data.db.entity.SettlementEntity
 
 @Database(
     entities = [
@@ -35,6 +40,9 @@ import com.app.finance.data.db.entity.RollupIncomeMonthEntity
         RollupIncomeMonthEntity::class,
         RecurringRuleEntity::class,
         AppMetaEntity::class,
+        PersonEntity::class,
+        ExpenseShareEntity::class,
+        SettlementEntity::class,
     ],
     version = Schema.VERSION,
     exportSchema = true,
@@ -52,6 +60,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun backupDao(): BackupDao
 
     abstract fun recurringDao(): RecurringDao
+
+    abstract fun personDao(): PersonDao
+
+    abstract fun settlementDao(): SettlementDao
 
     companion object {
         const val NAME = "khata.db"
@@ -72,6 +84,7 @@ abstract class AppDatabase : RoomDatabase() {
             Room.databaseBuilder(context, AppDatabase::class.java, name)
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(CanonicalSchema)
+                .addMigrations(*Migrations.ALL)
                 .build()
 
         fun build(context: Context): AppDatabase =
@@ -81,6 +94,7 @@ abstract class AppDatabase : RoomDatabase() {
                 // `PRAGMA journal_mode` by hand would fight Room for ownership.
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(CanonicalSchema)
+                .addMigrations(*Migrations.ALL)
                 .apply {
                     // 03 §8: release builds never fall back to destructive
                     // migration. Losing a user's financial history to a schema
@@ -116,6 +130,7 @@ abstract class AppDatabase : RoomDatabase() {
 
                 Schema.TABLES.forEach(db::execSQL)
                 Schema.INDICES.forEach(db::execSQL)
+                Schema.ROOM_INVISIBLE_INDICES.forEach(db::execSQL)
                 Schema.TRIGGERS.forEach(db::execSQL)
 
                 // 03 §7 — seeded in the same transaction as schema creation, so
@@ -125,6 +140,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
 
             override fun onOpen(db: SupportSQLiteDatabase) {
+                // Before the pragmas, and that order is load-bearing. This runs
+                // after Room has validated — see [Schema.ROOM_INVISIBLE_INDICES]
+                // — and a DDL statement here changes the schema, which makes
+                // Android's pool reconfigure the connection and drops
+                // `foreign_keys` back to its default of off. Applying the
+                // pragmas afterwards is what makes them stick, and
+                // `pragmas_are_applied_on_every_connection` is what caught it.
+                Schema.ROOM_INVISIBLE_INDICES.forEach(db::execSQL)
                 Schema.PRAGMAS.forEach(db::execSQL)
             }
         }

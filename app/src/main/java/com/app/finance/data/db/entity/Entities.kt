@@ -159,6 +159,12 @@ data class BudgetEntity(
             childColumns = ["category_id"],
             onDelete = ForeignKey.RESTRICT,
         ),
+        ForeignKey(
+            entity = PersonEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["payer_person_id"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
     ],
     indices = [
         // The `id DESC` tiebreaker is what gives keyset pagination a stable,
@@ -175,6 +181,7 @@ data class BudgetEntity(
             orders = [Index.Order.ASC, Index.Order.DESC],
         ),
         Index(name = "ix_expense_method", value = ["payment_method", "period_ym"]),
+        Index(name = "ix_expense_payer", value = ["payer_person_id"]),
     ],
 )
 data class ExpenseEntity(
@@ -190,6 +197,15 @@ data class ExpenseEntity(
     @ColumnInfo(name = "payment_method", defaultValue = "0") val paymentMethod: Int = 0,
     val note: String? = null,
     @ColumnInfo(defaultValue = "0") val status: Int = 0,
+    /**
+     * Who actually paid — NULL means you did (FR-SHR-03).
+     *
+     * It does **not** change what [amountMinor] means. That is your share
+     * either way, which is why every rollup trigger reads it unchanged: a meal
+     * a friend paid for is still a meal you ate, and your food budget should
+     * hear about it.
+     */
+    @ColumnInfo(name = "payer_person_id") val payerPersonId: Long? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
@@ -267,5 +283,121 @@ data class RecurringRuleEntity(
 data class AppMetaEntity(
     @PrimaryKey val key: String,
     val value: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+/**
+ * Somebody you split expenses with — FR-SHR-01.
+ *
+ * They never use this app. This is your private note of a name, which is why it
+ * carries no contact details and nothing that could leave the device.
+ *
+ * `nameKey` is `category`'s uniqueness mechanism reused: one Rahim however you
+ * capitalise him, so a balance cannot be split in two by a typo.
+ */
+@Entity(
+    tableName = "person",
+    indices = [
+        Index(name = "ux_person_name_key", value = ["name_key"], unique = true),
+        Index(name = "ix_person_active", value = ["is_archived", "sort_order"]),
+    ],
+)
+data class PersonEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val uuid: String,
+    val name: String,
+    @ColumnInfo(name = "name_key") val nameKey: String,
+    @ColumnInfo(name = "sort_order", defaultValue = "0") val sortOrder: Int = 0,
+    @ColumnInfo(name = "is_archived", defaultValue = "0") val isArchived: Boolean = false,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+/**
+ * One other person's portion of a shared expense — FR-SHR-02.
+ *
+ * Exists **only when you paid** (`expense.payer_person_id IS NULL`), because a
+ * share row means "they owe me". `trg_share_only_when_i_paid` enforces it.
+ *
+ * There is no total-bill column anywhere: the bill is
+ * `expense.amount_minor + SUM(share_minor)`, so the parts define the whole and
+ * a rounding leak has nowhere to hide.
+ */
+@Entity(
+    tableName = "expense_share",
+    foreignKeys = [
+        ForeignKey(
+            entity = ExpenseEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["expense_id"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
+        ForeignKey(
+            entity = PersonEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["person_id"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
+    ],
+    indices = [
+        Index(
+            name = "ux_share_expense_person",
+            value = ["expense_id", "person_id"],
+            unique = true,
+        ),
+        Index(name = "ix_share_person", value = ["person_id"]),
+    ],
+)
+data class ExpenseShareEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val uuid: String,
+    @ColumnInfo(name = "expense_id") val expenseId: Long,
+    @ColumnInfo(name = "person_id") val personId: Long,
+    /** Paisa, always positive; direction comes from the expense's payer. */
+    @ColumnInfo(name = "share_minor") val shareMinor: Long,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+/**
+ * Money between you and a person that is **not consumption** — FR-SHR-04.
+ *
+ * A repayment, or a loan made outright. Deliberately neither an expense nor an
+ * income entry, and read by no rollup trigger: a friend settling up is your own
+ * money coming home, and counting it as income would lift the savings rate
+ * every time somebody paid you back.
+ *
+ * Signed — positive means they paid you, negative means you paid them. One
+ * signed column rather than a direction flag, so the balance is a single `SUM`
+ * that cannot disagree with itself.
+ */
+@Entity(
+    tableName = "settlement",
+    foreignKeys = [
+        ForeignKey(
+            entity = PersonEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["person_id"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
+    ],
+    indices = [
+        Index(
+            name = "ix_settlement_person",
+            value = ["person_id", "settled_on"],
+            orders = [Index.Order.ASC, Index.Order.DESC],
+        ),
+    ],
+)
+data class SettlementEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val uuid: String,
+    @ColumnInfo(name = "person_id") val personId: Long,
+    @ColumnInfo(name = "amount_minor") val amountMinor: Long,
+    /** Epoch day. */
+    @ColumnInfo(name = "settled_on") val settledOn: Long,
+    @ColumnInfo(name = "payment_method", defaultValue = "0") val paymentMethod: Int = 0,
+    val note: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )

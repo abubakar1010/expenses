@@ -51,7 +51,11 @@ class SchemaValidationTest {
         // foreign key or index — this line throws IllegalStateException.
         val second = AppDatabase.named(context, name)
         assertEquals(3, second.categoryDao().roots().size)
-        assertEquals("1", second.appMetaDao().get("schema_version"))
+        // Against `Schema.VERSION`, not a literal: this assertion read "1" and
+        // had to be edited by hand the first time the schema was ever versioned
+        // up, which is a test that fails for bookkeeping rather than for a
+        // defect.
+        assertEquals(Schema.VERSION.toString(), second.appMetaDao().get("schema_version"))
 
         // And the canonical extras are still in place after the round trip.
         val categorySql = second.openHelper.writableDatabase
@@ -65,7 +69,14 @@ class SchemaValidationTest {
         val triggers = second.openHelper.writableDatabase
             .query("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger'")
             .use { if (it.moveToFirst()) it.getInt(0) else 0 }
-        assertEquals("all sixteen triggers must survive reopen", 16, triggers)
+        // Counted from `Schema.TRIGGERS` rather than written out, for the same
+        // reason as the version above: a literal here fails whenever a trigger
+        // is legitimately added, which trains the reader to edit the number.
+        assertEquals(
+            "every trigger must survive reopen",
+            Schema.TRIGGERS.size,
+            triggers,
+        )
 
         second.close()
     }

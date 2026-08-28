@@ -108,7 +108,7 @@ class SchemaAssertionsTest {
         assertTrue("system roots must be flagged", roots.all { it.isSystem })
         assertEquals(13, scalar("SELECT COUNT(*) FROM category WHERE parent_id IS NOT NULL").toInt())
         assertEquals(1, scalar("SELECT COUNT(*) FROM income_source").toInt())
-        assertEquals("1", db.appMetaDao().get("schema_version"))
+        assertEquals(Schema.VERSION.toString(), db.appMetaDao().get("schema_version"))
     }
 
     // ------------------------------------------------- 1. nature inheritance

@@ -65,6 +65,15 @@ adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug
 - **The debug `SEED` broadcast did not fire on an API 35 emulator (22 Aug 2026).** `am broadcast` reported `result=0`, ActivityManager logged the broadcast as enqueued, and `SeedReceiver` never logged anything — no rows were written. `src/debug/AndroidManifest.xml` states the opposite ("`am broadcast` from the shell reaches an unexported receiver in a debuggable package"), so one of the two is stale; the cause was not chased down. If seeding matters for what you are doing, verify it landed rather than assuming, or drive `SeedFiveYears.into` from an instrumented test.
 - Layouts target 288 dp of content on a 320 dp phone: `adb shell wm density 360` on a 720 px emulator, `reset` after.
 - Xiaomi/MIUI physical devices need **Install via USB** enabled or the instrumentation APK is refused with `INSTALL_FAILED_USER_RESTRICTED`.
+- **A physical device runs the instrumented suite only while nothing else holds the foreground.** `MainActivityTest` and every Compose test wait for the activity to become resumed *and focused*; another app in front means that never happens, so they **hang rather than fail** — `logcat -s TestRunner:I` shows a `started:` with no matching `finished:`, and the run sits there until something kills it, which reads exactly like a slow test. Measured 28 Aug 2026 on a Redmi 13C (`gale`, HyperOS 2.0, API 35): an unrelated debug app left in the foreground with the IME open stalled the suite at **0 of 596**, and an earlier attempt died the same way after two tests when that app took focus mid-run. The emulator never shows this because nothing else runs on it. Press HOME first and leave the device alone for the whole run — one notification tap is enough. Two things make it survivable:
+
+  ```bash
+  adb logcat -G 16M   # MIUI's own MiEvent/misight spam wraps the default buffer and
+  adb logcat -c       # erases the TestRunner history you need to tell a hang from a crash
+  # detached, so a host-side disconnect cannot orphan the run and no client timeout can kill it:
+  adb shell "nohup am instrument -w com.app.finance.debug.test/androidx.test.runner.AndroidJUnitRunner \
+    > /sdcard/khata-instr.txt 2>&1 &"
+  ```
 - **Cold-boot the emulator before trusting `PerformanceProbeTest`.** An AVD that has already run the full suite is several times slower than a fresh one, and the probes assert wall-clock budgets. Measured on one session: NFR-PERF-10's restore took 3,643 ms on a cold-booted AVD and 20,905 ms on the same AVD after a full suite run; NFR-PERF-07's export, which nothing had touched, went 571 ms → 1,907 ms alongside it. The whole suite runs in about 12 minutes cold and 25 aged, which is the cheaper signal that it is time to reboot. Nothing in the app had changed. A failing probe on a long-lived emulator is a measurement, not a regression — reboot and re-measure before believing it.
 
 ## Commit Guidelines (applies to all sub-projects)

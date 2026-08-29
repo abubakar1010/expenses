@@ -3530,6 +3530,14 @@ The full scenario, in order:
 | Reinstall, launch | `WelcomeScreen` again, on a genuinely fresh install |
 | Restore → pick the file → Restore everything | ৳1,234 Grocery on 22 Aug, and every dashboard figure identical to before the uninstall |
 
+> **This walk predates the rename.** It ran on 22 Aug 2026, when the app was
+> still called Khata. Product names in the table have been updated along with the
+> rest of the docs, but `khata-backup-2026-08-22-1317.khata` and the magic
+> `KHATA1` are left verbatim, because they record what was actually written to
+> disk. The current build writes `daybook-backup-….daybook` with magic
+> `DAYBOOK1` and will not read that file — `02-SRS.md`'s FR-DAT-12 owes no
+> pre-release format a compatibility path.
+
 #### What it found
 
 **The follow-up folder question never appeared.** §21.4's third defect was

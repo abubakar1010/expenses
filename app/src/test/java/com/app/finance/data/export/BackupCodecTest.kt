@@ -62,13 +62,13 @@ class BackupCodecTest {
         assertTrue(encode(payload, null).size < payload.size / 4)
     }
 
-    // --- FR-DAT-12: files written before this class existed -------------------
+    // --- FR-DAT-12: a plain JSON export carries no magic ---------------------
 
     @Test
-    fun `a plain export from an earlier release passes straight through`() {
-        // The whole of FR-DAT-12. Every daybook-export.json already on somebody's
-        // phone has no magic number, and refusing it would mean the app stopped
-        // reading its own files.
+    fun `a plain json export passes straight through`() {
+        // The half of FR-DAT-12 that binds today. `Exporter.writeJson` writes a
+        // daybook-export.json with no magic number, and refusing it would mean
+        // the app stopped reading its own current export format.
         val payload = JSON.toByteArray()
         assertArrayEquals(payload, BackupCodec.decode(ByteArray(0).stream(payload)).readBytes())
     }

@@ -248,8 +248,8 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 
 **FR-DAT-11** A backup MAY be encrypted with a user-supplied passphrase. Encryption MUST be optional and off by default. A wrong passphrase, an altered file, or a truncated one MUST be refused in full — never partially applied — and a wrong passphrase MUST be reported as distinct from a damaged file.
 
-**FR-DAT-12** The system MUST read plain, compressed and encrypted backups, and MUST continue to read files written by any earlier release.
-- *Accept:* A `daybook-export.json` produced before the backup format existed still restores.
+**FR-DAT-12** The system MUST read plain, compressed and encrypted backups. From the first public release onward it MUST continue to read files written by any earlier release; before that release the on-disk formats carry no compatibility promise and may change outright.
+- *Accept:* A `daybook-export.json` — the plain JSON `Exporter` writes, which carries no magic number — restores through the same path as a wrapped backup.
 
 ### 2.9 Application-level requirements — FR-APP
 

@@ -175,7 +175,7 @@ class SourceManagerViewModelTest {
 
     @Test
     fun a_source_with_no_entries_is_really_deleted() = runBlocking {
-        // FR-IS-06 — and the only row in Khata that ever leaves the database.
+        // FR-IS-06 — and the only row in DayBook that ever leaves the database.
         fx.income.createSource("Consulting", IncomeKind.VARIABLE)
 
         val vm = vm()

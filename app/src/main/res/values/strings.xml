@@ -14,7 +14,7 @@
   the same reasons the visible labels do.
 -->
 <resources>
-    <string name="app_name">Khata</string>
+    <string name="app_name">DayBook</string>
 
     <!-- Navigation -->
     <string name="nav_dashboard">Dashboard</string>
@@ -266,7 +266,7 @@
 
     <!-- Recovery. Shown only when the database cannot be opened. -->
     <string name="recovery_title">Your data needs attention</string>
-    <string name="recovery_body">Khata couldn\'t open your ledger. Your data file is still on this device and has not been changed. Save a copy before reinstalling.</string>
+    <string name="recovery_body">DayBook couldn\'t open your ledger. Your data file is still on this device and has not been changed. Save a copy before reinstalling.</string>
     <string name="recovery_save">Save a copy of your data</string>
     <string name="recovery_saved">Copy saved</string>
     <string name="recovery_failed">That copy didn\'t save. Try a different location.</string>
@@ -276,7 +276,7 @@
          because it makes the safe step a precondition of the destructive one
          rather than a suggestion beside it. -->
     <string name="recovery_start_over">Start over from a backup</string>
-    <string name="recovery_start_over_hint">Discards the ledger Khata can\'t open and reopens empty, ready to restore.</string>
+    <string name="recovery_start_over_hint">Discards the ledger DayBook can\'t open and reopens empty, ready to restore.</string>
     <string name="recovery_save_first">Save a copy first.</string>
 
     <!--
@@ -348,7 +348,7 @@
     <string name="import_merge_hint">Rows already here are matched and left alone</string>
     <string name="import_done">Added: %1$d · Updated: %2$d · Unchanged: %3$d</string>
     <string name="import_newer">That file is from a newer version of the app. Update, then import again.</string>
-    <string name="import_unreadable">That file isn\'t a Khata backup. Nothing was changed.</string>
+    <string name="import_unreadable">That file isn\'t a DayBook backup. Nothing was changed.</string>
     <string name="import_dangling">That backup refers to a category or source it doesn\'t contain. Nothing was changed.</string>
     <string name="import_rejected">That backup couldn\'t be read to the end. Nothing was changed.</string>
 
@@ -374,16 +374,16 @@
     <string name="backup_folder_none">Choose a folder</string>
     <string name="backup_folder_pick">Backups need somewhere to go</string>
     <string name="backup_folder_change">Change folder</string>
-    <string name="backup_folder_gone">Khata can\'t reach that folder any more. Choose another.</string>
+    <string name="backup_folder_gone">DayBook can\'t reach that folder any more. Choose another.</string>
     <string name="backup_no_folder">Choose a folder first.</string>
-    <string name="backup_folder_refused">Khata wasn\'t given lasting access to that folder. Try another.</string>
+    <string name="backup_folder_refused">DayBook wasn\'t given lasting access to that folder. Try another.</string>
     <string name="backup_write_failed">That folder wouldn\'t take the file. Nothing was changed.</string>
     <!-- The limit worth being blunt about: FR-DAT-08 runs on launch, because
          04 §6 keeps ContentProviders off the startup path and 05 §12 has no
          notification to report a background run through. Saying "every day"
          alone would be a promise the app cannot keep. -->
-    <string name="backup_when">Backups are written when you open Khata, not while it is closed.</string>
-    <string name="backup_survives">They go in a folder you own, so they stay when Khata is uninstalled. To survive a lost phone, send a copy somewhere else.</string>
+    <string name="backup_when">Backups are written when you open DayBook, not while it is closed.</string>
+    <string name="backup_survives">They go in a folder you own, so they stay when DayBook is uninstalled. To survive a lost phone, send a copy somewhere else.</string>
 
     <string name="backup_how_often">How often</string>
     <string name="backup_off">Only when I tap</string>
@@ -416,7 +416,7 @@
     <string name="backup_restore_hint">Replace what is here with a backup file</string>
 
     <!-- FR-DAT-10 — the first launch after an install. -->
-    <string name="welcome_title">Khata</string>
+    <string name="welcome_title">DayBook</string>
     <string name="welcome_body">If you have a backup from another phone, bring it in now and your categories, budgets and every entry come back as they were.</string>
     <string name="welcome_restore">Restore from a backup</string>
     <string name="welcome_restore_body">Your starter categories are replaced by the ones in the backup.</string>
@@ -428,7 +428,7 @@
          section 12: somebody who has just restored from a backup has said as
          clearly as anyone can that they want one. -->
     <string name="welcome_protect_title">Your ledger is back</string>
-    <string name="welcome_protect_body">Nothing is backing it up yet. Choose a folder and Khata keeps copies there from now on.</string>
+    <string name="welcome_protect_body">Nothing is backing it up yet. Choose a folder and DayBook keeps copies there from now on.</string>
     <string name="welcome_later">Not now</string>
 
     <string name="settings_maintenance">Maintenance</string>
@@ -495,15 +495,15 @@
          so both read as settings rather than as promises. -->
     <string name="settings_privacy">Privacy</string>
     <string name="secure_screen">Hide from screenshots</string>
-    <string name="secure_screen_hint">Blocks screenshots and hides Khata in the recents list.</string>
+    <string name="secure_screen_hint">Blocks screenshots and hides DayBook in the recents list.</string>
     <string name="app_lock">Require unlock</string>
-    <string name="app_lock_hint">Ask for your phone\'s PIN or fingerprint when Khata opens.</string>
+    <string name="app_lock_hint">Ask for your phone\'s PIN or fingerprint when DayBook opens.</string>
     <string name="app_lock_no_credential">Set a screen lock on your phone first.</string>
     <string name="app_lock_unsupported">This phone cannot lock individual apps.</string>
     <string name="toggle_on">On</string>
     <string name="toggle_off">Off</string>
 
-    <string name="lock_title">Unlock Khata</string>
+    <string name="lock_title">Unlock DayBook</string>
     <string name="lock_subtitle">Use your phone\'s screen lock.</string>
     <string name="lock_body">Your ledger is locked.</string>
     <string name="lock_retry">Not unlocked. Try again.</string>

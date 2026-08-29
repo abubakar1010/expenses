@@ -1,4 +1,4 @@
-# Khata
+# DayBook
 
 A personal finance ledger for Android. Offline-only, single user, Bangladeshi taka.
 
@@ -40,7 +40,7 @@ that had been carried as deferred since M2 (§20).
 | Build, R8 full mode, signed release, lint | done |
 | Schema, 14 triggers, seed, PRAGMAs | done |
 | `Money`, `Period`, `NameKey` | done |
-| Khata design system, light + dark | done |
+| DayBook design system, light + dark | done |
 | Navigation shell, bottom bar, FAB | done |
 | **Quick Add** — keypad, chips, date, method, note, full category picker | done |
 | **Ledger** — paging, day groups, edit, swipe-delete + undo, filters, search | done |
@@ -139,7 +139,7 @@ domain/   model/   budget states, category tree, income scope, typed errors
           usecase/ budget summary, alerts, income breakdown, stable coverage
                    — pure functions, JVM-tested
 data/     Room entities, DAOs, repositories; Schema.kt owns the real DDL
-ui/       theme/ (Khata tokens), common/ (shared components), feature/
+ui/       theme/ (DayBook tokens), common/ (shared components), feature/
 di/       AppContainer — hand-rolled, every field `by lazy`
 ```
 
@@ -160,7 +160,7 @@ draft — most importantly the three `rollup_income_month` triggers, without whi
 every income figure in the app reads ৳0 while the ledger underneath stays
 correct.
 
-**The viewed period is owned by `KhataApp`, above the `NavHost`.** Neither
+**The viewed period is owned by `DayBookApp`, above the `NavHost`.** Neither
 Budget nor Income owns any of it, and Dashboard (M4) must read the same value —
 a user who steps back to July on one screen has not asked to be on August
 everywhere else. It is `rememberSaveable` for rotation and process death, and
@@ -248,7 +248,7 @@ Cortex-A53, so a target missed here is missed there too.
 frame, 223 ms for the reads, the rest composition. The mitigation `04` §2.2
 requires has now been applied — the app finally has a baseline profile of its own
 code, generated on the `Khata_API35` AVD, taking the release profile from 3,345
-library-only rules to 24,795 with 2,738 of them Khata's. That moved the dashboard
+library-only rules to 24,795 with 2,738 of them DayBook's. That moved the dashboard
 from **666 ms to 552 ms**, a 17% improvement in the range the architecture
 predicted, and still 252 ms outside the target. The next lever is `04` §2.2's own
 fallback — XML views for the entry and ledger screens — and that call needs the

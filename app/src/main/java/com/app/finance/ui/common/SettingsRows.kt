@@ -21,7 +21,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import com.app.finance.R
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 
@@ -49,7 +49,7 @@ fun ToggleRow(
     onChange: (Boolean) -> Unit,
     enabled: Boolean = true,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     Row(
         Modifier
             .fillMaxWidth()
@@ -61,14 +61,14 @@ fun ToggleRow(
         Column(Modifier.weight(1f)) {
             Text(
                 text = title,
-                style = KhataTheme.type.body,
+                style = DayBookTheme.type.body,
                 color = if (enabled) colors.ink else colors.inkSoft,
             )
-            Text(hint, style = KhataTheme.type.caption, color = colors.inkSoft)
+            Text(hint, style = DayBookTheme.type.caption, color = colors.inkSoft)
         }
         Text(
             text = stringResource(if (checked) R.string.toggle_on else R.string.toggle_off),
-            style = KhataTheme.type.caption,
+            style = DayBookTheme.type.caption,
             color = colors.inkSoft,
             modifier = Modifier.padding(end = Space.s2),
         )
@@ -89,7 +89,7 @@ fun ActionRow(
     destructive: Boolean = false,
     onClick: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     Column(
         Modifier
             .fillMaxWidth()
@@ -109,7 +109,7 @@ fun ActionRow(
     ) {
         Text(
             text = title,
-            style = KhataTheme.type.body,
+            style = DayBookTheme.type.body,
             fontWeight = if (destructive) FontWeight.SemiBold else FontWeight.Normal,
             color = when {
                 !enabled -> colors.inkSoft
@@ -120,7 +120,7 @@ fun ActionRow(
         // 05 §9 — "a control says what happens". Every row here does something
         // the user cannot easily undo, so each says what before it is tapped.
         if (hint != null) {
-            Text(hint, style = KhataTheme.type.caption, color = colors.inkSoft)
+            Text(hint, style = DayBookTheme.type.caption, color = colors.inkSoft)
         }
     }
 }

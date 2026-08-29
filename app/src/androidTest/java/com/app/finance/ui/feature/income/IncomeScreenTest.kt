@@ -24,7 +24,7 @@ import com.app.finance.TestFixture
 import com.app.finance.core.money.Money
 import com.app.finance.core.time.Period
 import com.app.finance.domain.model.IncomeKind
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -83,7 +83,7 @@ class IncomeScreenTest {
             CompositionLocalProvider(
                 LocalDensity provides Density(LocalDensity.current.density, fontScale),
             ) {
-                KhataTheme {
+                DayBookTheme {
                     IncomeScreen(
                         container = fx.container,
                         period = period,

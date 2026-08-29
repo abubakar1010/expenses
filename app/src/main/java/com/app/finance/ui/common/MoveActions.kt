@@ -18,7 +18,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import com.app.finance.R
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 
@@ -95,8 +95,8 @@ private fun Arrow(
     ) {
         Text(
             text = glyph,
-            style = KhataTheme.type.body,
-            color = KhataTheme.colors.indigo,
+            style = DayBookTheme.type.body,
+            color = DayBookTheme.colors.indigo,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(vertical = Space.s2),
         )

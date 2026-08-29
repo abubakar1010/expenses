@@ -18,7 +18,7 @@ import com.app.finance.ui.feature.dashboard.DashboardScreen
 import com.app.finance.ui.feature.income.IncomeScreen
 import com.app.finance.ui.feature.ledger.LedgerScreen
 import com.app.finance.ui.feature.reports.ReportsScreen
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import kotlinx.coroutines.runBlocking
@@ -118,7 +118,7 @@ class GreyscaleCaptureTest {
      * the screen so the caller can assert on it.
      */
     private fun capture(name: String, content: @Composable () -> Unit): List<String> {
-        compose.setContent { KhataTheme { content() } }
+        compose.setContent { DayBookTheme { content() } }
         compose.waitForIdle()
         // The flows land after Compose goes idle; this is the same wait every
         // screen test makes, without asserting on any particular string.
@@ -325,6 +325,6 @@ class GreyscaleCaptureTest {
     }
 
     private companion object {
-        const val TAG = "KhataGreyscale"
+        const val TAG = "DayBookGreyscale"
     }
 }

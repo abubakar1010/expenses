@@ -42,7 +42,7 @@ import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.MoveActions
 import com.app.finance.ui.common.Reorder
 import com.app.finance.ui.common.rememberJavaLocale
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 import com.app.finance.ui.common.offerUndo
@@ -93,8 +93,8 @@ fun SourceManagerScreen(
         ) {
             Text(
                 text = stringResource(R.string.sources_title),
-                style = KhataTheme.type.screenTitle,
-                color = KhataTheme.colors.ink,
+                style = DayBookTheme.type.screenTitle,
+                color = DayBookTheme.colors.ink,
             )
             TextAction(stringResource(R.string.add_source), onClick = vm::add)
         }
@@ -200,7 +200,7 @@ private fun SourceManagerRow(
     onDelete: () -> Unit,
     reorder: Reorder? = null,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val kindLabel = stringResource(
         if (row.source.kind == IncomeKind.STABLE.code) R.string.kind_stable
         else R.string.kind_variable,
@@ -229,13 +229,13 @@ private fun SourceManagerRow(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = row.source.name,
-                style = KhataTheme.type.body,
+                style = DayBookTheme.type.body,
                 color = if (row.source.isArchived) colors.inkSoft else colors.ink,
             )
             Box(Modifier.weight(1f))
             Text(
                 text = "$kindLabel · $countLabel",
-                style = KhataTheme.type.caption,
+                style = DayBookTheme.type.caption,
                 color = colors.inkSoft,
             )
         }
@@ -275,12 +275,12 @@ private fun SourceManagerRow(
 
 @Composable
 private fun DeleteAction(enabled: Boolean, reason: String, onClick: () -> Unit) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val label = stringResource(R.string.delete_source)
 
     Text(
         text = label,
-        style = KhataTheme.type.caption,
+        style = DayBookTheme.type.caption,
         color = if (enabled) colors.vermilion else colors.rule,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier
@@ -306,8 +306,8 @@ private fun TextAction(
 ) {
     Text(
         text = text,
-        style = KhataTheme.type.caption,
-        color = if (destructive) KhataTheme.colors.vermilion else KhataTheme.colors.indigo,
+        style = DayBookTheme.type.caption,
+        color = if (destructive) DayBookTheme.colors.vermilion else DayBookTheme.colors.indigo,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier
             .defaultMinSize(minHeight = Sizes.minTouchTarget)

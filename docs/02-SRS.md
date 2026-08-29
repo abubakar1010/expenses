@@ -249,7 +249,7 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 **FR-DAT-11** A backup MAY be encrypted with a user-supplied passphrase. Encryption MUST be optional and off by default. A wrong passphrase, an altered file, or a truncated one MUST be refused in full — never partially applied — and a wrong passphrase MUST be reported as distinct from a damaged file.
 
 **FR-DAT-12** The system MUST read plain, compressed and encrypted backups, and MUST continue to read files written by any earlier release.
-- *Accept:* A `khata-export.json` produced before the backup format existed still restores.
+- *Accept:* A `daybook-export.json` produced before the backup format existed still restores.
 
 ### 2.9 Application-level requirements — FR-APP
 
@@ -270,7 +270,7 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 
 ### 3.1 Performance — NFR-PERF
 
-**"Resident memory" means anonymous RSS.** The unqualified wording was ambiguous in a way that mattered: total RSS for this app is about 145 MB, of which ~94 MB is file-backed — the framework, the fonts, the APK itself — pages that are shared with every other process and exist whether Khata runs or not. Charging those to the app would fail the budget for any Compose application ever written, and would say nothing about whether this one behaves on a 2 GB device. Anonymous RSS is what the app actually allocated and what the system reclaims against it, and it is what the benchmark suite can assert, which a budget nobody can gate on is not. Restated in `06-implementation-log.md` §20.14.
+**"Resident memory" means anonymous RSS.** The unqualified wording was ambiguous in a way that mattered: total RSS for this app is about 145 MB, of which ~94 MB is file-backed — the framework, the fonts, the APK itself — pages that are shared with every other process and exist whether DayBook runs or not. Charging those to the app would fail the budget for any Compose application ever written, and would say nothing about whether this one behaves on a 2 GB device. Anonymous RSS is what the app actually allocated and what the system reclaims against it, and it is what the benchmark suite can assert, which a budget nobody can gate on is not. Restated in `06-implementation-log.md` §20.14.
 
 All targets are measured on the **reference device** with a seeded database of **5 years, 20,000 expenses, 400 income entries, 60 categories**. Targets measured on a flagship device are not evidence of compliance.
 

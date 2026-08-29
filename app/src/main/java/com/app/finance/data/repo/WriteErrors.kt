@@ -25,7 +25,7 @@ import kotlin.coroutines.cancellation.CancellationException
  * where the message is the only evidence there will ever be, and §18.7 A12
  * already recorded the cost of discarding one.
  */
-private const val TAG = "Khata"
+private const val TAG = "DayBook"
 
 /**
  * Maps [this] onto the error the user should read.

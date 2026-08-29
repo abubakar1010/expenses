@@ -21,7 +21,7 @@ import com.app.finance.TestFixture
 import com.app.finance.core.money.Money
 import com.app.finance.ui.feature.entry.QuickAddSheet
 import com.app.finance.ui.feature.ledger.LedgerScreen
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertTrue
@@ -66,7 +66,7 @@ class AccessibilityTest {
     @Test
     fun an_amount_is_announced_as_words_not_as_a_currency_string() {
         compose.setContent {
-            KhataTheme {
+            DayBookTheme {
                 com.app.finance.ui.common.MoneyText(Money.ofTaka(1250))
             }
         }
@@ -85,7 +85,7 @@ class AccessibilityTest {
     @Test
     fun a_refund_announces_its_sign() {
         compose.setContent {
-            KhataTheme { com.app.finance.ui.common.MoneyText(Money.ofTaka(-500)) }
+            DayBookTheme { com.app.finance.ui.common.MoneyText(Money.ofTaka(-500)) }
         }
         compose.onNodeWithContentDescription("minus five hundred taka").assertIsDisplayed()
     }
@@ -95,9 +95,9 @@ class AccessibilityTest {
     @Test
     fun the_fab_and_every_keypad_key_are_named() {
         compose.setContent {
-            KhataTheme {
+            DayBookTheme {
                 Column {
-                    KhataBottomBar(
+                    DayBookBottomBar(
                         current = Route.Dashboard,
                         onSelect = {},
                         onQuickAdd = {},
@@ -111,7 +111,7 @@ class AccessibilityTest {
     @Test
     fun keypad_keys_carry_spoken_names_rather_than_glyphs() {
         compose.setContent {
-            KhataTheme {
+            DayBookTheme {
                 com.app.finance.ui.common.NumericKeypad(onKey = {})
             }
         }
@@ -127,7 +127,7 @@ class AccessibilityTest {
     @Test
     fun every_keypad_key_clears_the_48dp_touch_minimum() {
         compose.setContent {
-            KhataTheme { com.app.finance.ui.common.NumericKeypad(onKey = {}) }
+            DayBookTheme { com.app.finance.ui.common.NumericKeypad(onKey = {}) }
         }
         listOf("1", "5", "9", "Delete last digit", "Decimal point", "Make this a refund")
             .forEach { key ->
@@ -142,8 +142,8 @@ class AccessibilityTest {
         // The visual chip is 32 dp per §6; the target must still be 48 dp, and
         // shrinking the target to the ink is the most common way this fails.
         compose.setContent {
-            KhataTheme {
-                com.app.finance.ui.common.KhataChip("Grocery", selected = false, onClick = {})
+            DayBookTheme {
+                com.app.finance.ui.common.DayBookChip("Grocery", selected = false, onClick = {})
             }
         }
         compose.onNodeWithText("Grocery").assertHeightIsAtLeast(48.dp)
@@ -173,7 +173,7 @@ class AccessibilityTest {
                 DeviceConfigurationOverride.ForcedSize(DpSize(width, 640.dp)) then
                     DeviceConfigurationOverride.FontScale(fontScale),
             ) {
-                KhataTheme { content() }
+                DayBookTheme { content() }
             }
         }
         compose.waitForIdle()
@@ -289,7 +289,7 @@ class AccessibilityTest {
     fun an_expense_is_logged_in_three_interactions() = runBlocking {
         // "amount, category, save" — the whole product thesis.
         compose.setContent {
-            KhataTheme {
+            DayBookTheme {
                 QuickAddSheet(
                     container = fx.container,
                     onDismiss = {},
@@ -319,7 +319,7 @@ class AccessibilityTest {
         fx.expenses.insert(Money.ofTaka(340), fx.leafId("Grocery"))
 
         compose.setContent {
-            KhataTheme {
+            DayBookTheme {
                 LedgerScreen(
                     container = fx.container,
                     snackbarHostState = SnackbarHostState(),

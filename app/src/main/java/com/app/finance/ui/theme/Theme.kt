@@ -11,15 +11,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
 
 /**
- * Convenience accessors, so components read `KhataTheme.colors.vermilion`
- * rather than `LocalKhataColors.current.vermilion`.
+ * Convenience accessors, so components read `DayBookTheme.colors.vermilion`
+ * rather than `LocalDayBookColors.current.vermilion`.
  */
-object KhataTheme {
-    val colors: KhataColors
-        @Composable @ReadOnlyComposable get() = LocalKhataColors.current
+object DayBookTheme {
+    val colors: DayBookColors
+        @Composable @ReadOnlyComposable get() = LocalDayBookColors.current
 
-    val type: KhataTypography
-        @Composable @ReadOnlyComposable get() = LocalKhataType.current
+    val type: DayBookTypography
+        @Composable @ReadOnlyComposable get() = LocalDayBookType.current
 }
 
 /**
@@ -27,7 +27,7 @@ object KhataTheme {
  *
  * Material 3 components are used where they are genuinely useful — the modal
  * bottom sheet, the snackbar host — so an M3 `ColorScheme` is derived from the
- * Khata tokens to keep those consistent. Everything else is drawn directly:
+ * DayBook tokens to keep those consistent. Everything else is drawn directly:
  * 05-ui-ux-guide.md §2 replaces the card-with-shadow with the ruled line, and
  * §6 restricts elevation to exactly three places.
  *
@@ -37,17 +37,17 @@ object KhataTheme {
  * unacceptable when red carries a specific meaning.
  */
 @Composable
-fun KhataTheme(
+fun DayBookTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    val colors = if (darkTheme) DarkKhataColors else LightKhataColors
+    val colors = if (darkTheme) DarkDayBookColors else LightDayBookColors
 
     CompositionLocalProvider(
-        LocalKhataColors provides colors,
-        LocalKhataType provides KhataType,
+        LocalDayBookColors provides colors,
+        LocalDayBookType provides DayBookType,
         LocalAnimationsEnabled provides rememberAnimationsEnabled(),
-        LocalTextStyle provides KhataType.body.copy(color = colors.ink),
+        LocalTextStyle provides DayBookType.body.copy(color = colors.ink),
     ) {
         MaterialTheme(
             colorScheme = colors.toMaterialScheme(darkTheme),
@@ -58,12 +58,12 @@ fun KhataTheme(
 }
 
 /**
- * Maps the nine Khata tokens onto the M3 roles the handful of borrowed
+ * Maps the nine DayBook tokens onto the M3 roles the handful of borrowed
  * components read. Only the roles actually reachable are meaningful; the rest
  * are filled with the nearest sensible token so that nothing renders in
  * Material's default purple if a component is added later without review.
  */
-private fun KhataColors.toMaterialScheme(dark: Boolean) = if (dark) {
+private fun DayBookColors.toMaterialScheme(dark: Boolean) = if (dark) {
     darkColorScheme(
         primary = indigo,
         onPrimary = paper,
@@ -106,13 +106,13 @@ private fun KhataColors.toMaterialScheme(dark: Boolean) = if (dark) {
     )
 }
 
-private fun KhataColors.toMaterialTypography() = Typography(
-    titleLarge = KhataType.screenTitle,
-    titleMedium = KhataType.screenTitle,
-    bodyLarge = KhataType.body,
-    bodyMedium = KhataType.body,
-    bodySmall = KhataType.caption,
-    labelLarge = KhataType.body,
-    labelMedium = KhataType.caption,
-    labelSmall = KhataType.caption,
+private fun DayBookColors.toMaterialTypography() = Typography(
+    titleLarge = DayBookType.screenTitle,
+    titleMedium = DayBookType.screenTitle,
+    bodyLarge = DayBookType.body,
+    bodyMedium = DayBookType.body,
+    bodySmall = DayBookType.caption,
+    labelLarge = DayBookType.body,
+    labelMedium = DayBookType.caption,
+    labelSmall = DayBookType.caption,
 )

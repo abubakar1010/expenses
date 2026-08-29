@@ -62,7 +62,7 @@ class BackupViewModelTest {
     /** Held open so a backup can be caught mid-flight rather than raced with. */
     private val gate = CompletableDeferred<Unit>()
 
-    private val pass = "amar khata".toCharArray()
+    private val pass = "amar daybook".toCharArray()
 
     @Before
     fun setUp() {

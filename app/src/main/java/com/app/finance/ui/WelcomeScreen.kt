@@ -45,7 +45,7 @@ import com.app.finance.ui.feature.backup.BackupMessage
 import com.app.finance.ui.feature.backup.BackupViewModel
 import com.app.finance.ui.feature.backup.SecretField
 import com.app.finance.ui.feature.backup.backupMessage
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -86,7 +86,7 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
         },
     )
     val state by vm.state.collectAsStateWithLifecycle()
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -110,7 +110,7 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
         answering = true
         scope.launch {
             runCatching { container.settingsRepo.setOnboarded() }
-                .onFailure { error -> Log.w("Khata", "could not record onboarding", error) }
+                .onFailure { error -> Log.w("DayBook", "could not record onboarding", error) }
             onDone()
         }
     }
@@ -175,14 +175,14 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
             text = stringResource(
                 if (restoredUnprotected) R.string.welcome_protect_title else R.string.welcome_title,
             ),
-            style = KhataTheme.type.screenTitle,
+            style = DayBookTheme.type.screenTitle,
             color = colors.ink,
         )
         Text(
             text = stringResource(
                 if (restoredUnprotected) R.string.welcome_protect_body else R.string.welcome_body,
             ),
-            style = KhataTheme.type.body,
+            style = DayBookTheme.type.body,
             color = colors.inkSoft,
         )
 
@@ -213,7 +213,7 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
                 text = stringResource(
                     if (restoredUnprotected) R.string.backup_folder_none else R.string.welcome_restore,
                 ),
-                style = KhataTheme.type.body,
+                style = DayBookTheme.type.body,
             )
         }
 
@@ -229,7 +229,7 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
         state.message?.let { message ->
             Text(
                 text = backupMessage(message),
-                style = KhataTheme.type.caption,
+                style = DayBookTheme.type.caption,
                 color = if (message.isFailure) colors.vermilion else colors.inkSoft,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -267,12 +267,12 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
             ) {
                 Text(
                     text = stringResource(R.string.welcome_restore),
-                    style = KhataTheme.type.screenTitle,
+                    style = DayBookTheme.type.screenTitle,
                     color = colors.ink,
                 )
                 Text(
                     text = stringResource(R.string.welcome_restore_body),
-                    style = KhataTheme.type.body,
+                    style = DayBookTheme.type.body,
                     color = colors.inkSoft,
                 )
                 if (draft.locked) {
@@ -281,7 +281,7 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
                             if (draft.wrong) R.string.backup_wrong_passphrase
                             else R.string.backup_needs_passphrase,
                         ),
-                        style = KhataTheme.type.body,
+                        style = DayBookTheme.type.body,
                         color = if (draft.wrong) colors.vermilion else colors.inkSoft,
                     )
                     SecretField(draft.typed, stringResource(R.string.backup_passphrase), vm::onRestorePassphraseTyped)
@@ -300,7 +300,7 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
                 ) {
                     Text(
                         text = stringResource(if (draft.locked) R.string.backup_unlock else R.string.welcome_restore_confirm),
-                        style = KhataTheme.type.body,
+                        style = DayBookTheme.type.body,
                     )
                 }
                 TextButton(onClick = vm::cancelRestore, modifier = Modifier.fillMaxWidth()) {
@@ -314,7 +314,7 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
 /**
  * FR-DAT-12 — all three kinds of file the app has ever written.
  *
- * An encrypted `.khata`, a plain one, and a `khata-export.json` from before
+ * An encrypted `.daybook`, a plain one, and a `daybook-export.json` from before
  * either existed. A picker filtered to one of them would hide the others from a
  * user who cannot be expected to know which they have.
  */

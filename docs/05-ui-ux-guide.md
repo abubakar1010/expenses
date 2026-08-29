@@ -1,7 +1,7 @@
 # UI/UX Design Guide
 **Product:** Personal Finance Manager (Android)
 **Version:** 1.0 — MVP
-**Design direction:** *Khata*
+**Design direction:** *DayBook*
 
 ---
 
@@ -23,11 +23,11 @@ Every decision below traces back to one of those five facts. Where a decision is
 
 ---
 
-## 2. Direction: *Khata*
+## 2. Direction: *DayBook*
 
 The obvious move for a finance app is the current fintech default: a dark surface, a mint or electric-green accent, a large gradient balance card, rounded pill buttons, a donut chart. It is the house style of roughly every banking app shipped since 2019. It is also wrong for this product — it is designed to make a *balance* feel impressive, while this app exists to make a *limit* feel real.
 
-The direction instead comes from the object this app replaces: the **khata**, the ruled ledger book kept by every shopkeeper and household in Bangladesh.
+The direction instead comes from the object this app replaces: the **khata**, the ruled ledger book kept by every shopkeeper and household in Bangladesh — the *daybook* of English bookkeeping, which is where the product takes its name.
 
 Three things carry over, and only three — the point is to borrow the logic, not to draw a fake paper texture:
 
@@ -341,17 +341,17 @@ The screen whose job is to be believed.
 │   Backup                              │
 │                                       │
 │   Last backup 22 Aug 2026, 9:14 pm    │  ← section figure, not a caption.
-│   4,182 records · khata-backup-…      │    "Never backed up" reads the same
+│   4,182 records · daybook-backup-…      │    "Never backed up" reads the same
 ├───────────────────────────────────────┤    size, in ink-soft
 │   WHERE BACKUPS GO                    │
 │   Backups are written when you open   │  ← both sentences before the
-│   Khata, not while it is closed.      │    control, not after it
+│   DayBook, not while it is closed.      │    control, not after it
 │   They go in a folder you own, so     │
-│   they stay when Khata is             │
+│   they stay when DayBook is             │
 │   uninstalled. To survive a lost      │
 │   phone, send a copy somewhere else.  │
 │                                       │
-│   Documents/Khata                     │
+│   Documents/DayBook                     │
 │   Change folder                       │
 ├───────────────────────────────────────┤
 │   HOW OFTEN                           │
@@ -555,4 +555,4 @@ Dribbble, Behance, and Pinterest finance-app concepts. They optimise for a stati
 | Income defaults to year | Month, for consistency | A ৳0 farming month is meaningless in isolation |
 | Undo snackbars | Confirmation dialogs | Corrects after the fact instead of interrupting before it |
 | No notifications | Budget alerts / reminders | No background service, and nagging gets apps uninstalled |
-| Backup says when it runs | A bare "Every day" | There is no background service, so the honest sentence is "when you open Khata". A feature nobody can trust is worse than one nobody has |
+| Backup says when it runs | A bare "Every day" | There is no background service, so the honest sentence is "when you open DayBook". A feature nobody can trust is worse than one nobody has |

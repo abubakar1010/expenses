@@ -20,7 +20,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.app.finance.R
 import com.app.finance.core.money.Money
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import java.util.Locale
 
 /**
@@ -55,7 +55,7 @@ fun TrendLine(
     locale: Locale,
     modifier: Modifier = Modifier,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val overCount = spend.indices.count { reference[it] > 0L && spend[it] > reference[it] }
     val spokenTotal = Money(spend.sum()).spokenForm(locale)
     val description = if (overCount == 0) {
@@ -144,7 +144,7 @@ fun TrendLine(
             labels.forEach { label ->
                 Text(
                     text = label,
-                    style = KhataTheme.type.caption,
+                    style = DayBookTheme.type.caption,
                     color = colors.inkSoft,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f),

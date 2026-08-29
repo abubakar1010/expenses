@@ -19,10 +19,10 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import com.app.finance.domain.model.BudgetState
 import com.app.finance.domain.model.BudgetStatus
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Motion
 import com.app.finance.ui.theme.Sizes
-import com.app.finance.ui.theme.khataTween
+import com.app.finance.ui.theme.dayBookTween
 
 /**
  * The budget bar — 05-ui-ux-guide.md §6.
@@ -67,12 +67,12 @@ fun BudgetBar(
      */
     unplanned: Boolean = false,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
 
     val target = if (status.state == BudgetState.OVER) 1f else status.fraction
     val fraction by animateFloatAsState(
         targetValue = target,
-        animationSpec = khataTween(Motion.BAR_FILL, Motion.FastOutSlowIn),
+        animationSpec = dayBookTween(Motion.BAR_FILL, Motion.FastOutSlowIn),
         label = "budgetFill",
     )
 

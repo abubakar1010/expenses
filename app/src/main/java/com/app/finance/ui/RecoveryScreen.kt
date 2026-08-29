@@ -30,7 +30,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.app.finance.R
 import com.app.finance.data.db.AppDatabase
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -60,7 +60,7 @@ import java.util.zip.ZipOutputStream
 @Composable
 fun RecoveryScreen() {
     val context = LocalContext.current
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val scope = rememberCoroutineScope()
     val savedText = stringResource(R.string.recovery_saved)
     val failedText = stringResource(R.string.recovery_failed)
@@ -105,14 +105,14 @@ fun RecoveryScreen() {
     ) {
         Text(
             text = stringResource(R.string.recovery_title),
-            style = KhataTheme.type.screenTitle,
+            style = DayBookTheme.type.screenTitle,
             color = colors.ink,
         )
         Text(
             // §9: state the problem and the fix, without apology. The first
             // thing the user needs to know is that their data is not gone.
             text = stringResource(R.string.recovery_body),
-            style = KhataTheme.type.body,
+            style = DayBookTheme.type.body,
             color = colors.inkSoft,
         )
         Button(
@@ -135,7 +135,7 @@ fun RecoveryScreen() {
             ),
             modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
         ) {
-            Text(stringResource(R.string.recovery_save), style = KhataTheme.type.body)
+            Text(stringResource(R.string.recovery_save), style = DayBookTheme.type.body)
         }
 
         // The other half of the recovery, added once backups existed.
@@ -163,18 +163,18 @@ fun RecoveryScreen() {
             ),
             modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
         ) {
-            Text(stringResource(R.string.recovery_start_over), style = KhataTheme.type.body)
+            Text(stringResource(R.string.recovery_start_over), style = DayBookTheme.type.body)
         }
         Text(
             text = stringResource(
                 if (copied) R.string.recovery_start_over_hint else R.string.recovery_save_first,
             ),
-            style = KhataTheme.type.caption,
+            style = DayBookTheme.type.caption,
             color = colors.inkSoft,
         )
 
         message?.let {
-            Text(it, style = KhataTheme.type.caption, color = colors.inkSoft)
+            Text(it, style = DayBookTheme.type.caption, color = colors.inkSoft)
         }
     }
 }
@@ -212,7 +212,7 @@ private fun discardAndReopen(context: Context) {
  *
  * A zip rather than a bare file copy, because the database is in WAL mode: the
  * `-wal` sidecar holds transactions not yet folded into the main file, so a copy
- * of `khata.db` alone can be missing the most recent expenses — exactly the ones
+ * of `daybook.db` alone can be missing the most recent expenses — exactly the ones
  * the user is most likely to care about. Concatenating them would be worse
  * still: the result is not a valid database at all. Keeping all three as
  * separate entries lets SQLite reassemble them.
@@ -242,4 +242,4 @@ private fun copyDatabase(context: Context, target: Uri): Boolean = runCatching {
     true
 }.getOrDefault(false)
 
-private const val BACKUP_NAME = "khata-backup.zip"
+private const val BACKUP_NAME = "daybook-backup.zip"

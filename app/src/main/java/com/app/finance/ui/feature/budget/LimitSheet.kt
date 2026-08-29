@@ -34,7 +34,7 @@ import com.app.finance.ui.common.KeypadKey
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.NumericKeypad
 import com.app.finance.ui.feature.entry.messageRes
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -60,7 +60,7 @@ fun LimitSheet(
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val amount = editor.amount
 
     ModalBottomSheet(
@@ -77,7 +77,7 @@ fun LimitSheet(
         ) {
             Text(
                 text = stringResource(R.string.set_limit),
-                style = KhataTheme.type.sectionHeader,
+                style = DayBookTheme.type.sectionHeader,
                 color = colors.inkSoft,
                 modifier = Modifier.padding(
                     start = Space.gutter,
@@ -87,7 +87,7 @@ fun LimitSheet(
             )
             Text(
                 text = editor.categoryName,
-                style = KhataTheme.type.screenTitle,
+                style = DayBookTheme.type.screenTitle,
                 color = colors.ink,
                 modifier = Modifier.padding(horizontal = Space.gutter),
             )
@@ -117,7 +117,7 @@ fun LimitSheet(
                 if (amount == null) {
                     Text(
                         text = "${Money.SYMBOL}0",
-                        style = KhataTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
+                        style = DayBookTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
                         color = colors.inkSoft,
                         modifier = Modifier.clearAndSetSemantics {
                             contentDescription = ""
@@ -126,7 +126,7 @@ fun LimitSheet(
                 } else {
                     MoneyText(
                         money = amount,
-                        style = KhataTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
+                        style = DayBookTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
                     )
                 }
             }
@@ -134,7 +134,7 @@ fun LimitSheet(
             editor.error?.let { error ->
                 Text(
                     text = stringResource(error.messageRes()),
-                    style = KhataTheme.type.caption,
+                    style = DayBookTheme.type.caption,
                     color = colors.vermilion,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -157,13 +157,13 @@ fun LimitSheet(
                     .padding(horizontal = Space.gutter, vertical = Space.s2)
                     .height(Sizes.minTouchTarget),
             ) {
-                Text(stringResource(R.string.save_limit), style = KhataTheme.type.body)
+                Text(stringResource(R.string.save_limit), style = DayBookTheme.type.body)
             }
 
             if (editor.existing != null) {
                 Text(
                     text = stringResource(R.string.clear_limit),
-                    style = KhataTheme.type.body,
+                    style = DayBookTheme.type.body,
                     color = colors.vermilion,
                     textAlign = TextAlign.Center,
                     modifier = Modifier

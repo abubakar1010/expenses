@@ -24,7 +24,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.app.finance.R
 import com.app.finance.core.time.Period
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 
@@ -59,20 +59,20 @@ fun PeriodSwitcher(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Arrow(
-            icon = KhataIcons.ChevronLeft,
+            icon = DayBookIcons.ChevronLeft,
             description = stringResource(R.string.previous_period),
             onClick = { onChange(period.prev()) },
         )
 
         Text(
             text = label,
-            style = KhataTheme.type.body.copy(fontWeight = FontWeight.SemiBold),
-            color = KhataTheme.colors.ink,
+            style = DayBookTheme.type.body.copy(fontWeight = FontWeight.SemiBold),
+            color = DayBookTheme.colors.ink,
             modifier = Modifier.padding(horizontal = Space.s1),
         )
 
         Arrow(
-            icon = KhataIcons.ChevronRight,
+            icon = DayBookIcons.ChevronRight,
             description = stringResource(R.string.next_period),
             onClick = { onChange(period.next()) },
         )
@@ -103,7 +103,7 @@ private fun Arrow(
             // The Box carries the description; a second one on the icon would
             // make TalkBack announce the control twice.
             contentDescription = null,
-            tint = KhataTheme.colors.inkSoft,
+            tint = DayBookTheme.colors.inkSoft,
             modifier = Modifier
                 .size(24.dp)
                 .clearAndSetSemantics {},

@@ -25,13 +25,13 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.app.finance.ui.KhataApp
+import com.app.finance.ui.DayBookApp
 import com.app.finance.ui.lock.LocalLockController
 import com.app.finance.ui.lock.LockController
 import com.app.finance.ui.lock.LockScreen
 import com.app.finance.ui.RecoveryScreen
 import com.app.finance.ui.WelcomeScreen
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 
 /**
  * The only Activity in the application.
@@ -273,7 +273,7 @@ class MainActivity : FragmentActivity() {
                 )
             }
 
-            KhataTheme(darkTheme = dark) {
+            DayBookTheme(darkTheme = dark) {
                 var databaseFailed by remember { mutableStateOf(false) }
 
                 // Runs in parallel with the first frame, never before it. On
@@ -367,7 +367,7 @@ class MainActivity : FragmentActivity() {
                         RootScreen.WELCOME ->
                             WelcomeScreen(container, onDone = { welcomeDone = true })
 
-                        RootScreen.APP -> KhataApp(container)
+                        RootScreen.APP -> DayBookApp(container)
                     }
                 }
             }
@@ -375,7 +375,7 @@ class MainActivity : FragmentActivity() {
     }
 
     private companion object {
-        const val TAG = "Khata"
+        const val TAG = "DayBook"
 
         /**
          * `androidx.activity`'s own `enableEdgeToEdge` defaults, restated

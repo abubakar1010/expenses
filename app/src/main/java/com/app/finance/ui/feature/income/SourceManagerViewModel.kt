@@ -52,7 +52,7 @@ data class SourceManagerUiState(
 /**
  * The income source manager — FR-IS-01 … FR-IS-06.
  *
- * **The one screen in Khata with a real delete**, and the one place the
+ * **The one screen in DayBook with a real delete**, and the one place the
  * category manager's "constraints are absent, never disabled" rule is
  * deliberately not followed. FR-IS-05's acceptance criterion says the opposite
  * in as many words:

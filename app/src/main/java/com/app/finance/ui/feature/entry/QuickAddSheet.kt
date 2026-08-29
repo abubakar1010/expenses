@@ -59,11 +59,11 @@ import com.app.finance.core.money.Money
 import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.PaymentMethod
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.NumericKeypad
 import com.app.finance.ui.common.labelRes
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -110,7 +110,7 @@ fun QuickAddSheet(
     )
     val state by vm.state.collectAsStateWithLifecycle()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val savedMessage = stringResource(R.string.expense_saved)
 
     // Seeds a new entry or loads the row being edited. The ViewModel's owner is
@@ -149,7 +149,7 @@ fun QuickAddSheet(
             state.error?.let { error ->
                 Text(
                     text = stringResource(error.messageRes()),
-                    style = KhataTheme.type.caption,
+                    style = DayBookTheme.type.caption,
                     color = colors.vermilion,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -174,7 +174,7 @@ fun QuickAddSheet(
             ) {
                 // "A control says what happens" — this button and the snackbar
                 // that follows it use the same verb (§9).
-                Text(stringResource(R.string.save_expense), style = KhataTheme.type.body)
+                Text(stringResource(R.string.save_expense), style = DayBookTheme.type.body)
             }
 
             if (state.isEditing) {
@@ -182,7 +182,7 @@ fun QuickAddSheet(
                 // one primary action on this sheet, and delete is not it.
                 Text(
                     text = stringResource(R.string.delete_expense),
-                    style = KhataTheme.type.body,
+                    style = DayBookTheme.type.body,
                     color = colors.vermilion,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
@@ -235,7 +235,7 @@ fun QuickAddSheet(
  */
 @Composable
 private fun AmountField(state: QuickAddUiState) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val amount = state.amount
     val emptyLabel = stringResource(R.string.amount_empty)
 
@@ -263,14 +263,14 @@ private fun AmountField(state: QuickAddUiState) {
         if (amount == null) {
             Text(
                 text = "${Money.SYMBOL}0",
-                style = KhataTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
+                style = DayBookTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
                 color = colors.inkSoft,
                 modifier = Modifier.clearAndSetSemantics { contentDescription = emptyLabel },
             )
         } else {
             MoneyText(
                 money = amount,
-                style = KhataTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
+                style = DayBookTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
             )
         }
         // "Cursor live on open" (§5.6). The keypad is always up, so there is no
@@ -285,7 +285,7 @@ private fun Caret() {
         Modifier
             .padding(start = 2.dp)
             .size(width = 2.dp, height = 34.dp)
-            .background(KhataTheme.colors.indigo)
+            .background(DayBookTheme.colors.indigo)
             .clearAndSetSemantics {},
     )
 }
@@ -303,14 +303,14 @@ private fun Chips(
         horizontalArrangement = Arrangement.spacedBy(Space.s2),
     ) {
         items(state.chips, key = { it.id }) { category ->
-            KhataChip(
+            DayBookChip(
                 label = category.name,
                 selected = category.id == state.selectedCategoryId,
                 onClick = { onSelect(category.id) },
             )
         }
         item(key = "more") {
-            KhataChip(
+            DayBookChip(
                 label = stringResource(R.string.more_categories),
                 selected = false,
                 onClick = onMore,
@@ -349,8 +349,8 @@ private fun InlineSentence(
 private fun SentencePart(text: String, onClick: () -> Unit) {
     Text(
         text = text,
-        style = KhataTheme.type.body,
-        color = KhataTheme.colors.inkSoft,
+        style = DayBookTheme.type.body,
+        color = DayBookTheme.colors.inkSoft,
         modifier = Modifier
             .defaultMinSize(minHeight = Sizes.minTouchTarget)
             .clickable(onClick = onClick)
@@ -364,7 +364,7 @@ private fun Dot() {
     Box(
         Modifier
             .size(3.dp)
-            .background(KhataTheme.colors.rule, CircleShape)
+            .background(DayBookTheme.colors.rule, CircleShape)
             .clearAndSetSemantics {},
     )
 }
@@ -377,7 +377,7 @@ private fun MethodPickerSheet(
     onSelect: (PaymentMethod) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -387,7 +387,7 @@ private fun MethodPickerSheet(
         Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = Space.s3)) {
             Text(
                 text = stringResource(R.string.choose_method),
-                style = KhataTheme.type.screenTitle,
+                style = DayBookTheme.type.screenTitle,
                 color = colors.ink,
                 modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s3),
             )
@@ -395,7 +395,7 @@ private fun MethodPickerSheet(
                 val isSelected = method == selected
                 Text(
                     text = stringResource(method.labelRes()),
-                    style = KhataTheme.type.body,
+                    style = DayBookTheme.type.body,
                     color = if (isSelected) colors.indigo else colors.ink,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -463,7 +463,7 @@ private fun NoteSheet(
     onDone: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     var text by remember { mutableStateOf(note.orEmpty()) }
     val focus = remember { FocusRequester() }
     val hint = stringResource(R.string.note_hint)
@@ -487,7 +487,7 @@ private fun NoteSheet(
                 value = text,
                 onValueChange = { if (it.length <= NOTE_MAX) text = it },
                 singleLine = true,
-                textStyle = KhataTheme.type.body.copy(color = colors.ink),
+                textStyle = DayBookTheme.type.body.copy(color = colors.ink),
                 cursorBrush = SolidColor(colors.indigo),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                     imeAction = ImeAction.Done,
@@ -510,7 +510,7 @@ private fun NoteSheet(
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (text.isEmpty()) {
-                            Text(hint, style = KhataTheme.type.body, color = colors.inkSoft)
+                            Text(hint, style = DayBookTheme.type.body, color = colors.inkSoft)
                         }
                         inner()
                     }
@@ -524,7 +524,7 @@ private fun NoteSheet(
                     contentColor = colors.card,
                 ),
                 modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
-            ) { Text(stringResource(R.string.done), style = KhataTheme.type.body) }
+            ) { Text(stringResource(R.string.done), style = DayBookTheme.type.body) }
         }
     }
 }

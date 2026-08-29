@@ -49,13 +49,13 @@ import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.Frequency
 import com.app.finance.domain.model.RuleTarget
 import com.app.finance.ui.common.EmptyState
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.NumericKeypad
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.rememberJavaLocale
 import com.app.finance.ui.feature.entry.messageRes
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -106,8 +106,8 @@ fun RecurringScreen(
         ) {
             Text(
                 text = stringResource(R.string.recurring_title),
-                style = KhataTheme.type.screenTitle,
-                color = KhataTheme.colors.ink,
+                style = DayBookTheme.type.screenTitle,
+                color = DayBookTheme.colors.ink,
             )
             TextAction(stringResource(R.string.add_rule), onClick = vm::add)
         }
@@ -117,7 +117,7 @@ fun RecurringScreen(
                 message = stringResource(R.string.empty_rules),
                 modifier = Modifier.fillMaxSize(),
                 action = {
-                    KhataChip(
+                    DayBookChip(
                         label = stringResource(R.string.add_rule),
                         selected = false,
                         onClick = vm::add,
@@ -171,7 +171,7 @@ private fun RuleRow(
     onToggleActive: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val rule = row.rule
     val cadence = stringResource(
         when (Frequency.fromCode(rule.frequency)) {
@@ -202,7 +202,7 @@ private fun RuleRow(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = row.targetName.orEmpty(),
-                style = KhataTheme.type.body,
+                style = DayBookTheme.type.body,
                 // A rule that is not generating is greyed *and* says why on the
                 // line below — colour is never the only signal (NFR-USE-05).
                 color = if (rule.isActive && !row.targetArchived) colors.ink else colors.inkSoft,
@@ -220,7 +220,7 @@ private fun RuleRow(
                 rule.isActive -> "$cadence · " + stringResource(R.string.rule_next_due, due)
                 else -> "$cadence · " + stringResource(R.string.rule_paused)
             },
-            style = KhataTheme.type.caption,
+            style = DayBookTheme.type.caption,
             color = colors.inkSoft,
         )
         Row(horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
@@ -260,7 +260,7 @@ private fun RuleEditorSheet(
     onSave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val amount = editor.amount
 
     ModalBottomSheet(
@@ -283,12 +283,12 @@ private fun RuleEditorSheet(
                     .padding(top = Space.s3),
                 horizontalArrangement = Arrangement.spacedBy(Space.s2),
             ) {
-                KhataChip(
+                DayBookChip(
                     label = stringResource(R.string.rule_expense),
                     selected = editor.target == RuleTarget.EXPENSE,
                     onClick = { onTarget(RuleTarget.EXPENSE) },
                 )
-                KhataChip(
+                DayBookChip(
                     label = stringResource(R.string.rule_income),
                     selected = editor.target == RuleTarget.INCOME,
                     onClick = { onTarget(RuleTarget.INCOME) },
@@ -303,11 +303,11 @@ private fun RuleEditorSheet(
                 if (amount == null) {
                     Text(
                         text = "${Money.SYMBOL}0",
-                        style = KhataTheme.type.heroFigure,
+                        style = DayBookTheme.type.heroFigure,
                         color = colors.inkSoft,
                     )
                 } else {
-                    MoneyText(amount, style = KhataTheme.type.heroFigure)
+                    MoneyText(amount, style = DayBookTheme.type.heroFigure)
                 }
             }
 
@@ -318,7 +318,7 @@ private fun RuleEditorSheet(
             ) {
                 if (editor.target == RuleTarget.EXPENSE) {
                     state.categories.forEach { category ->
-                        KhataChip(
+                        DayBookChip(
                             label = category.name,
                             selected = editor.targetId == category.id,
                             onClick = { onTargetId(category.id) },
@@ -326,7 +326,7 @@ private fun RuleEditorSheet(
                     }
                 } else {
                     state.sources.forEach { source ->
-                        KhataChip(
+                        DayBookChip(
                             label = source.name,
                             selected = editor.targetId == source.id,
                             onClick = { onTargetId(source.id) },
@@ -341,7 +341,7 @@ private fun RuleEditorSheet(
                 horizontalArrangement = Arrangement.spacedBy(Space.s2),
             ) {
                 Frequency.entries.forEach { frequency ->
-                    KhataChip(
+                    DayBookChip(
                         label = stringResource(
                             when (frequency) {
                                 Frequency.MONTHLY -> R.string.frequency_monthly
@@ -364,7 +364,7 @@ private fun RuleEditorSheet(
                     horizontalArrangement = Arrangement.spacedBy(Space.s2),
                 ) {
                     ANCHOR_CHOICES.forEach { day ->
-                        KhataChip(
+                        DayBookChip(
                             label = day.toString(),
                             selected = editor.anchorDay == day,
                             onClick = { onAnchorDay(day) },
@@ -378,7 +378,7 @@ private fun RuleEditorSheet(
                 horizontalArrangement = Arrangement.spacedBy(Space.s2),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                KhataChip(
+                DayBookChip(
                     label = stringResource(R.string.auto_post),
                     selected = editor.autoPost,
                     onClick = { onAutoPost(!editor.autoPost) },
@@ -386,7 +386,7 @@ private fun RuleEditorSheet(
             }
             Text(
                 text = stringResource(R.string.auto_post_hint),
-                style = KhataTheme.type.caption,
+                style = DayBookTheme.type.caption,
                 color = colors.inkSoft,
                 modifier = Modifier.padding(horizontal = Space.gutter),
             )
@@ -394,7 +394,7 @@ private fun RuleEditorSheet(
             editor.error?.let { error ->
                 Text(
                     text = stringResource(error.messageRes()),
-                    style = KhataTheme.type.caption,
+                    style = DayBookTheme.type.caption,
                     color = colors.vermilion,
                     modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s1),
                 )
@@ -415,7 +415,7 @@ private fun RuleEditorSheet(
                     .padding(horizontal = Space.gutter, vertical = Space.s2)
                     .height(Sizes.minTouchTarget),
             ) {
-                Text(stringResource(R.string.save_rule), style = KhataTheme.type.body)
+                Text(stringResource(R.string.save_rule), style = DayBookTheme.type.body)
             }
 
             NumericKeypad(onKey = onKey)
@@ -427,8 +427,8 @@ private fun RuleEditorSheet(
 private fun TextAction(text: String, onClick: () -> Unit, destructive: Boolean = false) {
     Text(
         text = text,
-        style = KhataTheme.type.caption,
-        color = if (destructive) KhataTheme.colors.vermilion else KhataTheme.colors.indigo,
+        style = DayBookTheme.type.caption,
+        color = if (destructive) DayBookTheme.colors.vermilion else DayBookTheme.colors.indigo,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier
             .defaultMinSize(minHeight = Sizes.minTouchTarget)

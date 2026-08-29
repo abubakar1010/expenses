@@ -1,7 +1,7 @@
 
 
 # Implementation Log — M1 and M2
-**Product:** Khata — Personal Finance Manager (Android)
+**Product:** DayBook — Personal Finance Manager (Android)
 **Covers:** initial scaffold through milestone M2
 **Date:** 14 August 2026 (§1–§11, M1) · 15 August 2026 (§12, M2)
 
@@ -40,7 +40,7 @@ M2"* — plus the complete persistence layer and design system that M2–M4 rest
 | Build configuration, R8 full mode, signed release | complete | NFR-SIZE-* |
 | Schema: 9 tables, 14 indices, 14 triggers, seed, PRAGMAs | complete | DR-01…06 |
 | `Money`, `Period`, `NameKey` | complete | NFR-MAIN-01 |
-| *Khata* design system, light and dark | complete | `05` §3–§7 |
+| *DayBook* design system, light and dark | complete | `05` §3–§7 |
 | Navigation shell, bottom bar, centre FAB | complete | NFR-USE-01/06 |
 | Quick Add — keypad, chips, date, method, note, full picker | complete | FR-EXP-01…06 |
 | Ledger — paging, day groups, edit, delete+undo, filter, search | complete | FR-EXP-07…10 |
@@ -480,7 +480,7 @@ no `-keep` rule needed beyond those already in `proguard-rules.pro`.
 
 It also surfaced a defect the debug build had hidden: **every ledger row was
 drawn over a red band**. `SwipeToDismissBox` composes its `backgroundContent`
-unconditionally, and the Khata ledger row is deliberately transparent — the rule
+unconditionally, and the DayBook ledger row is deliberately transparent — the rule
 is its structure, not a card — so the delete ground showed through at rest. The
 background is now painted only while a swipe is under way, and the row is opaque
 so the ground slides out from under it rather than through it.
@@ -984,7 +984,7 @@ it.
   mock; in Month scope it is the trailing twelve, which is the requirement's
   wording. One rule, both readings.
 
-### 14.4 The departure: Khata now has a delete
+### 14.4 The departure: DayBook now has a delete
 
 Every other removal in this app is an archive, and §12.4 records why at length —
 "a deleted category silently rewrites history; an archived one preserves it",
@@ -2057,7 +2057,7 @@ Nine findings. The first is exactly what the pass was for.
 
 ### 19.1 An M5 change had quietly disabled an M1 safety net
 
-`MainActivity` collected `settingsRepo.observeTheme()` **above** `KhataTheme`,
+`MainActivity` collected `settingsRepo.observeTheme()` **above** `DayBookTheme`,
 so it ran before and independently of `verifyDatabase()`. That is a Room query
 on `app_meta`, and the one case that matters is the database being the thing
 that is broken — which is precisely when `RecoveryScreen` has to appear. The
@@ -2459,7 +2459,7 @@ second, weaker secret in front of data whose real protection is the device lock:
 it would need a hash, a salt, an attempt limit and a forgotten-PIN path, and it
 would imply an encryption that is not there. `BIOMETRIC_WEAK or DEVICE_CREDENTIAL`
 satisfies both halves of "PIN or biometric" — the device credential *is* a PIN —
-and leaves Khata holding nothing it could leak.
+and leaves DayBook holding nothing it could leak.
 
 It costs a `FragmentActivity`, which is in tension with 04 §2.2's "no
 Fragments". No fragment is inflated either way; what joins the startup path is
@@ -2616,13 +2616,13 @@ corpus. The rest is composition.
 routinely cut Compose cold start by 20–30%". But `BaselineProfileGenerator`
 needs a rootable device, so it had always been skipped, and the 3,345-line
 profile shipping in the release APK came entirely from library-supplied rules
-(navigation, compose) with **no Khata code in it at all**. The numbers showed it:
+(navigation, compose) with **no DayBook code in it at all**. The numbers showed it:
 314 ms without compilation against 305 ms with, a 3% difference where the
 architecture assumed 20–30%.
 
 Generated on the `Khata_API35` AVD, which is `google_apis` and therefore
 rootable. The release profile went from 3,345 rules and **zero** app references
-to 24,795 rules and **2,738** of them Khata's own.
+to 24,795 rules and **2,738** of them DayBook's own.
 
 Its effect on NFR-PERF-04, measured the same way on the same corpus:
 
@@ -2674,7 +2674,7 @@ readings disagree:
 On the reading that matters for a device with 2 GB of RAM — the memory this app
 is responsible for — it is **50.8 MB against 80 MB**. On the literal reading,
 total RSS is about 145 MB, and would be for any Compose app, because file-backed
-pages are shared framework mappings that exist whether Khata runs or not.
+pages are shared framework mappings that exist whether DayBook runs or not.
 Recording both rather than picking the flattering one: the requirement should
 say which it means, and until it does this is not a clean pass.
 
@@ -3139,7 +3139,7 @@ the readings disagree by a factor of three:
 
 On one reading the app passes with a third of the budget spare. On the other it
 fails, and **so would every Compose application ever written**, because
-file-backed pages are shared mappings that exist whether Khata is running or
+file-backed pages are shared mappings that exist whether DayBook is running or
 not. A budget that no member of its category can meet is not measuring the thing
 it was written to measure.
 
@@ -3311,7 +3311,7 @@ cold start at 800 ms.
 So the passphrase is turned into a key once, when the user sets it, and **the
 key is stored in `app_meta` beside the ledger**. That reads badly at first and
 is in fact free: anyone who can read the app's private storage can read
-`khata.db`, which NFR-SEC-05 deliberately leaves unencrypted on the reasoning
+`daybook.db`, which NFR-SEC-05 deliberately leaves unencrypted on the reasoning
 that "the device lock screen already gates access". Wrapping this key would be
 defending a door standing open beside it.
 
@@ -3420,7 +3420,7 @@ failure gets a sentence.
 **The cost is stated rather than hidden.** A phone left in a drawer is not
 backed up until it is next opened. WhatsApp can do better because it has a
 foreground service and a network permission; this app has neither and will not
-acquire them. The Backup screen says "Backups are written when you open Khata,
+acquire them. The Backup screen says "Backups are written when you open DayBook,
 not while it is closed" for that reason — 05 §9 asks for the fact and then the
 action, and a user who believes they are covered and is not would be worse off
 than one with no backup at all.
@@ -3521,7 +3521,7 @@ The full scenario, in order:
 |---|---|
 | Clean install, first launch | `WelcomeScreen` appears. "Start fresh" dismisses it. |
 | Settings → Automatic backup | Renders; "Never backed up"; the folder row offers a choice |
-| Choose a folder | `ACTION_OPEN_DOCUMENT_TREE` opens; **"Allow Khata to access files in Documents?"**; the row then reads "Documents / Change folder" |
+| Choose a folder | `ACTION_OPEN_DOCUMENT_TREE` opens; **"Allow DayBook to access files in Documents?"**; the row then reads "Documents / Change folder" |
 | Back up now | `khata-backup-2026-08-22-1317.khata` appears in `/sdcard/Documents`, 1,067 bytes, **no `.part` left behind** |
 | The file, pulled and decoded | magic `KHATA1
 `, mode 0, `schema_version` 1, 16 categories, 1 source — and **no `backup_tree_uri` in its meta**, which is `TRANSIENT_KEYS` working on a real provider rather than a fake one |
@@ -3644,7 +3644,7 @@ leaked handle on top of it helps nobody.
 #### F: a truncated backup was called a stranger
 
 Past the magic number the file is *ours*. A file that ended before its mode byte
-threw `NotABackup`, which reads to the user as "That file isn't a Khata backup"
+threw `NotABackup`, which reads to the user as "That file isn't a DayBook backup"
 — sending somebody holding a truncated backup off to look for a different file.
 It is `CorruptBackup` now, and `NotABackup` is gone: nothing threw it any more,
 and a dead exception class is a trap for whoever catches it next.
@@ -3656,11 +3656,11 @@ courtesy to a newer schema — "update, then import again". `NewerFormat` says s
 #### G: the distinction never reached the user anyway
 
 The one that justified the whole audit. The codec goes to real trouble to tell a
-damaged Khata file from a file that was never one — and then `Importer` threw it
+damaged DayBook file from a file that was never one — and then `Importer` threw it
 away, because `Importer` sees a read that failed and reports every one of them as
 `UNREADABLE`. Damage that only shows up part-way through a file — a failed AEAD
 tag, a truncated gzip stream — is thrown *while the import is reading*, so every
-tampered or truncated backup produced "That file isn't a Khata backup."
+tampered or truncated backup produced "That file isn't a DayBook backup."
 
 Six careful error types upstream, flattened at the last step.
 
@@ -4090,7 +4090,7 @@ suppression armed for a picker that then failed to open sat there until the user
 pressed Home and swallowed *that* stop; and "Send a copy" armed it before a
 plain `startActivity` to the share sheet, which returns no result and therefore
 has no moment at which the flag could come down — tap it, pick WhatsApp, and
-Khata stayed unlocked in the background for as long as the user was gone.
+DayBook stayed unlocked in the background for as long as the user was gone.
 
 It is a `beginHandoff`/`endHandoff` count now, and `rememberHandoffLauncher` is
 the only thing that can raise it: the launcher returns a plain `(I) -> Unit`

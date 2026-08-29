@@ -20,7 +20,7 @@ import javax.crypto.spec.SecretKeySpec
 /**
  * The backup container — FR-DAT-11 and FR-DAT-12.
  *
- * **Not a new file format.** What travels inside is the same `KhataExport` JSON
+ * **Not a new file format.** What travels inside is the same `DayBookExport` JSON
  * [Exporter] already writes and [Importer] already reads, byte for byte. This
  * wraps it and nothing more, which is why adding it leaves every one of
  * `ImportValidationTest`'s cases untouched: [decode] hands back a stream of
@@ -50,16 +50,16 @@ import javax.crypto.spec.SecretKeySpec
  *
  * ```
  * off  size  field
- * 0    7     magic, KHATA1 and a newline
- * 7    1     mode: 0 = gzip, 1 = gzip then AES-256-GCM
+ * 0    9     magic, DAYBOOK1 and a newline
+ * 9    1     mode: 0 = gzip, 1 = gzip then AES-256-GCM
  * --- mode 1 only ---
- * 8    16    salt
- * 24   4     PBKDF2 iterations, big-endian
- * 28   12    nonce (the per-frame IV is this, with the counter mixed in)
- * 40   4     verifier, see below
- * 44   ...   frames
+ * 10   16    salt
+ * 26   4     PBKDF2 iterations, big-endian
+ * 30   12    nonce (the per-frame IV is this, with the counter mixed in)
+ * 42   4     verifier, see below
+ * 46   ...   frames
  * --- mode 0 ---
- * 8    ...   gzip stream to end of file
+ * 10   ...   gzip stream to end of file
  * ```
  *
  * A frame is `flag(1)`, `length(4, big-endian)`, `ciphertext(length)`, the
@@ -100,8 +100,8 @@ import javax.crypto.spec.SecretKeySpec
  */
 object BackupCodec {
 
-    /** Seven bytes, ASCII: `KHATA1` and a newline, so `head` on the file is tidy. */
-    val MAGIC = byteArrayOf(0x4B, 0x48, 0x41, 0x54, 0x41, 0x31, 0x0A)
+    /** Nine bytes, ASCII: `DAYBOOK1` and a newline, so `head` on the file is tidy. */
+    val MAGIC = byteArrayOf(0x44, 0x41, 0x59, 0x42, 0x4F, 0x4F, 0x4B, 0x31, 0x0A)
 
     const val MODE_PLAIN = 0
     const val MODE_ENCRYPTED = 1
@@ -128,12 +128,12 @@ object BackupCodec {
     const val FRAME_BYTES = 64 * 1024
 
     /** The extension the app writes and looks for. */
-    const val EXTENSION = "khata"
+    const val EXTENSION = "daybook"
 
     /**
      * What a backup is created as.
      *
-     * Deliberately not a made-up `application/x-khata`. A document provider
+     * Deliberately not a made-up `application/x-daybook`. A document provider
      * decides a new file's extension from its MIME type, and one it has never
      * heard of is where providers start improvising -- octet-stream is the type
      * every one of them leaves alone.
@@ -141,7 +141,7 @@ object BackupCodec {
     const val MIME = "application/octet-stream"
 
     /** What every automatic backup's name begins with. Drives rotation. */
-    const val NAME_PREFIX = "khata-backup-"
+    const val NAME_PREFIX = "daybook-backup-"
 
     /**
      * The suffix a file carries while it is still being written.
@@ -187,7 +187,7 @@ object BackupCodec {
      * is stored beside the ledger.
      *
      * **Storing it there costs nothing that is not already spent.** An attacker
-     * who can read the app's private storage can read `khata.db`, which
+     * who can read the app's private storage can read `daybook.db`, which
      * NFR-SEC-05 deliberately leaves unencrypted on the reasoning that "the
      * device lock screen already gates access". Wrapping this key would defend a
      * door that is standing open beside it.
@@ -260,11 +260,11 @@ object BackupCodec {
     }
 
     /**
-     * Unwraps [source] into a stream of plain `KhataExport` JSON, which is what
+     * Unwraps [source] into a stream of plain `DayBookExport` JSON, which is what
      * `Importer` consumes unchanged.
      *
      * A file that does not start with [MAGIC] is passed through untouched rather
-     * than refused. That is FR-DAT-12: every `khata-export.json` written before
+     * than refused. That is FR-DAT-12: every `daybook-export.json` written before
      * this class existed must still restore, and a user who exported last year
      * should not discover that the app stopped reading its own files.
      */
@@ -278,7 +278,7 @@ object BackupCodec {
         // Past the magic, so anything wrong from here is a damaged backup of
         // ours rather than somebody else's file. `readByteOrThrow` said
         // "NotABackup" here, which would have told a user holding a truncated
-        // Khata file to go and find a different one.
+        // DayBook file to go and find a different one.
         val mode = source.read()
         if (mode == -1) throw CorruptBackup("this backup ends before its mode byte")
 

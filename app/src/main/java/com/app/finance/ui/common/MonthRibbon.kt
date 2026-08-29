@@ -12,7 +12,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import com.app.finance.core.money.Money
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import java.util.Locale
 
@@ -52,7 +52,7 @@ fun MonthRibbon(
     locale: Locale,
     modifier: Modifier = Modifier,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val peak = dailyTotals.maxOrNull()?.coerceAtLeast(1L) ?: 1L
     val spokenTotal = Money(dailyTotals.sum()).spokenForm(locale)
 

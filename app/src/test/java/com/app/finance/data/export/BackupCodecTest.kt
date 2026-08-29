@@ -66,7 +66,7 @@ class BackupCodecTest {
 
     @Test
     fun `a plain export from an earlier release passes straight through`() {
-        // The whole of FR-DAT-12. Every khata-export.json already on somebody's
+        // The whole of FR-DAT-12. Every daybook-export.json already on somebody's
         // phone has no magic number, and refusing it would mean the app stopped
         // reading its own files.
         val payload = JSON.toByteArray()
@@ -216,7 +216,7 @@ class BackupCodecTest {
 
     @Test
     fun `a file cut off after the magic is damage, not a stranger`() {
-        // Past the magic the file is ours, and saying "this isn't a Khata
+        // Past the magic the file is ours, and saying "this isn't a DayBook
         // backup" would send somebody holding a truncated one off to find a
         // different file. Both branches below are past that point.
         val file = encode(JSON.toByteArray(), pass)
@@ -281,7 +281,7 @@ class BackupCodecTest {
     @Test
     fun `only the app's own backups are recognised by name`() {
         assertTrue(BackupCodec.isBackupName(BackupCodec.fileName("2026-08-22-2114")))
-        assertFalse(BackupCodec.isBackupName("khata-export.json"))
+        assertFalse(BackupCodec.isBackupName("daybook-export.json"))
         assertFalse(BackupCodec.isBackupName("holiday.jpg"))
         // Still being written, so not yet a backup anything may restore from.
         assertFalse(BackupCodec.isBackupName(BackupCodec.fileName("2026-08-22-2114") + BackupCodec.PARTIAL))

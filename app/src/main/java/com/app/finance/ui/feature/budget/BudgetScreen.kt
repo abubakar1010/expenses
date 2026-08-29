@@ -51,14 +51,14 @@ import com.app.finance.domain.usecase.BudgetGroup
 import com.app.finance.domain.usecase.BudgetLeaf
 import com.app.finance.ui.common.BudgetBar
 import com.app.finance.ui.common.EmptyState
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.LeaderDots
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.PeriodSwitcher
 import com.app.finance.ui.common.AlertRow
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.rememberJavaLocale
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -131,8 +131,8 @@ fun BudgetScreen(
             trailing = {
                 Text(
                     text = stringResource(R.string.manage_categories),
-                    style = KhataTheme.type.body,
-                    color = KhataTheme.colors.indigo,
+                    style = DayBookTheme.type.body,
+                    color = DayBookTheme.colors.indigo,
                     modifier = Modifier
                         .defaultMinSize(minHeight = Sizes.minTouchTarget)
                         .clickable(onClick = onManageCategories)
@@ -209,11 +209,11 @@ private fun CopyLastMonthChip(copyableCount: Int, onCopy: () -> Unit) {
     if (copyableCount == 0) {
         Text(
             text = stringResource(R.string.nothing_to_copy),
-            style = KhataTheme.type.caption,
-            color = KhataTheme.colors.inkSoft,
+            style = DayBookTheme.type.caption,
+            color = DayBookTheme.colors.inkSoft,
         )
     } else {
-        KhataChip(
+        DayBookChip(
             label = stringResource(R.string.copy_last_month),
             selected = false,
             onClick = onCopy,
@@ -241,8 +241,8 @@ private fun GroupHeader(group: BudgetGroup) {
                         group.limit.format(locale),
                     )
                 },
-                style = KhataTheme.type.caption,
-                color = KhataTheme.colors.inkSoft,
+                style = DayBookTheme.type.caption,
+                color = DayBookTheme.colors.inkSoft,
             )
         },
     )
@@ -266,7 +266,7 @@ private fun LimitRow(
     leaf: BudgetLeaf,
     onClick: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val locale = rememberJavaLocale()
     val status = leaf.status
 
@@ -348,7 +348,7 @@ private fun LimitRow(
         verticalArrangement = Arrangement.Center,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(text = leaf.name, style = KhataTheme.type.body, color = colors.ink)
+            Text(text = leaf.name, style = DayBookTheme.type.body, color = colors.ink)
             // §6 lists leader dots in the ledger-row specification, and this is
             // that row's 72 dp with-bar variant.
             LeaderDots(Modifier.weight(1f))
@@ -369,13 +369,13 @@ private fun LimitRow(
         ) {
             Text(
                 text = percent.orEmpty(),
-                style = KhataTheme.type.caption,
+                style = DayBookTheme.type.caption,
                 color = colors.inkSoft,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
                 Text(
                     text = stateText,
-                    style = KhataTheme.type.caption,
+                    style = DayBookTheme.type.caption,
                     color = when {
                         !leaf.hasLimit -> colors.inkSoft
                         status.state == BudgetState.OVER -> colors.vermilion
@@ -388,7 +388,7 @@ private fun LimitRow(
                     // control, so it takes the action colour.
                     Text(
                         text = stringResource(R.string.set_one),
-                        style = KhataTheme.type.caption,
+                        style = DayBookTheme.type.caption,
                         color = colors.indigo,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -401,7 +401,7 @@ private fun LimitRow(
 /** Structure first, figures when they arrive (§8). Never animated. */
 @Composable
 private fun BudgetSkeleton() {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     Column(Modifier.fillMaxSize().clearAndSetSemantics {}) {
         repeat(SKELETON_ROWS) { index ->
             Column(

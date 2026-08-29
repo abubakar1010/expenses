@@ -38,7 +38,7 @@ import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.MoveActions
 import com.app.finance.ui.common.Reorder
 import com.app.finance.ui.common.rememberJavaLocale
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 import com.app.finance.ui.common.offerUndo
@@ -85,8 +85,8 @@ fun CategoryManagerScreen(
         ) {
             Text(
                 text = stringResource(R.string.categories_title),
-                style = KhataTheme.type.screenTitle,
-                color = KhataTheme.colors.ink,
+                style = DayBookTheme.type.screenTitle,
+                color = DayBookTheme.colors.ink,
             )
             TextAction(stringResource(R.string.add_group), onClick = vm::addRoot)
         }
@@ -224,7 +224,7 @@ private fun CategoryRow(
     onTrailing: () -> Unit,
     reorder: Reorder? = null,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     Row(
         Modifier
             .fillMaxWidth()
@@ -242,7 +242,7 @@ private fun CategoryRow(
     ) {
         Text(
             text = category.name,
-            style = KhataTheme.type.body,
+            style = DayBookTheme.type.body,
             color = if (category.isArchived) colors.inkSoft else colors.ink,
         )
         Box(Modifier.weight(1f))
@@ -272,8 +272,8 @@ private fun TextAction(
 ) {
     Text(
         text = text,
-        style = KhataTheme.type.caption,
-        color = if (destructive) KhataTheme.colors.vermilion else KhataTheme.colors.indigo,
+        style = DayBookTheme.type.caption,
+        color = if (destructive) DayBookTheme.colors.vermilion else DayBookTheme.colors.indigo,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier
             .defaultMinSize(minHeight = Sizes.minTouchTarget)

@@ -180,7 +180,7 @@ class Exporter(private val db: AppDatabase) {
     private fun Boolean.s() = if (this) "1" else "0"
 
     private companion object {
-        val CODEC: Json = KhataExport.CODEC
+        val CODEC: Json = DayBookExport.CODEC
 
         const val CATEGORIES = "categories"
         const val SOURCES = "sources"

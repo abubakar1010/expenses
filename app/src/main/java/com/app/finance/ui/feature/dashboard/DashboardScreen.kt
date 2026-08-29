@@ -53,7 +53,7 @@ import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.TrendLine
 import com.app.finance.ui.common.monthInitials
 import com.app.finance.ui.common.rememberJavaLocale
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Space
 import java.time.LocalDate
@@ -132,8 +132,8 @@ fun DashboardScreen(
             trailing = {
                 Text(
                     text = stringResource(R.string.open_settings),
-                    style = KhataTheme.type.caption,
-                    color = KhataTheme.colors.indigo,
+                    style = DayBookTheme.type.caption,
+                    color = DayBookTheme.colors.indigo,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
                         .defaultMinSize(minHeight = Sizes.minTouchTarget)
@@ -325,10 +325,10 @@ private fun SafeToSpendHero(state: DashboardUiState, locale: Locale) {
             .padding(top = Space.s5, bottom = Space.s2)
             .semantics(mergeDescendants = true) { contentDescription = spoken },
     ) {
-        Text(caption, style = KhataTheme.type.sectionHeader, color = KhataTheme.colors.inkSoft)
+        Text(caption, style = DayBookTheme.type.sectionHeader, color = DayBookTheme.colors.inkSoft)
         MoneyText(
             money = figure,
-            style = KhataTheme.type.heroFigure,
+            style = DayBookTheme.type.heroFigure,
             // The column's sentence already carries the figure as words; left
             // alone this would merge a second description and TalkBack would
             // read the amount twice.
@@ -344,8 +344,8 @@ private fun SafeToSpendHero(state: DashboardUiState, locale: Locale) {
                     R.string.safe_to_spend_over,
                     safe.remaining.absoluteValue.format(locale),
                 ),
-                style = KhataTheme.type.caption,
-                color = KhataTheme.colors.vermilion,
+                style = DayBookTheme.type.caption,
+                color = DayBookTheme.colors.vermilion,
                 fontWeight = FontWeight.SemiBold,
             )
         }
@@ -371,22 +371,22 @@ private fun Ribbon(state: DashboardUiState, locale: Locale) {
         ) {
             Text(
                 text = stringResource(R.string.ribbon_first_day),
-                style = KhataTheme.type.caption,
-                color = KhataTheme.colors.inkSoft,
+                style = DayBookTheme.type.caption,
+                color = DayBookTheme.colors.inkSoft,
             )
             Box(Modifier.weight(1f))
             if (state.ribbon.todayIndex >= 0) {
                 Text(
                     text = stringResource(R.string.ribbon_today),
-                    style = KhataTheme.type.caption,
-                    color = KhataTheme.colors.vermilion,
+                    style = DayBookTheme.type.caption,
+                    color = DayBookTheme.colors.vermilion,
                 )
             }
             Box(Modifier.weight(1f))
             Text(
                 text = state.ribbon.dailyTotals.size.toString(),
-                style = KhataTheme.type.caption,
-                color = KhataTheme.colors.inkSoft,
+                style = DayBookTheme.type.caption,
+                color = DayBookTheme.colors.inkSoft,
             )
         }
     }
@@ -395,7 +395,7 @@ private fun Ribbon(state: DashboardUiState, locale: Locale) {
 /** `Earned ৳48,000  Spent ৳31,600` / `Net +৳16,400 · saving 34%` — FR-AN-02, -03. */
 @Composable
 private fun NetStrip(state: DashboardUiState, locale: Locale) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val net = state.net
     val netFigure = if (net.net.isNegative) {
         net.net.format(locale)
@@ -428,18 +428,18 @@ private fun NetStrip(state: DashboardUiState, locale: Locale) {
         ) {
             Text(
                 text = stringResource(R.string.earned_label, net.income.format(locale)),
-                style = KhataTheme.type.body,
+                style = DayBookTheme.type.body,
                 color = colors.moss,
             )
             Text(
                 text = stringResource(R.string.spent_label, net.expenses.format(locale)),
-                style = KhataTheme.type.body,
+                style = DayBookTheme.type.body,
                 color = colors.ink,
             )
         }
         Text(
             text = netLine,
-            style = KhataTheme.type.body,
+            style = DayBookTheme.type.body,
             fontWeight = FontWeight.SemiBold,
             // Colour is not the only signal: the sign is in the figure and the
             // word "Net" is in the sentence either way (NFR-USE-05).
@@ -466,8 +466,8 @@ private fun GroupHeader(group: BudgetGroup, locale: Locale) {
                         group.spent.format(locale),
                         group.limit.format(locale),
                     ),
-                    style = KhataTheme.type.caption,
-                    color = KhataTheme.colors.inkSoft,
+                    style = DayBookTheme.type.caption,
+                    color = DayBookTheme.colors.inkSoft,
                 )
             }
         },
@@ -536,8 +536,8 @@ private fun DeltaRow(delta: CategoryDelta, locale: Locale) {
 private fun MixCaption(excluded: String) {
     Text(
         text = stringResource(R.string.mix_excludes, excluded),
-        style = KhataTheme.type.caption,
-        color = KhataTheme.colors.inkSoft,
+        style = DayBookTheme.type.caption,
+        color = DayBookTheme.colors.inkSoft,
         modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s2),
     )
 }
@@ -561,8 +561,8 @@ private fun MixRow(slice: SpendSlice, locale: Locale) {
 private fun Caption(text: String) {
     Text(
         text = text,
-        style = KhataTheme.type.body,
-        color = KhataTheme.colors.ink,
+        style = DayBookTheme.type.body,
+        color = DayBookTheme.colors.ink,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Space.gutter, vertical = Space.s3),
@@ -572,7 +572,7 @@ private fun Caption(text: String) {
 /** Structure first, figures when they arrive (05 §8). Never animated. */
 @Composable
 private fun DashboardSkeleton() {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     Column(
         Modifier
             .fillMaxSize()

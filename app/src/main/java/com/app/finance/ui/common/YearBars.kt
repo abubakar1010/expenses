@@ -19,7 +19,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.app.finance.R
 import com.app.finance.core.money.Money
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Space
 import java.time.Month
 import java.time.format.TextStyle
@@ -62,7 +62,7 @@ fun YearBars(
     locale: Locale,
     modifier: Modifier = Modifier,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val peak = monthlyTotals.maxOrNull()?.coerceAtLeast(1L) ?: 1L
     val description = stringResource(
         R.string.trend_description,
@@ -122,7 +122,7 @@ fun YearBars(
             labels.forEach { label ->
                 Text(
                     text = label,
-                    style = KhataTheme.type.caption,
+                    style = DayBookTheme.type.caption,
                     color = colors.inkSoft,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f),

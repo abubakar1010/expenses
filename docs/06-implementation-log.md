@@ -767,7 +767,7 @@ it is *reached* still needs the reference device.
 
 ### 12.10 Still not done
 
-- **One instrumented re-run is outstanding.** The `Khata_API35` AVD stopped
+- **One instrumented re-run is outstanding.** The `DayBook_API35` AVD stopped
   staying up: with the Gradle daemon at `-Xmx4096m`, a Kotlin daemon and the
   emulator on a 16 GB host, three consecutive runs died with
   `DeviceException: No connected devices!` rather than with a test failure. The
@@ -2620,7 +2620,7 @@ profile shipping in the release APK came entirely from library-supplied rules
 314 ms without compilation against 305 ms with, a 3% difference where the
 architecture assumed 20–30%.
 
-Generated on the `Khata_API35` AVD, which is `google_apis` and therefore
+Generated on the `DayBook_API35` AVD, which is `google_apis` and therefore
 rootable. The release profile went from 3,345 rules and **zero** app references
 to 24,795 rules and **2,738** of them DayBook's own.
 

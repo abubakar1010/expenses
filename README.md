@@ -247,7 +247,7 @@ Cortex-A53, so a target missed here is missed there too.
 **NFR-PERF-04 misses**, and §20.6 has the decomposition: 281 ms to the first
 frame, 223 ms for the reads, the rest composition. The mitigation `04` §2.2
 requires has now been applied — the app finally has a baseline profile of its own
-code, generated on the `Khata_API35` AVD, taking the release profile from 3,345
+code, generated on the `DayBook_API35` AVD, taking the release profile from 3,345
 library-only rules to 24,795 with 2,738 of them DayBook's. That moved the dashboard
 from **666 ms to 552 ms**, a 17% improvement in the range the architecture
 predicted, and still 252 ms outside the target. The next lever is `04` §2.2's own
@@ -258,7 +258,7 @@ Two caveats:
 
 - Profile generation **needs root**, so it requires an AOSP or `google_apis`
   emulator image — a `google_apis_playstore` one cannot be rooted. The
-  `Khata_API35` AVD created for the test suite is `google_apis` and works.
+  `DayBook_API35` AVD created for the test suite is `google_apis` and works.
 - `FrameTimingMetric` returns frame *counts* and no per-frame durations on the
   A54, so the scroll and period-switch benchmarks use `FrameTimingGfxInfoMetric`
   as well — it reads `dumpsys gfxinfo` and reports percentiles, which is the

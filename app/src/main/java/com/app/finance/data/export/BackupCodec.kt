@@ -264,9 +264,9 @@ object BackupCodec {
      * `Importer` consumes unchanged.
      *
      * A file that does not start with [MAGIC] is passed through untouched rather
-     * than refused. That is FR-DAT-12: every `daybook-export.json` written before
-     * this class existed must still restore, and a user who exported last year
-     * should not discover that the app stopped reading its own files.
+     * than refused. That is FR-DAT-12: `Exporter.writeJson` writes a plain
+     * `daybook-export.json` with no magic at all, and `Importer` has to keep
+     * reading it — the container wraps that format, it does not replace it.
      */
     fun decode(source: InputStream, passphrase: CharArray? = null): InputStream {
         val head = source.take(MAGIC.size)

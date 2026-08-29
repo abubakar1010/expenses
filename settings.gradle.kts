@@ -20,7 +20,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Khata"
+rootProject.name = "DayBook"
 include(":app")
 
 // Not a violation of the single-module rule in 04 §3.1: that governs

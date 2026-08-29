@@ -1,4 +1,4 @@
-# Khata — release shrinking rules.
+# DayBook — release shrinking rules.
 # 04-system-architecture.md §10: R8 full mode, resource shrinking, single dex.
 # Keep this file small. Every -keep is a shrinking opportunity given up, and the
 # APK budget (NFR-SIZE-01, 6 MB) has no slack to donate.

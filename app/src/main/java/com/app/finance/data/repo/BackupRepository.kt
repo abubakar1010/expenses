@@ -341,8 +341,8 @@ class BackupRepository(
         } catch (e: BackupCodec.CorruptBackup) {
             // Ours, and damaged — "that backup couldn't be read to the end".
             // Kept apart from the case below on purpose: the codec goes to some
-            // trouble to tell a Khata file that has been altered from a file
-            // that was never one, and collapsing both into "this isn't a Khata
+            // trouble to tell a DayBook file that has been altered from a file
+            // that was never one, and collapsing both into "this isn't a DayBook
             // backup" would throw that away at the last step and tell a user
             // with a truncated backup to go and find a different file.
             input.close()
@@ -357,7 +357,7 @@ class BackupRepository(
         // Damage that only shows up part-way through the file — a failed AEAD
         // tag, a truncated gzip stream — is thrown while `Importer` is reading,
         // and `Importer` reports every read failure as UNREADABLE: "that file
-        // isn't a Khata backup". For a backup that *is* one and is merely
+        // isn't a DayBook backup". For a backup that *is* one and is merely
         // damaged, that is the wrong sentence and an unhelpful one, and it
         // silently undid the distinction the codec goes to some trouble to draw.
         //
@@ -433,7 +433,7 @@ class BackupRepository(
         LocalDateTime.ofInstant(Instant.ofEpochMilli(at), ZoneOffset.UTC).format(STAMP)
 
     private companion object {
-        const val TAG = "Khata"
+        const val TAG = "DayBook"
         const val MILLIS_PER_DAY = 24L * 60 * 60 * 1000
 
         /**

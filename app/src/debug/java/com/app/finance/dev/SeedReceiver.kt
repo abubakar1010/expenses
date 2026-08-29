@@ -66,7 +66,7 @@ class SeedReceiver : BroadcastReceiver() {
     }
 
     private companion object {
-        const val TAG = "KhataSeed"
+        const val TAG = "DayBookSeed"
         const val EXTRA_SCALE = "scale"
     }
 }

@@ -318,7 +318,7 @@ class IncomeRepository(
      * FR-IS-06 — "The system MUST permit deletion of a source with zero
      * entries." **The only delete in the application.**
      *
-     * Every other removal in Khata is an archive, because deleting a category
+     * Every other removal in DayBook is an archive, because deleting a category
      * silently rewrites history. A source with no entries has no history to
      * rewrite, and the SRS says so explicitly, so this one exists — guarded
      * here by the count and below by `ON DELETE RESTRICT`, which is what makes

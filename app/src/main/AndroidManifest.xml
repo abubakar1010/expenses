@@ -21,13 +21,13 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
-        android:theme="@style/Theme.Khata">
+        android:theme="@style/Theme.DayBook">
 
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|fontScale"
-            android:theme="@style/Theme.Khata">
+            android:theme="@style/Theme.DayBook">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

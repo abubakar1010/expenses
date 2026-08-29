@@ -62,10 +62,10 @@ import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.BackupInterval
 import com.app.finance.ui.common.ActionRow
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.openBackup
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -150,8 +150,8 @@ fun BackupScreen(
     ) {
         Text(
             text = stringResource(R.string.backup_title),
-            style = KhataTheme.type.screenTitle,
-            color = KhataTheme.colors.ink,
+            style = DayBookTheme.type.screenTitle,
+            color = DayBookTheme.colors.ink,
             modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s3),
         )
 
@@ -160,8 +160,8 @@ fun BackupScreen(
         if (state.busy) {
             LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth(),
-                color = KhataTheme.colors.indigo,
-                trackColor = KhataTheme.colors.rule,
+                color = DayBookTheme.colors.indigo,
+                trackColor = DayBookTheme.colors.rule,
             )
         }
 
@@ -197,7 +197,7 @@ fun BackupScreen(
             verticalArrangement = Arrangement.spacedBy(Space.s2),
         ) {
             BackupInterval.entries.forEach { interval ->
-                KhataChip(
+                DayBookChip(
                     label = stringResource(
                         when (interval) {
                             BackupInterval.OFF -> R.string.backup_off
@@ -221,7 +221,7 @@ fun BackupScreen(
             verticalArrangement = Arrangement.spacedBy(Space.s2),
         ) {
             KEEP_CHOICES.forEach { keep ->
-                KhataChip(
+                DayBookChip(
                     label = keep.toString(),
                     selected = state.settings.keep == keep,
                     onClick = { vm.setKeep(keep) },
@@ -308,7 +308,7 @@ fun BackupScreen(
  */
 @Composable
 private fun LastBackup(state: BackupUiState) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val at = state.settings.lastAt
     val rows = state.settings.lastCount
 
@@ -324,13 +324,13 @@ private fun LastBackup(state: BackupUiState) {
             } else {
                 stringResource(R.string.backup_last, friendly(at))
             },
-            style = KhataTheme.type.sectionFigure,
+            style = DayBookTheme.type.sectionFigure,
             color = if (at == null) colors.inkSoft else colors.ink,
         )
         if (at != null && rows != null) {
             Text(
                 text = pluralStringResource(R.plurals.backup_last_rows, rows, rows, state.newestName.orEmpty()),
-                style = KhataTheme.type.caption,
+                style = DayBookTheme.type.caption,
                 color = colors.inkSoft,
             )
         }
@@ -347,7 +347,7 @@ private fun Explainer(lines: List<String>) {
         verticalArrangement = Arrangement.spacedBy(Space.s1),
     ) {
         lines.forEach {
-            Text(it, style = KhataTheme.type.caption, color = KhataTheme.colors.inkSoft)
+            Text(it, style = DayBookTheme.type.caption, color = DayBookTheme.colors.inkSoft)
         }
     }
 }
@@ -361,7 +361,7 @@ private fun PassphraseSheet(
     onSave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -378,14 +378,14 @@ private fun PassphraseSheet(
         ) {
             Text(
                 text = stringResource(R.string.backup_encrypt),
-                style = KhataTheme.type.screenTitle,
+                style = DayBookTheme.type.screenTitle,
                 color = colors.ink,
             )
             // Said again here, at the moment the passphrase is chosen, because
             // this is the last point at which the warning can still be acted on.
             Text(
                 text = stringResource(R.string.backup_encrypt_hint),
-                style = KhataTheme.type.body,
+                style = DayBookTheme.type.body,
                 color = colors.inkSoft,
             )
             SecretField(draft.first, stringResource(R.string.backup_passphrase), onFirst)
@@ -399,7 +399,7 @@ private fun PassphraseSheet(
                             PassphraseError.DIFFERS -> R.string.backup_passphrase_differs
                         },
                     ),
-                    style = KhataTheme.type.caption,
+                    style = DayBookTheme.type.caption,
                     color = colors.vermilion,
                 )
             }
@@ -416,7 +416,7 @@ private fun PassphraseSheet(
                 ),
                 modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
             ) {
-                Text(stringResource(R.string.backup_passphrase_save), style = KhataTheme.type.body)
+                Text(stringResource(R.string.backup_passphrase_save), style = DayBookTheme.type.body)
             }
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.cancel), color = colors.inkSoft)
@@ -441,7 +441,7 @@ private fun RestoreSheet(
     onConfirm: (ImportMode) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -458,7 +458,7 @@ private fun RestoreSheet(
         ) {
             Text(
                 text = stringResource(R.string.import_choose_mode),
-                style = KhataTheme.type.screenTitle,
+                style = DayBookTheme.type.screenTitle,
                 color = colors.ink,
             )
 
@@ -467,7 +467,7 @@ private fun RestoreSheet(
                     text = stringResource(
                         if (draft.wrong) R.string.backup_wrong_passphrase else R.string.backup_needs_passphrase,
                     ),
-                    style = KhataTheme.type.body,
+                    style = DayBookTheme.type.body,
                     color = if (draft.wrong) colors.vermilion else colors.inkSoft,
                 )
                 SecretField(draft.typed, stringResource(R.string.backup_passphrase), onTyped)
@@ -495,7 +495,7 @@ private fun RestoreSheet(
 
 @Composable
 private fun ModeButton(title: String, hint: String, enabled: Boolean, onClick: () -> Unit) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     Column(
         Modifier
             .fillMaxWidth()
@@ -505,14 +505,14 @@ private fun ModeButton(title: String, hint: String, enabled: Boolean, onClick: (
             .padding(vertical = Space.s2),
         verticalArrangement = Arrangement.spacedBy(Space.s1),
     ) {
-        Text(title, style = KhataTheme.type.body, color = if (enabled) colors.ink else colors.inkSoft)
-        Text(hint, style = KhataTheme.type.caption, color = colors.inkSoft)
+        Text(title, style = DayBookTheme.type.body, color = if (enabled) colors.ink else colors.inkSoft)
+        Text(hint, style = DayBookTheme.type.caption, color = colors.inkSoft)
     }
 }
 
 @Composable
 internal fun SecretField(value: String, hint: String, onChange: (String) -> Unit) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     BasicTextField(
         value = value,
         onValueChange = onChange,
@@ -522,7 +522,7 @@ internal fun SecretField(value: String, hint: String, onChange: (String) -> Unit
             keyboardType = KeyboardType.Password,
             imeAction = ImeAction.Next,
         ),
-        textStyle = KhataTheme.type.body.copy(color = colors.ink),
+        textStyle = DayBookTheme.type.body.copy(color = colors.ink),
         cursorBrush = SolidColor(colors.indigo),
         modifier = Modifier
             .fillMaxWidth()
@@ -538,7 +538,7 @@ internal fun SecretField(value: String, hint: String, onChange: (String) -> Unit
         decorationBox = { inner ->
             Box(contentAlignment = Alignment.CenterStart) {
                 if (value.isEmpty()) {
-                    Text(hint, style = KhataTheme.type.body, color = colors.inkSoft)
+                    Text(hint, style = DayBookTheme.type.body, color = colors.inkSoft)
                 }
                 inner()
             }
@@ -591,7 +591,7 @@ internal fun backupMessage(message: BackupMessage): String = when (message) {
  *
  * **This is the whole of the "off the device" story, and it is deliberate.**
  * FR-APP-01 forbids the `INTERNET` permission outright and the release gate
- * greps the merged manifest for it, so Khata cannot upload anything and never
+ * greps the merged manifest for it, so DayBook cannot upload anything and never
  * will. What it can do is pass a file to an app that already has that
  * permission and the user's account, which is the same trade `ACTION_SEND` was
  * built for. The tap is the user's, which is also what keeps NFR-SEC-01 true.

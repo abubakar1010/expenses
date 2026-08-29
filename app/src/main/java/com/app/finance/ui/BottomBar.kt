@@ -36,8 +36,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.clickable
 import androidx.compose.ui.draw.clip
 import com.app.finance.R
-import com.app.finance.ui.common.KhataIcons
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.common.DayBookIcons
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 
@@ -55,13 +55,13 @@ import com.app.finance.ui.theme.Space
  * component models.
  */
 @Composable
-fun KhataBottomBar(
+fun DayBookBottomBar(
     current: Route,
     onSelect: (Route) -> Unit,
     onQuickAdd: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
 
     Box(modifier.fillMaxWidth()) {
         Row(
@@ -113,7 +113,7 @@ private fun NavItem(
     onSelect: (Route) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val selected = current == route
     val tint = if (selected) colors.indigo else colors.inkSoft
 
@@ -136,7 +136,7 @@ private fun NavItem(
         )
         Text(
             text = stringResource(label),
-            style = KhataTheme.type.caption.copy(fontSize = 11.sp),
+            style = DayBookTheme.type.caption.copy(fontSize = 11.sp),
             color = tint,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         )
@@ -152,7 +152,7 @@ private fun NavItem(
  */
 @Composable
 private fun QuickAddFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val addExpense = stringResource(R.string.add_expense)
     val shape: Shape = CircleShape
 
@@ -170,7 +170,7 @@ private fun QuickAddFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = KhataIcons.Plus,
+            imageVector = DayBookIcons.Plus,
             contentDescription = null,
             tint = colors.card,
             modifier = Modifier.size(24.dp),

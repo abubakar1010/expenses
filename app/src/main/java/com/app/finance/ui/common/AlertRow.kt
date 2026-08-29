@@ -21,7 +21,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import com.app.finance.R
 import com.app.finance.domain.usecase.BudgetAlert
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 
@@ -50,7 +50,7 @@ fun AlertRow(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val locale = rememberJavaLocale()
 
     val figure = if (alert.isOver) alert.overspend else alert.remaining
@@ -103,10 +103,10 @@ fun AlertRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(alert.name, style = KhataTheme.type.body, color = colors.ink)
+        Text(alert.name, style = DayBookTheme.type.body, color = colors.ink)
         Text(
             text = text,
-            style = KhataTheme.type.body,
+            style = DayBookTheme.type.body,
             // Over is the correction ink; approaching is amber. Never colour
             // alone — the words say it too.
             color = if (alert.isOver) colors.vermilion else colors.amber,

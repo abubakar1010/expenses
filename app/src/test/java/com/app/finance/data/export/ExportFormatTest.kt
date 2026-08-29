@@ -17,9 +17,9 @@ import org.junit.Test
  */
 class ExportFormatTest {
 
-    private val codec = KhataExport.CODEC
+    private val codec = DayBookExport.CODEC
 
-    private fun sample() = KhataExport(
+    private fun sample() = DayBookExport(
         schemaVersion = 1,
         exportedAt = 1_755_000_000_000L,
         categories = listOf(
@@ -45,8 +45,8 @@ class ExportFormatTest {
     @Test
     fun `everything written comes back identical`() {
         val original = sample()
-        val text = codec.encodeToString(KhataExport.serializer(), original)
-        assertEquals(original, codec.decodeFromString(KhataExport.serializer(), text))
+        val text = codec.encodeToString(DayBookExport.serializer(), original)
+        assertEquals(original, codec.decodeFromString(DayBookExport.serializer(), text))
     }
 
     @Test
@@ -62,7 +62,7 @@ class ExportFormatTest {
         // system, **including export files**." A JSON number that round-trips
         // through a Double loses taka at scale, and an export that quietly
         // changes the figures is worse than no export at all.
-        val text = codec.encodeToString(KhataExport.serializer(), sample())
+        val text = codec.encodeToString(DayBookExport.serializer(), sample())
 
         listOf("amount_minor", "limit_minor").forEach { field ->
             Regex("\"$field\":([^,}]+)").findAll(text).forEach { match ->
@@ -79,10 +79,10 @@ class ExportFormatTest {
         // even number.
         val odd = 9_007_199_254_740_993L
         val text = codec.encodeToString(
-            KhataExport.serializer(),
+            DayBookExport.serializer(),
             sample().copy(expenses = listOf(sample().expenses.first().copy(amountMinor = odd))),
         )
-        val back = codec.decodeFromString(KhataExport.serializer(), text)
+        val back = codec.decodeFromString(DayBookExport.serializer(), text)
         assertEquals(odd, back.expenses.single().amountMinor)
     }
 
@@ -100,7 +100,7 @@ class ExportFormatTest {
                           "updated_at":1,"colour_the_user_picked":"blue"}]}
         """.trimIndent()
 
-        val back = codec.decodeFromString(KhataExport.serializer(), text)
+        val back = codec.decodeFromString(DayBookExport.serializer(), text)
         assertEquals(1, back.expenses.size)
         assertEquals(100L, back.expenses.single().amountMinor)
     }
@@ -108,7 +108,7 @@ class ExportFormatTest {
     @Test
     fun `absent entities decode as empty rather than failing`() {
         val back = codec.decodeFromString(
-            KhataExport.serializer(),
+            DayBookExport.serializer(),
             """{"schema_version":1,"exported_at":1}""",
         )
         assertEquals(0, back.rowCount)
@@ -118,7 +118,7 @@ class ExportFormatTest {
     fun `a file that is not an export is refused rather than half-read`() {
         val strict = Json { ignoreUnknownKeys = true }
         val failed = runCatching {
-            strict.decodeFromString(KhataExport.serializer(), """{"hello":"world"}""")
+            strict.decodeFromString(DayBookExport.serializer(), """{"hello":"world"}""")
         }
         assertTrue("a file with no schema_version must not parse", failed.isFailure)
     }
@@ -130,7 +130,7 @@ class ExportFormatTest {
         // On nine thousand expenses this is most of the file: `status`,
         // `payment_method` and an absent note are the common case.
         val text = codec.encodeToString(
-            KhataExport.serializer(),
+            DayBookExport.serializer(),
             sample().copy(
                 expenses = listOf(ExpenseDto(1, "e", 2, 100, 1, 202608, 0, null, 0, 1, 1)),
             ),

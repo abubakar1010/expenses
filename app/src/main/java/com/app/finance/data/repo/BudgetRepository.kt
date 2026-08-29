@@ -157,7 +157,7 @@ class BudgetRepository(
         return runCatchingWrite {
             copyInto(period, source, now)
         }.getOrElse { error ->
-            Log.w("Khata", "could not copy last month's limits", error)
+            Log.w("DayBook", "could not copy last month's limits", error)
             0
         }
     }

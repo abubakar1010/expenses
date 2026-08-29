@@ -23,7 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.app.finance.R
 import com.app.finance.core.money.Money
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Space
 
 /** What a key press means to the amount being typed. */
@@ -126,8 +126,8 @@ private fun RowScope.Key(
             text = label,
             // Digits set in Plex Mono, so the pad matches the figure above it;
             // a proportional face here would read as a different control.
-            style = KhataTheme.type.sectionFigure,
-            color = KhataTheme.colors.ink,
+            style = DayBookTheme.type.sectionFigure,
+            color = DayBookTheme.colors.ink,
             textAlign = TextAlign.Center,
             modifier = Modifier.clearAndSetSemantics {},
         )

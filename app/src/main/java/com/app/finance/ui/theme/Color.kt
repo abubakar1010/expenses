@@ -5,7 +5,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 /**
- * The *Khata* palette — 05-ui-ux-guide.md §3.
+ * The *DayBook* palette — 05-ui-ux-guide.md §3.
  *
  * Nine tokens, named for what they are in a ledger rather than for a Material
  * role, because the roles do not survive the translation: `indigo` is the pen
@@ -27,7 +27,7 @@ import androidx.compose.ui.graphics.Color
  * an earlier `#9A6B12`, which measured 4.29:1 and failed.
  */
 @Immutable
-data class KhataColors(
+data class DayBookColors(
     /** App background. Warm off-white — not pure white, which glares at the
      *  high brightness this app is read at outdoors. */
     val paper: Color,
@@ -57,7 +57,7 @@ data class KhataColors(
  * and dark themes are markedly harder to read in the direct sunlight this app
  * is often used in.
  */
-val LightKhataColors = KhataColors(
+val LightDayBookColors = DayBookColors(
     paper = Color(0xFFF6F5F1),
     card = Color(0xFFFFFFFF),
     rule = Color(0xFFE4E1D8),
@@ -75,7 +75,7 @@ val LightKhataColors = KhataColors(
  * panels, so both ends pull inward, and the accents lighten and desaturate
  * because a colour tuned against white is illegible against near-black.
  */
-val DarkKhataColors = KhataColors(
+val DarkDayBookColors = DayBookColors(
     paper = Color(0xFF12151A),
     card = Color(0xFF1A1E25),
     rule = Color(0xFF2A2F38),
@@ -88,4 +88,4 @@ val DarkKhataColors = KhataColors(
     isLight = false,
 )
 
-val LocalKhataColors = staticCompositionLocalOf { LightKhataColors }
+val LocalDayBookColors = staticCompositionLocalOf { LightDayBookColors }

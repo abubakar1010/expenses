@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
  * made of rules and columns, and these read as ruled marks rather than as
  * generic app furniture.
  */
-object KhataIcons {
+object DayBookIcons {
 
     /** Dashboard — a page with a hero figure and rules beneath it. */
     val Dashboard: ImageVector by lazy {

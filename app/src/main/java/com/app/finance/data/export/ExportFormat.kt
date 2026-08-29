@@ -46,7 +46,7 @@ import kotlinx.serialization.json.Json
  * attempted.
  */
 @Serializable
-data class KhataExport(
+data class DayBookExport(
     /** FR-DAT-05 — an import refuses a file newer than the app understands. */
     @SerialName("schema_version") val schemaVersion: Int,
     /** Epoch millis. Informational; nothing keys off it. */

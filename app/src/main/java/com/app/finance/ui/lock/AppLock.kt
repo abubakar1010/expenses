@@ -32,7 +32,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.fragment.app.FragmentActivity
 import com.app.finance.R
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -41,7 +41,7 @@ import androidx.core.content.ContextCompat
 /**
  * FR-APP-04 — "an optional app-lock PIN or biometric gate".
  *
- * **The device's own credential, and no secret of Khata's own.** NFR-SEC-05
+ * **The device's own credential, and no secret of DayBook's own.** NFR-SEC-05
  * already settled the question this feature sits on top of:
  *
  * > "Database encryption at rest is out of scope for v1; the rationale — that
@@ -54,7 +54,7 @@ import androidx.core.content.ContextCompat
  * the device lock: it would need a hash, a salt, an attempt limit and a
  * forgotten-PIN path, and it would imply an encryption that is not there.
  * Delegating to the OS satisfies both halves of "PIN or biometric" — the
- * device credential *is* a PIN — and leaves Khata storing nothing it could
+ * device credential *is* a PIN — and leaves DayBook storing nothing it could
  * leak.
  */
 enum class LockAvailability {
@@ -99,7 +99,7 @@ fun lockAvailability(context: Context): LockAvailability =
  * there until the user pressed Home, swallowed *that* stop, and left the ledger
  * sitting unlocked in recents. And "Send a copy" armed it before a plain
  * `startActivity` to the share sheet, which has no result and therefore no
- * moment at which the flag came down: tap it, pick WhatsApp, and Khata stayed
+ * moment at which the flag came down: tap it, pick WhatsApp, and DayBook stayed
  * unlocked in the background for as long as the user was gone.
  *
  * A counter cannot be consumed by an unrelated stop, and
@@ -180,7 +180,7 @@ fun <I, O> rememberHandoffLauncher(
             runCatching { launcher.launch(input) }
                 .onFailure { error ->
                     lock.endHandoff()
-                    Log.w("Khata", "nothing on this device could handle the request", error)
+                    Log.w("DayBook", "nothing on this device could handle the request", error)
                 }
             Unit
         }
@@ -235,14 +235,14 @@ fun LockScreen(onUnlocked: () -> Unit) {
     ) {
         Text(
             text = stringResource(R.string.app_name),
-            style = KhataTheme.type.screenTitle,
-            color = KhataTheme.colors.ink,
+            style = DayBookTheme.type.screenTitle,
+            color = DayBookTheme.colors.ink,
             textAlign = TextAlign.Center,
         )
         Text(
             text = stringResource(if (refused) R.string.lock_retry else R.string.lock_body),
-            style = KhataTheme.type.body,
-            color = KhataTheme.colors.inkSoft,
+            style = DayBookTheme.type.body,
+            color = DayBookTheme.colors.inkSoft,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = Space.s2, bottom = Space.s4),
         )
@@ -250,12 +250,12 @@ fun LockScreen(onUnlocked: () -> Unit) {
             onClick = ::prompt,
             shape = RoundedCornerShape(Radius.input),
             colors = ButtonDefaults.buttonColors(
-                containerColor = KhataTheme.colors.indigo,
-                contentColor = KhataTheme.colors.card,
+                containerColor = DayBookTheme.colors.indigo,
+                contentColor = DayBookTheme.colors.card,
             ),
             modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
         ) {
-            Text(stringResource(R.string.lock_unlock), style = KhataTheme.type.body)
+            Text(stringResource(R.string.lock_unlock), style = DayBookTheme.type.body)
         }
     }
 

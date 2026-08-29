@@ -66,7 +66,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun settlementDao(): SettlementDao
 
     companion object {
-        const val NAME = "khata.db"
+        const val NAME = "daybook.db"
 
         /**
          * In-memory instance carrying the identical canonical schema, for the

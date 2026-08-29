@@ -31,10 +31,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.app.finance.R
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.rememberJavaLocale
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -68,7 +68,7 @@ fun IncomeFilterSheet(
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val locale = rememberJavaLocale()
     var picking by remember { mutableStateOf(RangeEnd.NONE) }
 
@@ -97,7 +97,7 @@ fun IncomeFilterSheet(
             ) {
                 // "Any source" is a chip rather than an absence, so clearing the
                 // filter is one tap from inside the sheet that set it.
-                KhataChip(
+                DayBookChip(
                     label = stringResource(R.string.filter_any_source),
                     selected = state.sourceIds.isEmpty(),
                     onClick = { onSources(emptySet()) },
@@ -109,7 +109,7 @@ fun IncomeFilterSheet(
                 // is unperformable from a list of active sources alone once
                 // Farming has been archived.
                 state.filterSources.forEach { source ->
-                    KhataChip(
+                    DayBookChip(
                         label = source.name,
                         selected = source.id in state.sourceIds,
                         // Multi-select: FR-IE-05 says "any subset", and
@@ -130,12 +130,12 @@ fun IncomeFilterSheet(
                 Modifier.fillMaxWidth().padding(horizontal = Space.gutter),
                 horizontalArrangement = Arrangement.spacedBy(Space.s2),
             ) {
-                KhataChip(
+                DayBookChip(
                     label = stringResource(R.string.scope_year),
                     selected = state.scopeKind == ScopeKind.YEAR,
                     onClick = { onScope(ScopeKind.YEAR) },
                 )
-                KhataChip(
+                DayBookChip(
                     label = stringResource(R.string.scope_month),
                     selected = state.scopeKind == ScopeKind.MONTH,
                     onClick = { onScope(ScopeKind.MONTH) },
@@ -146,13 +146,13 @@ fun IncomeFilterSheet(
                 Modifier.fillMaxWidth().padding(horizontal = Space.gutter),
                 horizontalArrangement = Arrangement.spacedBy(Space.s2),
             ) {
-                KhataChip(
+                DayBookChip(
                     label = stringResource(R.string.filter_from) + " " +
                         from.format(dayFormat(locale)),
                     selected = state.scopeKind == ScopeKind.RANGE,
                     onClick = { picking = RangeEnd.FROM },
                 )
-                KhataChip(
+                DayBookChip(
                     label = stringResource(R.string.filter_to) + " " +
                         to.format(dayFormat(locale)),
                     selected = state.scopeKind == ScopeKind.RANGE,
@@ -171,7 +171,7 @@ fun IncomeFilterSheet(
                     .fillMaxWidth()
                     .padding(horizontal = Space.gutter, vertical = Space.s2)
                     .height(Sizes.minTouchTarget),
-            ) { Text(stringResource(R.string.done), style = KhataTheme.type.body) }
+            ) { Text(stringResource(R.string.done), style = DayBookTheme.type.body) }
 
             TextButton(
                 onClick = { onClear(); onDismiss() },

@@ -51,12 +51,12 @@ import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.ui.common.EmptyState
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.LedgerRow
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.labelRes
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -182,7 +182,7 @@ fun LedgerScreen(
                 message = stringResource(R.string.empty_search),
                 modifier = Modifier.fillMaxSize(),
                 action = {
-                    KhataChip(
+                    DayBookChip(
                         label = stringResource(R.string.clear_filters),
                         selected = false,
                         onClick = vm::clearFilters,
@@ -194,7 +194,7 @@ fun LedgerScreen(
                 message = stringResource(R.string.empty_ledger),
                 modifier = Modifier.fillMaxSize(),
                 action = {
-                    KhataChip(
+                    DayBookChip(
                         label = stringResource(R.string.add_expense),
                         selected = true,
                         onClick = onAdd,
@@ -256,7 +256,7 @@ private fun SearchBar(
     onQuery: (String) -> Unit,
     onFilters: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     var text by rememberSaveable(query) { mutableStateOf(query) }
     val hint = stringResource(R.string.search_ledger)
 
@@ -271,7 +271,7 @@ private fun SearchBar(
             value = text,
             onValueChange = { text = it; onQuery(it) },
             singleLine = true,
-            textStyle = KhataTheme.type.body.copy(color = colors.ink),
+            textStyle = DayBookTheme.type.body.copy(color = colors.ink),
             cursorBrush = SolidColor(colors.indigo),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
             modifier = Modifier
@@ -288,13 +288,13 @@ private fun SearchBar(
             decorationBox = { inner ->
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (text.isEmpty()) {
-                        Text(hint, style = KhataTheme.type.body, color = colors.inkSoft)
+                        Text(hint, style = DayBookTheme.type.body, color = colors.inkSoft)
                     }
                     inner()
                 }
             },
         )
-        KhataChip(
+        DayBookChip(
             // The count is on the control so a filtered ledger never looks like
             // an empty one.
             label = if (activeFilters == 0) {
@@ -318,7 +318,7 @@ private fun SwipeableRow(
     onDelete: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             if (value != SwipeToDismissBoxValue.Settled) {
@@ -352,7 +352,7 @@ private fun SwipeableRow(
                 if (swiping) {
                     Text(
                         text = stringResource(R.string.delete_expense),
-                        style = KhataTheme.type.caption,
+                        style = DayBookTheme.type.caption,
                         color = colors.card,
                     )
                 }
@@ -385,8 +385,8 @@ private fun FilterTotal(total: Money, count: Int) {
         trailing = {
             MoneyText(
                 money = total,
-                style = KhataTheme.type.caption,
-                color = KhataTheme.colors.ink,
+                style = DayBookTheme.type.caption,
+                color = DayBookTheme.colors.ink,
                 spokenSuffix = stringResource(R.string.filter_total, ""),
             )
         },
@@ -407,8 +407,8 @@ private fun DayHeader(day: LedgerDay, today: LocalDate) {
         trailing = {
             MoneyText(
                 money = day.total,
-                style = KhataTheme.type.caption,
-                color = KhataTheme.colors.inkSoft,
+                style = DayBookTheme.type.caption,
+                color = DayBookTheme.colors.inkSoft,
                 // "<amount> spent", so the figure is not a bare number to
                 // TalkBack when it follows the day heading.
                 spokenSuffix = stringResource(R.string.day_total, ""),
@@ -423,7 +423,7 @@ private fun DayHeader(day: LedgerDay, today: LocalDate) {
  */
 @Composable
 private fun LedgerSkeleton() {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val loading = stringResource(R.string.loading_ledger)
     Column(
         Modifier
@@ -456,7 +456,7 @@ private fun LedgerSkeleton() {
                 )
             }
         }
-        Text(loading, style = KhataTheme.type.caption, color = colors.paper)
+        Text(loading, style = DayBookTheme.type.caption, color = colors.paper)
     }
 }
 
@@ -493,8 +493,8 @@ private fun PendingEntries(
             trailing = {
                 Text(
                     text = state.pendingCount.toString(),
-                    style = KhataTheme.type.caption,
-                    color = KhataTheme.colors.inkSoft,
+                    style = DayBookTheme.type.caption,
+                    color = DayBookTheme.colors.inkSoft,
                 )
             },
         )

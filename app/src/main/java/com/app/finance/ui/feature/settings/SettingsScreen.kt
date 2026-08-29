@@ -52,10 +52,10 @@ import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.ThemeChoice
 import com.app.finance.ui.common.ActionRow
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.ToggleRow
 import com.app.finance.ui.common.SectionHeader
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -154,8 +154,8 @@ fun SettingsScreen(
     ) {
         Text(
             text = stringResource(R.string.settings_title),
-            style = KhataTheme.type.screenTitle,
-            color = KhataTheme.colors.ink,
+            style = DayBookTheme.type.screenTitle,
+            color = DayBookTheme.colors.ink,
             modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s3),
         )
 
@@ -164,8 +164,8 @@ fun SettingsScreen(
         if (state.busy) {
             LinearProgressIndicator(
                 modifier = Modifier.fillMaxWidth(),
-                color = KhataTheme.colors.indigo,
-                trackColor = KhataTheme.colors.rule,
+                color = DayBookTheme.colors.indigo,
+                trackColor = DayBookTheme.colors.rule,
             )
         }
 
@@ -227,7 +227,7 @@ fun SettingsScreen(
             horizontalArrangement = Arrangement.spacedBy(Space.s2),
         ) {
             ThemeChoice.entries.forEach { choice ->
-                KhataChip(
+                DayBookChip(
                     label = stringResource(
                         when (choice) {
                             ThemeChoice.SYSTEM -> R.string.theme_system
@@ -288,7 +288,7 @@ fun SettingsScreen(
         ModalBottomSheet(
             onDismissRequest = vm::cancelImport,
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-            containerColor = KhataTheme.colors.card,
+            containerColor = DayBookTheme.colors.card,
             shape = Radius.sheetTop,
         ) {
             Column(
@@ -350,7 +350,7 @@ private fun DeleteAllSheet(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val hint = stringResource(R.string.delete_all_hint_field)
 
     ModalBottomSheet(
@@ -368,19 +368,19 @@ private fun DeleteAllSheet(
         ) {
             Text(
                 text = stringResource(R.string.delete_all),
-                style = KhataTheme.type.screenTitle,
+                style = DayBookTheme.type.screenTitle,
                 color = colors.ink,
             )
             Text(
                 text = stringResource(R.string.delete_all_body),
-                style = KhataTheme.type.body,
+                style = DayBookTheme.type.body,
                 color = colors.inkSoft,
             )
             BasicTextField(
                 value = typed,
                 onValueChange = onTyped,
                 singleLine = true,
-                textStyle = KhataTheme.type.body.copy(color = colors.ink),
+                textStyle = DayBookTheme.type.body.copy(color = colors.ink),
                 cursorBrush = SolidColor(colors.vermilion),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -396,7 +396,7 @@ private fun DeleteAllSheet(
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (typed.isEmpty()) {
-                            Text(hint, style = KhataTheme.type.body, color = colors.inkSoft)
+                            Text(hint, style = DayBookTheme.type.body, color = colors.inkSoft)
                         }
                         inner()
                     }
@@ -417,7 +417,7 @@ private fun DeleteAllSheet(
                 ),
                 modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
             ) {
-                Text(stringResource(R.string.delete_all), style = KhataTheme.type.body)
+                Text(stringResource(R.string.delete_all), style = DayBookTheme.type.body)
             }
             TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) {
                 Text(stringResource(R.string.cancel), color = colors.inkSoft)
@@ -477,5 +477,5 @@ private fun openDocument(mime: String) =
 private const val MIME_JSON = "application/json"
 private const val MIME_ZIP = "application/zip"
 private const val MIME_ANY = "application/octet-stream"
-private const val JSON_NAME = "khata-export.json"
-private const val CSV_NAME = "khata-csv.zip"
+private const val JSON_NAME = "daybook-export.json"
+private const val CSV_NAME = "daybook-csv.zip"

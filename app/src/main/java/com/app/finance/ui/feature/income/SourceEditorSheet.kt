@@ -32,9 +32,9 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import com.app.finance.R
 import com.app.finance.domain.model.IncomeKind
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.feature.entry.messageRes
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -60,7 +60,7 @@ fun SourceEditorSheet(
     onSubmit: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val focus = remember { FocusRequester() }
     val hint = stringResource(R.string.source_name_hint)
 
@@ -91,7 +91,7 @@ fun SourceEditorSheet(
         ) {
             Text(
                 text = title,
-                style = KhataTheme.type.screenTitle,
+                style = DayBookTheme.type.screenTitle,
                 color = colors.ink,
                 modifier = Modifier.padding(top = Space.s3),
             )
@@ -102,7 +102,7 @@ fun SourceEditorSheet(
                 value = editor.name,
                 onValueChange = { if (it.length <= NAME_MAX) onName(it) },
                 singleLine = true,
-                textStyle = KhataTheme.type.body.copy(color = colors.ink),
+                textStyle = DayBookTheme.type.body.copy(color = colors.ink),
                 cursorBrush = SolidColor(colors.indigo),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { onSubmit() }),
@@ -125,7 +125,7 @@ fun SourceEditorSheet(
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (editor.name.isEmpty()) {
-                            Text(hint, style = KhataTheme.type.body, color = colors.inkSoft)
+                            Text(hint, style = DayBookTheme.type.body, color = colors.inkSoft)
                         }
                         inner()
                     }
@@ -135,14 +135,14 @@ fun SourceEditorSheet(
             editor.error?.let { error ->
                 Text(
                     text = stringResource(error.messageRes()),
-                    style = KhataTheme.type.caption,
+                    style = DayBookTheme.type.caption,
                     color = colors.vermilion,
                 )
             }
 
             Text(
                 text = stringResource(R.string.choose_kind),
-                style = KhataTheme.type.caption,
+                style = DayBookTheme.type.caption,
                 color = colors.inkSoft,
             )
             // The hints do the work. "Stable" and "Variable" are the app's
@@ -162,7 +162,7 @@ fun SourceEditorSheet(
                 ),
                 modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
             ) {
-                Text(stringResource(R.string.save_source), style = KhataTheme.type.body)
+                Text(stringResource(R.string.save_source), style = DayBookTheme.type.body)
             }
         }
     }
@@ -173,15 +173,15 @@ private fun KindChoice(selected: IncomeKind, onSelect: (IncomeKind) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(Space.s2)) {
         IncomeKind.entries.forEach { kind ->
             Column {
-                KhataChip(
+                DayBookChip(
                     label = stringResource(kind.labelRes()),
                     selected = kind == selected,
                     onClick = { onSelect(kind) },
                 )
                 Text(
                     text = stringResource(kind.hintRes()),
-                    style = KhataTheme.type.caption,
-                    color = KhataTheme.colors.inkSoft,
+                    style = DayBookTheme.type.caption,
+                    color = DayBookTheme.colors.inkSoft,
                     modifier = Modifier.padding(start = Space.s2, top = Space.s1),
                 )
             }

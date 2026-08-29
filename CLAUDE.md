@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-Khata — an offline-only, single-user personal finance ledger for Android (Bangladeshi taka). Single Gradle module `:app`, plus `:benchmark` for Macrobenchmark/Baseline Profile.
+DayBook — an offline-only, single-user personal finance ledger for Android (Bangladeshi taka). Single Gradle module `:app`, plus `:benchmark` for Macrobenchmark/Baseline Profile.
 
 **`docs/` is normative.** `01-PRD.md` (requirements, `FR-*`), `02-SRS.md` (`NFR-*`), `03-database-design.md` (schema, triggers), `04-system-architecture.md` (layering, startup, testing), `05-ui-ux-guide.md` (design tokens, copy). Where code and a document disagree, one of them is a bug — do not silently pick the code. `06-implementation-log.md` records every audit and defect found so far; check it before re-litigating a decision. Comments in this codebase routinely cite requirement ids (`FR-EXP-05`, `NFR-PERF-01`) and doc sections (`03 §4.1`) — keep that convention when adding code.
 
@@ -72,7 +72,7 @@ adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug
   adb logcat -c       # erases the TestRunner history you need to tell a hang from a crash
   # detached, so a host-side disconnect cannot orphan the run and no client timeout can kill it:
   adb shell "nohup am instrument -w com.app.finance.debug.test/androidx.test.runner.AndroidJUnitRunner \
-    > /sdcard/khata-instr.txt 2>&1 &"
+    > /sdcard/daybook-instr.txt 2>&1 &"
   ```
 - **Cold-boot the emulator before trusting `PerformanceProbeTest`.** An AVD that has already run the full suite is several times slower than a fresh one, and the probes assert wall-clock budgets. Measured on one session: NFR-PERF-10's restore took 3,643 ms on a cold-booted AVD and 20,905 ms on the same AVD after a full suite run; NFR-PERF-07's export, which nothing had touched, went 571 ms → 1,907 ms alongside it. The whole suite runs in about 12 minutes cold and 25 aged, which is the cheaper signal that it is time to reboot. Nothing in the app had changed. A failing probe on a long-lived emulator is a measurement, not a regression — reboot and re-measure before believing it.
 
@@ -121,7 +121,7 @@ Consequences when editing:
 
 `AppContainer` also owns the debug integrity checks: `assertRollupsReconcile()` (symmetric drift over both rollup tables — symmetric because a one-sided join is blind to a *missing* bucket) and `assertPeriodsDerived()`.
 
-### The viewed period is owned by `KhataApp`, above the `NavHost`
+### The viewed period is owned by `DayBookApp`, above the `NavHost`
 
 Not by Budget, Income, or Dashboard. It is `rememberSaveable` for process death and persisted through `app_meta` for relaunch (FR-APP-03). Screens receive a `period` / `onPeriodChange` pair — **do not introduce a second source of period state.** Income is the exception that proves it: it owns a *scope* (year-first, 05 §5.7) and stepping the year moves the shared period by twelve months so the rest of the app follows.
 

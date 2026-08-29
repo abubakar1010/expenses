@@ -5,7 +5,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.TestFixture
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -131,7 +131,7 @@ class WelcomeScreenTest {
     private fun show(onDone: () -> Unit = {}) {
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
-            KhataTheme {
+            DayBookTheme {
                 WelcomeScreen(
                     container = fx.container,
                     onDone = {

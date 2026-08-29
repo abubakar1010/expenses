@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.isSpecified
 import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Text
 import com.app.finance.core.money.Money
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import java.util.Locale
 
 /**
@@ -38,7 +38,7 @@ import java.util.Locale
 fun MoneyText(
     money: Money,
     modifier: Modifier = Modifier,
-    style: TextStyle = KhataTheme.type.rowFigure,
+    style: TextStyle = DayBookTheme.type.rowFigure,
     color: Color? = null,
     showSymbol: Boolean = true,
     /**
@@ -48,7 +48,7 @@ fun MoneyText(
      */
     spokenSuffix: String = "",
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     // Compose's own locale, not `LocalConfiguration.locales` — the latter is
     // read in a way recomposition does not track, so grouping and the spoken
     // form would keep the old locale after a language change.

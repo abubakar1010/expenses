@@ -33,10 +33,10 @@ import androidx.compose.ui.res.stringResource
 import com.app.finance.R
 import com.app.finance.domain.model.CategoryNode
 import com.app.finance.domain.model.LedgerFilters
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.labelRes
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -68,7 +68,7 @@ fun LedgerFilterSheet(
     onClear: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     var draft by remember(current) { mutableStateOf(current) }
     var pickingFrom by remember { mutableStateOf(false) }
     var pickingTo by remember { mutableStateOf(false) }
@@ -91,12 +91,12 @@ fun LedgerFilterSheet(
                 Modifier.fillMaxWidth().padding(horizontal = Space.gutter),
                 horizontalArrangement = Arrangement.spacedBy(Space.s2),
             ) {
-                KhataChip(
+                DayBookChip(
                     label = draft.from?.format(DATE) ?: stringResource(R.string.filter_from),
                     selected = draft.from != null,
                     onClick = { pickingFrom = true },
                 )
-                KhataChip(
+                DayBookChip(
                     label = draft.to?.format(DATE) ?: stringResource(R.string.filter_to),
                     selected = draft.to != null,
                     onClick = { pickingTo = true },
@@ -109,13 +109,13 @@ fun LedgerFilterSheet(
                 horizontalArrangement = Arrangement.spacedBy(Space.s2),
                 verticalArrangement = Arrangement.spacedBy(Space.s1),
             ) {
-                KhataChip(
+                DayBookChip(
                     label = stringResource(R.string.filter_any_category),
                     selected = draft.rootId == null && draft.leafId == null,
                     onClick = { draft = draft.copy(rootId = null, leafId = null) },
                 )
                 tree.forEach { root ->
-                    KhataChip(
+                    DayBookChip(
                         label = root.name,
                         selected = draft.rootId == root.id,
                         // Selecting a root clears any leaf: a leaf already sits
@@ -159,7 +159,7 @@ fun LedgerFilterSheet(
                     verticalArrangement = Arrangement.spacedBy(Space.s1),
                 ) {
                     leaves.forEach { leaf ->
-                        KhataChip(
+                        DayBookChip(
                             label = leaf.name,
                             selected = draft.leafId == leaf.id,
                             onClick = {
@@ -181,7 +181,7 @@ fun LedgerFilterSheet(
                 verticalArrangement = Arrangement.spacedBy(Space.s1),
             ) {
                 FILTERABLE_METHODS.forEach { method ->
-                    KhataChip(
+                    DayBookChip(
                         label = method?.let { stringResource(it.labelRes()) }
                             ?: stringResource(R.string.filter_any_method),
                         selected = draft.method == method,
@@ -203,7 +203,7 @@ fun LedgerFilterSheet(
                 ) {
                     Text(
                         stringResource(R.string.clear_filters),
-                        style = KhataTheme.type.body,
+                        style = DayBookTheme.type.body,
                         color = colors.inkSoft,
                     )
                 }
@@ -216,7 +216,7 @@ fun LedgerFilterSheet(
                     ),
                     modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
                 ) {
-                    Text(stringResource(R.string.apply_filters), style = KhataTheme.type.body)
+                    Text(stringResource(R.string.apply_filters), style = DayBookTheme.type.body)
                 }
             }
         }

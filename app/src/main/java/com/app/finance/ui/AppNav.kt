@@ -35,7 +35,7 @@ import androidx.navigation.compose.rememberNavController
 import com.app.finance.R
 import com.app.finance.core.time.Period
 import com.app.finance.di.AppContainer
-import com.app.finance.ui.common.KhataIcons
+import com.app.finance.ui.common.DayBookIcons
 import com.app.finance.ui.feature.backup.BackupScreen
 import com.app.finance.ui.feature.budget.BudgetScreen
 import com.app.finance.ui.feature.category.CategoryManagerScreen
@@ -47,17 +47,17 @@ import com.app.finance.ui.feature.ledger.LedgerScreen
 import com.app.finance.ui.feature.reports.ReportsScreen
 import com.app.finance.ui.feature.settings.RecurringScreen
 import com.app.finance.ui.feature.settings.SettingsScreen
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Motion
-import com.app.finance.ui.theme.khataTween
+import com.app.finance.ui.theme.dayBookTween
 import kotlinx.coroutines.launch
 
 /** The four bottom-bar destinations. Everything else is a detail route or sheet. */
 enum class Route(val path: String, val icon: ImageVector) {
-    Dashboard("dashboard", KhataIcons.Dashboard),
-    Ledger("ledger", KhataIcons.Ledger),
-    Income("income", KhataIcons.Income),
-    Budget("budget", KhataIcons.Budget),
+    Dashboard("dashboard", DayBookIcons.Dashboard),
+    Ledger("ledger", DayBookIcons.Ledger),
+    Income("income", DayBookIcons.Income),
+    Budget("budget", DayBookIcons.Budget),
     ;
 
     companion object {
@@ -74,7 +74,7 @@ enum class Route(val path: String, val icon: ImageVector) {
  * cheapest transition that still signals a change is the correct one.
  */
 @Composable
-fun KhataApp(container: AppContainer) {
+fun DayBookApp(container: AppContainer) {
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val current = Route.fromPath(backStackEntry?.destination?.route)
@@ -127,10 +127,10 @@ fun KhataApp(container: AppContainer) {
     }
 
     Scaffold(
-        containerColor = KhataTheme.colors.paper,
+        containerColor = DayBookTheme.colors.paper,
         snackbarHost = { SnackbarHost(snackbarHostState) },
         bottomBar = {
-            KhataBottomBar(
+            DayBookBottomBar(
                 current = current,
                 onSelect = { navController.navigateTop(it) },
                 onQuickAdd = { sheetTarget = SHEET_NEW },
@@ -140,7 +140,7 @@ fun KhataApp(container: AppContainer) {
         Box(
             Modifier
                 .fillMaxSize()
-                .background(KhataTheme.colors.paper)
+                .background(DayBookTheme.colors.paper)
                 .padding(padding),
         ) {
             // 04 §5.3 puts export at "Dispatchers.IO, foreground with progress",
@@ -159,15 +159,15 @@ fun KhataApp(container: AppContainer) {
                         .fillMaxWidth()
                         .align(Alignment.TopCenter)
                         .zIndex(1f),
-                    color = KhataTheme.colors.indigo,
-                    trackColor = KhataTheme.colors.rule,
+                    color = DayBookTheme.colors.indigo,
+                    trackColor = DayBookTheme.colors.rule,
                 )
             }
 
             // 05 §7 — a 150 ms fade through, and *no* animation at all when the
-            // system animator scale is zero. `khataTween` is what enforces the
+            // system animator scale is zero. `dayBookTween` is what enforces the
             // second half; a raw `tween` would still animate.
-            val screenFade = khataTween<Float>(Motion.SCREEN, Motion.FastOutSlowIn)
+            val screenFade = dayBookTween<Float>(Motion.SCREEN, Motion.FastOutSlowIn)
 
             NavHost(
                 navController = navController,

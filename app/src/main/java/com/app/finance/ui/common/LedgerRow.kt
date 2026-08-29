@@ -23,7 +23,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.app.finance.core.money.Money
 import com.app.finance.domain.model.BudgetStatus
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 
@@ -47,8 +47,8 @@ fun LedgerRow(
     showLeaderDots: Boolean = true,
     onClick: (() -> Unit)? = null,
 ) {
-    val colors = KhataTheme.colors
-    val type = KhataTheme.type
+    val colors = DayBookTheme.colors
+    val type = DayBookTheme.type
 
     Column(
         modifier
@@ -127,7 +127,7 @@ fun LedgerRow(
  */
 @Composable
 fun LeaderDots(modifier: Modifier = Modifier) {
-    val rule = KhataTheme.colors.rule
+    val rule = DayBookTheme.colors.rule
     Box(
         modifier
             .height(Sizes.hairline * 2)
@@ -172,8 +172,8 @@ fun SectionHeader(
     ) {
         Text(
             text = text.uppercase(rememberJavaLocale()),
-            style = KhataTheme.type.sectionHeader,
-            color = KhataTheme.colors.inkSoft,
+            style = DayBookTheme.type.sectionHeader,
+            color = DayBookTheme.colors.inkSoft,
         )
         trailing?.invoke()
     }

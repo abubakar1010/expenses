@@ -24,7 +24,7 @@ import com.app.finance.R
 import com.app.finance.core.money.Money
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.rememberJavaLocale
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 import java.time.LocalDate
@@ -58,7 +58,7 @@ fun PendingRow(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val locale = rememberJavaLocale()
     val confirm = stringResource(R.string.confirm_entry)
     val dismiss = stringResource(R.string.dismiss_entry)
@@ -83,7 +83,7 @@ fun PendingRow(
             Modifier.semantics(mergeDescendants = true) { contentDescription = spoken },
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(label, style = KhataTheme.type.body, color = colors.ink)
+            Text(label, style = DayBookTheme.type.body, color = colors.ink)
             Box(Modifier.weight(1f))
             // `inkSoft` rather than `ink`: it is a figure that is not yet true,
             // and the words beside it say so as well (NFR-USE-05).
@@ -95,7 +95,7 @@ fun PendingRow(
         ) {
             Text(
                 text = date.format(dayFormat(locale)),
-                style = KhataTheme.type.caption,
+                style = DayBookTheme.type.caption,
                 color = colors.inkSoft,
                 modifier = Modifier.weight(1f),
             )
@@ -109,7 +109,7 @@ fun PendingRow(
 private fun Action(text: String, colour: androidx.compose.ui.graphics.Color, onClick: () -> Unit) {
     Text(
         text = text,
-        style = KhataTheme.type.caption,
+        style = DayBookTheme.type.caption,
         color = colour,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier

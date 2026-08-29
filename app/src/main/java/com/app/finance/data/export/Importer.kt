@@ -39,7 +39,7 @@ sealed interface ImportOutcome {
         /** FR-DAT-05 — a file from a newer schema than this build understands. */
         NEWER_SCHEMA,
 
-        /** Not a Khata export, or truncated. */
+        /** Not a DayBook export, or truncated. */
         UNREADABLE,
 
         /** A referenced category or source is in neither the file nor the database. */
@@ -105,9 +105,9 @@ class Importer(private val db: AppDatabase) {
     private fun IncomeEntryDto.derived() = copy(periodYm = periodOf(earnedOn))
 
     /** Parses and validates without writing a row. */
-    fun parse(input: InputStream): Result<KhataExport> = runCatching {
+    fun parse(input: InputStream): Result<DayBookExport> = runCatching {
         val export = input.bufferedReader().use { reader ->
-            KhataExport.CODEC.decodeFromString(KhataExport.serializer(), reader.readText())
+            DayBookExport.CODEC.decodeFromString(DayBookExport.serializer(), reader.readText())
         }
         // FR-DAT-05. Older is fine and forward-compatible; newer is not, because
         // this build cannot know what a column it has never seen means, and
@@ -124,7 +124,7 @@ class Importer(private val db: AppDatabase) {
         return import(parsed, mode)
     }
 
-    suspend fun import(export: KhataExport, mode: ImportMode): ImportOutcome =
+    suspend fun import(export: DayBookExport, mode: ImportMode): ImportOutcome =
         // `runCatchingWrite`, not `runCatching`: this wraps a `withTransaction`,
         // and a cancellation caught here would be reported to the user as
         // `REJECTED` — "that backup was refused" about an import that was
@@ -166,7 +166,7 @@ class Importer(private val db: AppDatabase) {
      * way up: `PRAGMA foreign_keys` is on and every reference is
      * `ON DELETE RESTRICT`.
      */
-    private suspend fun replace(export: KhataExport): Map<String, ImportCounts> {
+    private suspend fun replace(export: DayBookExport): Map<String, ImportCounts> {
         val sql = db.openHelper.writableDatabase
         WIPE_ORDER.forEach(sql::execSQL)
 
@@ -196,7 +196,7 @@ class Importer(private val db: AppDatabase) {
 
     // ----------------------------------------------------------------- merge
 
-    private suspend fun merge(export: KhataExport): Map<String, ImportCounts> {
+    private suspend fun merge(export: DayBookExport): Map<String, ImportCounts> {
         val counts = LinkedHashMap<String, ImportCounts>()
 
         // --- categories, in two passes because the table references itself ---
@@ -294,7 +294,7 @@ class Importer(private val db: AppDatabase) {
      * tables are the newer one — a lie that costs nothing today and would cost
      * a migration path later.
      */
-    private suspend fun writeMeta(export: KhataExport) {
+    private suspend fun writeMeta(export: DayBookExport) {
         dao.insertMeta(export.meta.map { it.toEntity() })
         dao.insertMeta(
             listOf(
@@ -405,7 +405,7 @@ class Importer(private val db: AppDatabase) {
     private class DanglingReference : IllegalStateException("unresolved foreign key")
 
     private companion object {
-        const val TAG = "KhataImport"
+        const val TAG = "DayBookImport"
 
         const val CATEGORIES = "categories"
         const val SOURCES = "sources"

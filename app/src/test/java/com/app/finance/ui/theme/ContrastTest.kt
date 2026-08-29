@@ -33,22 +33,22 @@ class ContrastTest {
      * as the ink it separates is a rule that shouts.
      */
     private val foregrounds = listOf(
-        "ink" to { c: KhataColors -> c.ink },
-        "inkSoft" to { c: KhataColors -> c.inkSoft },
-        "indigo" to { c: KhataColors -> c.indigo },
-        "vermilion" to { c: KhataColors -> c.vermilion },
-        "moss" to { c: KhataColors -> c.moss },
-        "amber" to { c: KhataColors -> c.amber },
+        "ink" to { c: DayBookColors -> c.ink },
+        "inkSoft" to { c: DayBookColors -> c.inkSoft },
+        "indigo" to { c: DayBookColors -> c.indigo },
+        "vermilion" to { c: DayBookColors -> c.vermilion },
+        "moss" to { c: DayBookColors -> c.moss },
+        "amber" to { c: DayBookColors -> c.amber },
     )
 
     private val backgrounds = listOf(
-        "paper" to { c: KhataColors -> c.paper },
-        "card" to { c: KhataColors -> c.card },
+        "paper" to { c: DayBookColors -> c.paper },
+        "card" to { c: DayBookColors -> c.card },
     )
 
     @Test
     fun every_text_colour_clears_four_point_five_to_one_in_the_light_theme() {
-        assertAllPairsClear("light", LightKhataColors)
+        assertAllPairsClear("light", LightDayBookColors)
     }
 
     @Test
@@ -56,7 +56,7 @@ class ContrastTest {
         // The dark palette is not an inversion — the accents are lightened and
         // desaturated by hand — so clearing the bar in light says nothing at
         // all about clearing it in dark.
-        assertAllPairsClear("dark", DarkKhataColors)
+        assertAllPairsClear("dark", DarkDayBookColors)
     }
 
     @Test
@@ -66,7 +66,7 @@ class ContrastTest {
         // combination where the *background* is the accent rather than the
         // foreground — a change to `vermilion` moves this and the rows above it
         // in opposite directions.
-        listOf("light" to LightKhataColors, "dark" to DarkKhataColors).forEach { (theme, c) ->
+        listOf("light" to LightDayBookColors, "dark" to DarkDayBookColors).forEach { (theme, c) ->
             listOf("indigo" to c.indigo, "vermilion" to c.vermilion, "moss" to c.moss)
                 .forEach { (name, background) ->
                     val ratio = contrast(c.card, background)
@@ -94,7 +94,7 @@ class ContrastTest {
 
     // --- internals ------------------------------------------------------------
 
-    private fun assertAllPairsClear(theme: String, colors: KhataColors) {
+    private fun assertAllPairsClear(theme: String, colors: DayBookColors) {
         val failures = foregrounds.flatMap { (fgName, fg) ->
             backgrounds.mapNotNull { (bgName, bg) ->
                 val ratio = contrast(fg(colors), bg(colors))

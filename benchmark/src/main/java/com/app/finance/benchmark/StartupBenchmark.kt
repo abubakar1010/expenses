@@ -70,7 +70,7 @@ class StartupBenchmark {
      * NFR-PERF-02 — "warm start ≤ 250 ms".
      *
      * The process is alive and the activity is not, which is what happens every
-     * time a user comes back to Khata from another app. It had no benchmark
+     * time a user comes back to DayBook from another app. It had no benchmark
      * until §20.10: `startup()` above measures cold only, and the two are
      * different numbers about different things.
      */

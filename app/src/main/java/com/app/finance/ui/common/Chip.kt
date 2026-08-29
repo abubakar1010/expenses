@@ -20,12 +20,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Motion
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
-import com.app.finance.ui.theme.khataTween
+import com.app.finance.ui.theme.dayBookTween
 
 /**
  * 05-ui-ux-guide.md §6: 32 dp tall, `card` background, 1 dp `rule` border;
@@ -39,22 +39,22 @@ import com.app.finance.ui.theme.khataTween
  * enough not to flicker.
  */
 @Composable
-fun KhataChip(
+fun DayBookChip(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
 
     val background by animateColorAsState(
         targetValue = if (selected) colors.indigo else colors.card,
-        animationSpec = khataTween(Motion.CHIP, Motion.Linear),
+        animationSpec = dayBookTween(Motion.CHIP, Motion.Linear),
         label = "chipBackground",
     )
     val content by animateColorAsState(
         targetValue = if (selected) colors.card else colors.ink,
-        animationSpec = khataTween(Motion.CHIP, Motion.Linear),
+        animationSpec = dayBookTween(Motion.CHIP, Motion.Linear),
         label = "chipContent",
     )
     val shape = RoundedCornerShape(if (selected) Radius.pill else Radius.input)
@@ -79,7 +79,7 @@ fun KhataChip(
         ) {
             Text(
                 text = label,
-                style = KhataTheme.type.body,
+                style = DayBookTheme.type.body,
                 color = content,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -110,8 +110,8 @@ fun EmptyState(
     ) {
         Text(
             text = message,
-            style = KhataTheme.type.body,
-            color = KhataTheme.colors.inkSoft,
+            style = DayBookTheme.type.body,
+            color = DayBookTheme.colors.inkSoft,
             textAlign = TextAlign.Center,
         )
         action?.invoke()

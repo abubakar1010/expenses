@@ -42,12 +42,12 @@ import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.Nature
 import com.app.finance.domain.usecase.SpendSlice
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.LedgerRow
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.rememberJavaLocale
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 import java.time.Instant
@@ -87,8 +87,8 @@ fun ReportsScreen(container: AppContainer, onBack: () -> Unit) {
         item(key = "title") {
             Text(
                 text = stringResource(R.string.reports_title),
-                style = KhataTheme.type.screenTitle,
-                color = KhataTheme.colors.ink,
+                style = DayBookTheme.type.screenTitle,
+                color = DayBookTheme.colors.ink,
                 modifier = Modifier.padding(
                     start = Space.gutter,
                     end = Space.gutter,
@@ -107,7 +107,7 @@ fun ReportsScreen(container: AppContainer, onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(Space.s1),
             ) {
                 PRESETS.forEach { preset ->
-                    KhataChip(
+                    DayBookChip(
                         label = stringResource(preset.label),
                         selected = state.range.preset == preset.value,
                         onClick = { vm.setPreset(preset.value) },
@@ -152,12 +152,12 @@ fun ReportsScreen(container: AppContainer, onBack: () -> Unit) {
             ) {
                 Text(
                     text = stringResource(R.string.reports_total),
-                    style = KhataTheme.type.sectionHeader,
-                    color = KhataTheme.colors.inkSoft,
+                    style = DayBookTheme.type.sectionHeader,
+                    color = DayBookTheme.colors.inkSoft,
                 )
                 MoneyText(
                     money = state.total,
-                    style = KhataTheme.type.heroFigure,
+                    style = DayBookTheme.type.heroFigure,
                     // The sentence above already carries the figure as words;
                     // left alone TalkBack would read the amount twice (05 §10).
                     modifier = Modifier.clearAndSetSemantics {},
@@ -168,8 +168,8 @@ fun ReportsScreen(container: AppContainer, onBack: () -> Unit) {
                         state.count,
                         state.count,
                     ),
-                    style = KhataTheme.type.caption,
-                    color = KhataTheme.colors.inkSoft,
+                    style = DayBookTheme.type.caption,
+                    color = DayBookTheme.colors.inkSoft,
                 )
             }
         }
@@ -178,8 +178,8 @@ fun ReportsScreen(container: AppContainer, onBack: () -> Unit) {
             item(key = "empty") {
                 Text(
                     text = stringResource(R.string.reports_empty),
-                    style = KhataTheme.type.body,
-                    color = KhataTheme.colors.inkSoft,
+                    style = DayBookTheme.type.body,
+                    color = DayBookTheme.colors.inkSoft,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = Space.gutter, vertical = Space.s4),
@@ -200,8 +200,8 @@ fun ReportsScreen(container: AppContainer, onBack: () -> Unit) {
                             R.string.mix_excludes,
                             state.mixExcluded.format(locale),
                         ),
-                        style = KhataTheme.type.caption,
-                        color = KhataTheme.colors.inkSoft,
+                        style = DayBookTheme.type.caption,
+                        color = DayBookTheme.colors.inkSoft,
                         modifier = Modifier.padding(
                             horizontal = Space.gutter,
                             vertical = Space.s2,
@@ -288,11 +288,11 @@ private fun DateField(
             }
             .padding(vertical = Space.s1),
     ) {
-        Text(label, style = KhataTheme.type.caption, color = KhataTheme.colors.inkSoft)
+        Text(label, style = DayBookTheme.type.caption, color = DayBookTheme.colors.inkSoft)
         Text(
             text = formatted,
-            style = KhataTheme.type.body,
-            color = KhataTheme.colors.indigo,
+            style = DayBookTheme.type.body,
+            color = DayBookTheme.colors.indigo,
             fontWeight = FontWeight.SemiBold,
         )
     }

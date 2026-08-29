@@ -52,7 +52,7 @@ class FakeBackupStore(
 
     override suspend fun isReachable() = reachable
 
-    override suspend fun label() = if (reachable) "Documents/Khata" else null
+    override suspend fun label() = if (reachable) "Documents/DayBook" else null
 
     override suspend fun create(name: String, mime: String): BackupFile? {
         if (!reachable || refuseCreate) return null

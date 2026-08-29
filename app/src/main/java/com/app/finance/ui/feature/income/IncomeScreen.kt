@@ -49,15 +49,15 @@ import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.IncomeScope
 import com.app.finance.domain.usecase.IncomeSourceShare
 import com.app.finance.ui.common.EmptyState
-import com.app.finance.ui.common.KhataChip
-import com.app.finance.ui.common.KhataIcons
+import com.app.finance.ui.common.DayBookChip
+import com.app.finance.ui.common.DayBookIcons
 import com.app.finance.ui.common.LedgerRow
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.YearBars
 import com.app.finance.ui.common.monthInitials
 import com.app.finance.ui.common.rememberJavaLocale
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -180,13 +180,13 @@ fun IncomeScreen(
                 modifier = Modifier.fillMaxSize(),
                 action = {
                     if (state.activeFilterCount > 0) {
-                        KhataChip(
+                        DayBookChip(
                             label = stringResource(R.string.clear_filters),
                             selected = false,
                             onClick = vm::clearFilters,
                         )
                     } else {
-                        KhataChip(
+                        DayBookChip(
                             label = stringResource(R.string.add_income),
                             selected = false,
                             onClick = vm::addEntry,
@@ -293,7 +293,7 @@ private fun IncomeHeader(
     onAdd: () -> Unit,
     onManageSources: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val locale = rememberJavaLocale()
     val label = when (val scope = state.scope) {
         // Latin digits regardless of locale — 05 §4.4, and the bundled Plex
@@ -329,7 +329,7 @@ private fun IncomeHeader(
             )
             Text(
                 text = label,
-                style = KhataTheme.type.body.copy(fontWeight = FontWeight.SemiBold),
+                style = DayBookTheme.type.body.copy(fontWeight = FontWeight.SemiBold),
                 color = colors.ink,
                 modifier = Modifier.padding(horizontal = Space.s1),
             )
@@ -357,17 +357,17 @@ private fun IncomeHeader(
                 .padding(horizontal = Space.gutter, vertical = Space.s1),
             horizontalArrangement = Arrangement.spacedBy(Space.s2),
         ) {
-            KhataChip(
+            DayBookChip(
                 label = stringResource(R.string.scope_year),
                 selected = state.scopeKind == ScopeKind.YEAR,
                 onClick = { onScope(ScopeKind.YEAR) },
             )
-            KhataChip(
+            DayBookChip(
                 label = stringResource(R.string.scope_month),
                 selected = state.scopeKind == ScopeKind.MONTH,
                 onClick = { onScope(ScopeKind.MONTH) },
             )
-            KhataChip(
+            DayBookChip(
                 label = stringResource(R.string.scope_range),
                 selected = state.scopeKind == ScopeKind.RANGE,
                 onClick = { onScope(ScopeKind.RANGE) },
@@ -394,10 +394,10 @@ private fun HeroTotal(state: IncomeUiState, locale: Locale) {
             .padding(horizontal = Space.gutter, vertical = Space.s2)
             .semantics(mergeDescendants = true) { contentDescription = spoken },
     ) {
-        Text(caption, style = KhataTheme.type.sectionHeader, color = KhataTheme.colors.inkSoft)
+        Text(caption, style = DayBookTheme.type.sectionHeader, color = DayBookTheme.colors.inkSoft)
         MoneyText(
             money = state.summary.total,
-            style = KhataTheme.type.heroFigure,
+            style = DayBookTheme.type.heroFigure,
             // The row's sentence already carries the figure as words; left
             // alone this would merge a second description and TalkBack would
             // say the amount twice.
@@ -420,7 +420,7 @@ private fun SourceRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val locale = rememberJavaLocale()
     val kindLabel = stringResource(if (share.isStable) R.string.kind_stable else R.string.kind_variable)
     val spoken = "${share.name}, ${share.total.spokenForm(locale)}, " +
@@ -450,14 +450,14 @@ private fun SourceRow(
     ) {
         Text(
             text = share.name,
-            style = KhataTheme.type.body,
+            style = DayBookTheme.type.body,
             color = colors.ink,
             modifier = Modifier.weight(1f),
         )
         MoneyText(share.total, modifier = Modifier.clearAndSetSemantics {})
         Text(
             text = stringResource(R.string.percent_share, share.share),
-            style = KhataTheme.type.caption,
+            style = DayBookTheme.type.caption,
             color = colors.inkSoft,
         )
         KindDot(stable = share.isStable)
@@ -467,7 +467,7 @@ private fun SourceRow(
 /** Filled or hollow — the shape *is* the signal. */
 @Composable
 private fun KindDot(stable: Boolean) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     Box(
         Modifier
             .size(DOT_SIZE)
@@ -506,8 +506,8 @@ private fun CoverageLine(percent: Int, scopeKind: ScopeKind) {
             },
             percent,
         ),
-        style = KhataTheme.type.body,
-        color = KhataTheme.colors.ink,
+        style = DayBookTheme.type.body,
+        color = DayBookTheme.colors.ink,
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = Space.gutter, vertical = Space.s3),
@@ -528,8 +528,8 @@ private fun FilterAction(activeCount: Int, onClick: () -> Unit) {
 private fun TextAction(text: String, onClick: () -> Unit) {
     Text(
         text = text,
-        style = KhataTheme.type.caption,
-        color = KhataTheme.colors.indigo,
+        style = DayBookTheme.type.caption,
+        color = DayBookTheme.colors.indigo,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier
             .defaultMinSize(minHeight = Sizes.minTouchTarget)
@@ -552,9 +552,9 @@ private fun Arrow(forward: Boolean, description: String, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            imageVector = if (forward) KhataIcons.ChevronRight else KhataIcons.ChevronLeft,
+            imageVector = if (forward) DayBookIcons.ChevronRight else DayBookIcons.ChevronLeft,
             contentDescription = null,
-            tint = KhataTheme.colors.inkSoft,
+            tint = DayBookTheme.colors.inkSoft,
             modifier = Modifier.size(Sizes.navIcon).clearAndSetSemantics {},
         )
     }
@@ -563,7 +563,7 @@ private fun Arrow(forward: Boolean, description: String, onClick: () -> Unit) {
 /** Structure first, figures when they arrive (§8). Never animated. */
 @Composable
 private fun IncomeSkeleton() {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     Column(
         Modifier
             .fillMaxSize()

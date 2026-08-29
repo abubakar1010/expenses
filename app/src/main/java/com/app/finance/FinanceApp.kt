@@ -106,6 +106,6 @@ class FinanceApp : Application() {
 
     private companion object {
         const val OUR_PACKAGE = "com.app.finance"
-        const val TAG = "Khata"
+        const val TAG = "DayBook"
     }
 }

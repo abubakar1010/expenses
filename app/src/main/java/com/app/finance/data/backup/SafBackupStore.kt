@@ -166,7 +166,7 @@ class SafBackupStore(
     private fun Cursor.longOrZero(column: Int) = if (isNull(column)) 0L else getLong(column)
 
     companion object {
-        private const val TAG = "Khata"
+        private const val TAG = "DayBook"
 
         private val EMPTY = arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
 

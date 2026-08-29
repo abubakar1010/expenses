@@ -56,12 +56,12 @@ import com.app.finance.core.money.Money
 import com.app.finance.core.text.NameKey
 import com.app.finance.data.db.entity.IncomeSourceEntity
 import com.app.finance.ui.common.KeypadKey
-import com.app.finance.ui.common.KhataChip
+import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.NumericKeypad
 import com.app.finance.ui.common.rememberJavaLocale
 import com.app.finance.ui.feature.entry.messageRes
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -102,7 +102,7 @@ fun IncomeEntrySheet(
     onDelete: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val locale = rememberJavaLocale()
     val amount = editor.amount
 
@@ -122,7 +122,7 @@ fun IncomeEntrySheet(
                 text = stringResource(
                     if (editor.isEditing) R.string.edit_income else R.string.add_income,
                 ),
-                style = KhataTheme.type.sectionHeader,
+                style = DayBookTheme.type.sectionHeader,
                 color = colors.inkSoft,
                 modifier = Modifier.padding(
                     start = Space.gutter,
@@ -155,14 +155,14 @@ fun IncomeEntrySheet(
                 if (amount == null) {
                     Text(
                         text = "${Money.SYMBOL}0",
-                        style = KhataTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
+                        style = DayBookTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
                         color = colors.inkSoft,
                         modifier = Modifier.clearAndSetSemantics { contentDescription = "" },
                     )
                 } else {
                     MoneyText(
                         money = amount,
-                        style = KhataTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
+                        style = DayBookTheme.type.heroFigure.copy(fontSize = AMOUNT_SIZE),
                     )
                 }
             }
@@ -187,7 +187,7 @@ fun IncomeEntrySheet(
                     text = editor.date.format(dayFormat(locale)),
                     onClick = { onOpenSheet(IncomeSheet.DATE) },
                 )
-                Text("·", style = KhataTheme.type.body, color = colors.inkSoft)
+                Text("·", style = DayBookTheme.type.body, color = colors.inkSoft)
                 SentencePart(
                     text = editor.note ?: stringResource(R.string.add_note),
                     onClick = { onOpenSheet(IncomeSheet.NOTE) },
@@ -197,7 +197,7 @@ fun IncomeEntrySheet(
             editor.error?.let { error ->
                 Text(
                     text = stringResource(error.messageRes()),
-                    style = KhataTheme.type.caption,
+                    style = DayBookTheme.type.caption,
                     color = colors.vermilion,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -220,7 +220,7 @@ fun IncomeEntrySheet(
                     .padding(horizontal = Space.gutter, vertical = Space.s2)
                     .height(Sizes.minTouchTarget),
             ) {
-                Text(stringResource(R.string.save_income), style = KhataTheme.type.body)
+                Text(stringResource(R.string.save_income), style = DayBookTheme.type.body)
             }
 
             if (editor.isEditing) {
@@ -230,7 +230,7 @@ fun IncomeEntrySheet(
                 // dialog (05 §8).
                 Text(
                     text = stringResource(R.string.delete_income),
-                    style = KhataTheme.type.body,
+                    style = DayBookTheme.type.body,
                     color = colors.vermilion,
                     textAlign = TextAlign.Center,
                     modifier = Modifier
@@ -281,7 +281,7 @@ private fun SourceField(
     sources: List<IncomeSourceEntity>,
     onName: (String) -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     val hint = stringResource(R.string.income_source_hint)
     val key = remember(typed) { NameKey.of(typed) }
     val isNew = typed.isNotBlank() && sources.none { it.nameKey == key }
@@ -294,7 +294,7 @@ private fun SourceField(
             value = typed,
             onValueChange = { if (it.length <= NAME_MAX) onName(it) },
             singleLine = true,
-            textStyle = KhataTheme.type.body.copy(color = colors.ink),
+            textStyle = DayBookTheme.type.body.copy(color = colors.ink),
             cursorBrush = SolidColor(colors.indigo),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
             keyboardActions = KeyboardActions(),
@@ -312,7 +312,7 @@ private fun SourceField(
             decorationBox = { inner ->
                 Box(contentAlignment = Alignment.CenterStart) {
                     if (typed.isEmpty()) {
-                        Text(hint, style = KhataTheme.type.body, color = colors.inkSoft)
+                        Text(hint, style = DayBookTheme.type.body, color = colors.inkSoft)
                     }
                     inner()
                 }
@@ -322,7 +322,7 @@ private fun SourceField(
         if (isNew) {
             Text(
                 text = stringResource(R.string.new_source, typed.trim()),
-                style = KhataTheme.type.caption,
+                style = DayBookTheme.type.caption,
                 color = colors.inkSoft,
             )
         }
@@ -330,7 +330,7 @@ private fun SourceField(
         if (sources.isNotEmpty()) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.s2)) {
                 sources.forEach { source ->
-                    KhataChip(
+                    DayBookChip(
                         label = source.name,
                         selected = source.nameKey == key,
                         onClick = { onName(source.name) },
@@ -345,8 +345,8 @@ private fun SourceField(
 private fun SentencePart(text: String, onClick: () -> Unit) {
     Text(
         text = text,
-        style = KhataTheme.type.body,
-        color = KhataTheme.colors.indigo,
+        style = DayBookTheme.type.body,
+        color = DayBookTheme.colors.indigo,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier
             .defaultMinSize(minHeight = Sizes.minTouchTarget)
@@ -409,7 +409,7 @@ private fun NoteSheet(
     onDone: (String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     var text by remember { mutableStateOf(note.orEmpty()) }
     val focus = remember { FocusRequester() }
     val hint = stringResource(R.string.note_hint)
@@ -433,7 +433,7 @@ private fun NoteSheet(
                 value = text,
                 onValueChange = { if (it.length <= NOTE_MAX) text = it },
                 singleLine = true,
-                textStyle = KhataTheme.type.body.copy(color = colors.ink),
+                textStyle = DayBookTheme.type.body.copy(color = colors.ink),
                 cursorBrush = SolidColor(colors.indigo),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { onDone(text) }),
@@ -452,7 +452,7 @@ private fun NoteSheet(
                 decorationBox = { inner ->
                     Box(contentAlignment = Alignment.CenterStart) {
                         if (text.isEmpty()) {
-                            Text(hint, style = KhataTheme.type.body, color = colors.inkSoft)
+                            Text(hint, style = DayBookTheme.type.body, color = colors.inkSoft)
                         }
                         inner()
                     }
@@ -466,7 +466,7 @@ private fun NoteSheet(
                     contentColor = colors.card,
                 ),
                 modifier = Modifier.fillMaxWidth().height(Sizes.minTouchTarget),
-            ) { Text(stringResource(R.string.done), style = KhataTheme.type.body) }
+            ) { Text(stringResource(R.string.done), style = DayBookTheme.type.body) }
         }
     }
 }

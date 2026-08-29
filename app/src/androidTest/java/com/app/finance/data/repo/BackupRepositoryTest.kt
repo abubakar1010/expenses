@@ -40,7 +40,7 @@ class BackupRepositoryTest {
     private lateinit var backup: BackupRepository
     private var now: Instant = Instant.parse("2026-08-14T10:30:00Z")
 
-    private val pass = "amar khata".toCharArray()
+    private val pass = "amar daybook".toCharArray()
 
     @Before
     fun setUp() {
@@ -85,7 +85,7 @@ class BackupRepositoryTest {
         val outcome = backup.runIfDue()
 
         assertTrue(outcome is BackupOutcome.Done)
-        assertEquals(listOf("khata-backup-2026-08-14-1030.khata"), store.names)
+        assertEquals(listOf("daybook-backup-2026-08-14-1030.daybook"), store.names)
         assertTrue((outcome as BackupOutcome.Done).rows > 0)
     }
 
@@ -175,9 +175,9 @@ class BackupRepositoryTest {
 
         assertEquals(
             listOf(
-                "khata-backup-2026-08-17-1030.khata",
-                "khata-backup-2026-08-18-1030.khata",
-                "khata-backup-2026-08-19-1030.khata",
+                "daybook-backup-2026-08-17-1030.daybook",
+                "daybook-backup-2026-08-18-1030.daybook",
+                "daybook-backup-2026-08-19-1030.daybook",
             ),
             store.names.sorted(),
         )
@@ -188,7 +188,7 @@ class BackupRepositoryTest {
         // A backup folder is a folder the user chose, and may well be one they
         // keep other things in.
         store.put("taxes-2025.pdf")
-        store.put("khata-export.json")
+        store.put("daybook-export.json")
         arm(keep = 1)
 
         repeat(3) { day ->
@@ -198,7 +198,7 @@ class BackupRepositoryTest {
         }
 
         assertTrue("taxes-2025.pdf" in store.names)
-        assertTrue("khata-export.json" in store.names)
+        assertTrue("daybook-export.json" in store.names)
         assertEquals(1, store.names.count(BackupCodec::isBackupName))
     }
 
@@ -357,9 +357,9 @@ class BackupRepositoryTest {
 
     @Test
     fun a_damaged_backup_and_a_stranger_get_different_sentences() = runBlocking {
-        // The codec goes to some trouble to tell a Khata file that has been
+        // The codec goes to some trouble to tell a DayBook file that has been
         // altered from a file that was never one. Collapsing both into
-        // "this isn't a Khata backup" at the last step would throw that away and
+        // "this isn't a DayBook backup" at the last step would throw that away and
         // send somebody with a truncated backup off to find a different file.
         arm()
         backup.runIfDue()
@@ -463,7 +463,7 @@ class BackupRepositoryTest {
             backup.runIfDue()
         }
 
-        assertEquals("khata-backup-2026-08-16-1030.khata", backup.newest()?.name)
+        assertEquals("daybook-backup-2026-08-16-1030.daybook", backup.newest()?.name)
         assertEquals(3, backup.list().size)
     }
 

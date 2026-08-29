@@ -12,7 +12,7 @@ import androidx.compose.ui.test.swipeLeft
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.TestFixture
 import com.app.finance.core.money.Money
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -95,7 +95,7 @@ class LedgerUndoScreenTest {
     private fun show() {
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
-            KhataTheme {
+            DayBookTheme {
                 val host = remember { SnackbarHostState() }
                 Column {
                     // The host has to be in the tree: the undo action is a

@@ -68,7 +68,7 @@ internal fun rememberAnimationsEnabled(): Boolean {
  * off. Use this instead of [tween] everywhere in the app.
  */
 @Composable
-fun <T> khataTween(durationMillis: Int, easing: Easing = Motion.FastOutSlowIn): TweenSpec<T> =
+fun <T> dayBookTween(durationMillis: Int, easing: Easing = Motion.FastOutSlowIn): TweenSpec<T> =
     tween(
         durationMillis = if (LocalAnimationsEnabled.current) durationMillis else 0,
         easing = easing,

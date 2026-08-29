@@ -25,7 +25,7 @@ import com.app.finance.R
 import com.app.finance.domain.model.CategoryNode
 import com.app.finance.ui.common.EmptyState
 import com.app.finance.ui.common.SectionHeader
-import com.app.finance.ui.theme.KhataTheme
+import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
@@ -55,7 +55,7 @@ fun CategoryPickerSheet(
     onSelect: (Long) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     // A root with every child archived is an empty group, not a heading with
     // nothing under it.
     val groups = tree.filter { it.activeChildren.isNotEmpty() }
@@ -78,7 +78,7 @@ fun CategoryPickerSheet(
             item(key = "title") {
                 Text(
                     text = stringResource(R.string.choose_category),
-                    style = KhataTheme.type.screenTitle,
+                    style = DayBookTheme.type.screenTitle,
                     color = colors.ink,
                     modifier = Modifier.padding(
                         start = Space.gutter,
@@ -115,7 +115,7 @@ private fun CategoryRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val colors = KhataTheme.colors
+    val colors = DayBookTheme.colors
     Box(
         Modifier
             .fillMaxWidth()
@@ -135,7 +135,7 @@ private fun CategoryRow(
     ) {
         Text(
             text = category.name,
-            style = KhataTheme.type.body,
+            style = DayBookTheme.type.body,
             // Selection is carried by weight and colour together, so it does
             // not rely on colour alone (NFR-USE-05).
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,

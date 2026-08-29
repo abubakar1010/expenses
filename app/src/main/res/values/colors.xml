@@ -2,7 +2,7 @@
 <!--
   Only the handful of tokens the *platform* needs before Compose takes over:
   the window background, which is what the user sees between process start and
-  the first composed frame. The full Khata palette lives in ui/theme/Color.kt.
+  the first composed frame. The full DayBook palette lives in ui/theme/Color.kt.
   05-ui-ux-guide.md §3.1
 -->
 <resources>

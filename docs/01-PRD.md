@@ -152,7 +152,7 @@ This is P0, not a nice-to-have. Users do not trust an app with their financial h
 
 ### 6.7 Backup and restore — P1
 
-- Nominate a folder once; Khata writes a dated backup there when it is opened, at most once a day, and only when something changed
+- Nominate a folder once; DayBook writes a dated backup there when it is opened, at most once a day, and only when something changed
 - Keep the last several backups and delete older ones
 - Optionally protect them with a passphrase
 - Hand the newest one to another app — Drive, email, a chat app — with one tap
@@ -163,7 +163,7 @@ This is P0, not a nice-to-have. Users do not trust an app with their financial h
 Two limits are part of the design rather than gaps in it, and the interface says both out loud:
 
 - **A phone left closed is not backed up.** There is no background service and no notification (05 §12), so backups happen when the app is opened. Promising "every day" would be promising something the app cannot deliver.
-- **Getting a copy off the device is the user's tap.** Khata has no `INTERNET` permission and will not acquire one (FR-APP-01); "send a copy" hands the file to an app that already has one. Cloud backup of Khata's own remains P2, and `04 §11` records what it would cost.
+- **Getting a copy off the device is the user's tap.** DayBook has no `INTERNET` permission and will not acquire one (FR-APP-01); "send a copy" hands the file to an app that already has one. Cloud backup of DayBook's own remains P2, and `04 §11` records what it would cost.
 
 ## 7. Feature priority
 

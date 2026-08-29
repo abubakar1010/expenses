@@ -45,7 +45,7 @@ val SystemSans = FontFamily.Default
  * variant.
  */
 @Immutable
-data class KhataTypography(
+data class DayBookTypography(
     /** Safe-to-spend. The one figure the dashboard exists to show. */
     val heroFigure: TextStyle,
     /** Section totals. */
@@ -62,7 +62,7 @@ data class KhataTypography(
     val currencySymbolScale: Float,
 )
 
-val KhataType = KhataTypography(
+val DayBookType = DayBookTypography(
     heroFigure = TextStyle(
         fontFamily = PlexMono,
         fontWeight = FontWeight.Medium,
@@ -118,4 +118,4 @@ val KhataType = KhataTypography(
 /** Applied to the ৳ span so it sets at 0.7em without needing a second style. */
 internal val CurrencyGeometry = TextGeometricTransform(scaleX = 1f)
 
-val LocalKhataType = staticCompositionLocalOf { KhataType }
+val LocalDayBookType = staticCompositionLocalOf { DayBookType }

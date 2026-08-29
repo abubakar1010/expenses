@@ -1,4 +1,4 @@
--- Khata — canonical SQLite schema, version 3.
+-- DayBook — canonical SQLite schema, version 3.
 --
 -- Generated from app/src/main/java/com/app/finance/data/db/Schema.kt, which is
 -- what actually creates the database at runtime. Regenerate both together.

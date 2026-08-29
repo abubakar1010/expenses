@@ -30,7 +30,7 @@ import androidx.test.platform.app.InstrumentationRegistry
  * ```
  * ./gradlew :app:installDebug
  * adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug
- * adb logcat -s KhataSeed:I -m 1
+ * adb logcat -s DayBookSeed:I -m 1
  * ```
  *
  * `SeedFiveYears` lives in the app's **debug** source set, so the receiver

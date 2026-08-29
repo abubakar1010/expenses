@@ -191,7 +191,7 @@ class PerformanceProbeTest {
     // Not private: JUnit calls `@BeforeClass` reflectively and needs it public
     // and static, which a private companion cannot give it.
     companion object {
-        const val TAG = "KhataPerf"
+        const val TAG = "DayBookPerf"
         const val SAMPLES = 21
         const val DB_NAME = "perf-probe.db"
 

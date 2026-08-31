@@ -4879,8 +4879,10 @@ recorded in CLAUDE.md this session does not reach them.
   apply a filter, so `showsFilteredTotal` is false throughout and the new header
   never renders in them. No test yet asserts the header *appears* on screen —
   the state that drives it is covered six ways, the composition is not.
+  **Closed in §26.8** — `LedgerFilterTotalTest` renders the header and pins it.
 - **`coverageVerify` has not been re-run.** `am instrument` writes no JaCoCo
   `.ec`, and the gate needs Gradle's `connectedDebugAndroidTest`.
+  **Run in §26.7.**
 
 ---
 
@@ -5278,30 +5280,42 @@ main thread could not have survived this; `uiautomator dump` needs the UI thread
 to answer, and it answered throughout. That is the confirmation
 `withContext(Dispatchers.IO)` never had.
 
-### 26.5 The lock after a share sheet
+### 26.5 The lock around the two system dialogs
 
 `LockControllerTest` pins the state machine and `MainActivityTest` pins the
-lifecycle wiring, but nothing had put a real chooser in front of a real window.
-The specific worry was mechanical: a chooser that only *pauses* the activity
-would never fire `ON_STOP`, and the lock would never engage.
+lifecycle wiring, but nothing had put a real system dialog in front of a real
+window. The worry was mechanical, and it points in opposite directions for the
+app's two hand-offs: a dialog that only **pauses** the activity never fires
+`ON_STOP`, so the share sheet would never lock — and if the picker also only
+paused, then `rememberHandoffLauncher`'s whole suppression would be suppressing
+nothing.
 
-Measured, with *Require unlock* on and a backup present:
+**Measure the activity, not the task.** Both dialogs run *inside* DayBook's
+task (`sz=2`), so the task reports `visible=true` in both cases and says nothing
+about `MainActivity`. The first pass at this read the task line and drew the
+right conclusion from the wrong evidence; what settles it is the per-record
+`state=`:
 
-| moment | task state |
-| --- | --- |
-| chooser up (`com.android.intentresolver/...ChooserActivityLauncher` focused) | `visible=true visibleRequested=true`, MainActivity is `mLastPausedActivity` |
-| Home from the chooser | `visible=false visibleRequested=false` |
-| relaunch | **"Your ledger is locked." / "Unlock"** |
+| dialog on top | `MainActivity` | `ON_STOP`? |
+| --- | --- | --- |
+| `com.android.intentresolver/.ChooserActivityLauncher` | **PAUSED** | no |
+| `com.google.android.documentsui/…PickActivity` | **STOPPED** (`mAppStopped=true`) | yes |
 
-So the worry is real as far as it goes — **the chooser alone does not stop the
-activity** — and the behaviour is still correct, because the moment the user
-actually leaves, the app stops and locks. That is exactly what `BackupScreen`'s
-comment argues for in declining to suppress the hand-off here: the share sheet
-is fire-and-forget, there is no result to bring a suppression back down, and
-coming back to the gate after sending the whole ledger somewhere is the point of
-FR-APP-04.
+So the two hand-offs are correct for opposite reasons, and neither is arbitrary:
 
+- **The share sheet is not suppressed, and does not need to be.** It leaves the
+  activity paused, so nothing locks while the chooser is up — confirmed by
+  dismissing it and finding the app still open. The moment the user genuinely
+  leaves, the task goes `visible=false`, `ON_STOP` fires, and relaunching gives
+  **"Your ledger is locked."** That is what `BackupScreen`'s comment argues for
+  in declining to arm a suppression it could never bring back down.
+- **The picker is suppressed, and needs to be.** It really does stop the
+  activity, so without `beginHandoff`/`endHandoff` the app would lock behind
+  every export, import and folder grant. Walked with *Require unlock* on:
+  Restore → the picker → back → **still unlocked**.
 
+That second walk is the pairing §26.8 had left at unit level. Both halves of
+`rememberHandoffLauncher` are now confirmed against real system UI.
 ### 26.6 A race the full suite found and a single run never would
 
 The regression run after the fix came back **682 tests, 1 failure**:
@@ -5344,25 +5358,95 @@ was fixed alongside rather than left to fail on a busier day.
 there is no one node to wait for; its sleep is a deliberate choice with a comment
 saying so. Worth revisiting, not worth destabilising a capture test for.
 
-Re-run after the fix: **682 tests, zero failures, 459 s.** The JVM suite is 311, also zero.
+Re-run after the fix: **682 tests, zero failures, 459 s** under `am instrument`,
+and **687, zero failures** under Gradle with JaCoCo once §26.8 added five
+(§26.7). The JVM suite is 311, also zero.
 
-### 26.7 Gates
+### 26.7 Gates, including the one that had not run since M6
 
 | gate | result |
 | --- | --- |
-| `:app:testDebugUnitTest` | pass |
-| `:app:connectedAndroidTest` (as `am instrument`) | 682, zero failures |
+| `:app:testDebugUnitTest` | 311, zero failures |
+| `:app:connectedDebugAndroidTest` (Gradle, JaCoCo) | **687, zero failures**, 9 min |
+| `:app:coverageVerify` | **pass** — 91.40% instructions (14,733 of 16,119) |
 | `:app:architectureCheck` | pass |
 | `:app:lintRelease` | no errors |
 | `:app:assembleRelease` | pass — R8 full mode keeps the new open-helper callback |
 
-### 26.8 Still not done
+**`coverageVerify` needed running properly, and the first attempt did not.**
+§24.6 had left it outstanding since FR-EXP-11, and invoking the task alone
+"passed" in 42 seconds — because it ran only `testDebugUnitTest` and merged that
+fresh JVM data with instrumented `.ec` files left on disk from the morning. A
+green gate over half-stale evidence is the same failure this log keeps
+recording in other forms, so the `.ec` directory was deleted and the whole thing
+re-run through `connectedDebugAndroidTest`.
+
+The number came back **identical**, which is the right outcome and worth saying
+why: NFR-MAIN-02's bundle is `domain/`, `core/` and `data/repo/`, and nothing in
+this pass touched any of the three. `AppDatabase` (`data/db/`) and
+`RecoveryScreen` (`ui/`) are outside it, so the corruption fix and the extracted
+`zipDatabase` are covered by their own tests rather than by this gate.
+
+That the 687 ran clean under Gradle matters on its own. JaCoCo instrumentation
+makes the suite slower, and slower is exactly what §21.9 J and §26.6 needed to
+surface their races — three tests once passed under `am instrument` and failed
+here. The two fixed in §26.6 hold under the slower harness.
+### 26.8 FR-EXP-11 header, on screen at last
+
+§24.6 recorded the gap plainly: the state behind the filtered-total header was
+covered six ways and **the composition not at all.** No ledger screen test
+applied a filter, so `showsFilteredTotal` was false in every one of them and the
+header never rendered under test. The same shape as §25.7's split-sheet dead
+end — every layer underneath green while the screen showed the user nothing.
+
+`LedgerFilterTotalTest` renders the real `LedgerScreen` and filters it through
+the search field, because a query *is* a filter (`isDefault` is false the moment
+one is typed) and it reaches the header through the same `applyFilters` the
+sheet uses. What is under test is the header, not the sheet.
+
+**Rendering it immediately exposed two things no state-level test could have.**
+
+1. `SectionHeader` uppercases, so the node reads `3 MATCHES`. The first draft
+   asserted `"3 matches"` and timed out. Worse, the *absence* check in the
+   unfiltered case was written case-sensitively — and a case-sensitive
+   `assertDoesNotExist("match")` passes whether the header is on screen or not.
+   It was a test that could not fail. It now passes `ignoreCase = true`.
+2. The total carries `ClearAndSetSemantics` and is announced as words —
+   `six hundred taka in total`, never "৳600". That is NFR-A11Y working as
+   designed, and it means the figure has to be asserted through the description
+   that replaced it, not through any visible string.
+
+Five cases: the header absent when unfiltered, what a filter comes to, `1 MATCH`
+not pluralised, the total covering every match rather than the loaded page, and
+the header leaving when the filter is cleared.
+
+**Verified by mutation:**
+
+| mutation | result |
+| --- | --- |
+| `if (false && state.showsFilteredTotal)` — the header never renders | 4 of 5 fail; the unfiltered case correctly survives |
+| `filteredTotal`/`filteredCount` summed from `rows` — the loaded page | **only** `the_total_covers_every_match_and_not_the_loaded_page` fails |
+
+The second is the one worth having. `PAGE_SIZE` is 50 and the test seeds 60
+matching rows, so a header that summed what was on screen would read
+`50 MATCHES` and five hundred taka. Exactly one test notices, which is what a
+test for that requirement should do.
+
+### 26.9 Still not done
 
 - **Unlocking was not driven**, only the gate appearing. Completing a
   device-credential prompt needs the owner's PIN.
-- **The picker's *suppression* was not re-checked under a live lock.** Granting a
-  folder and returning was walked in this session, but with the lock off; the
-  pairing is covered at the unit level only.
-- **One ROM, one chooser.** `visible=true` under `com.android.intentresolver` is
-  an Android 15 Realme observation. A ROM whose chooser is opaque would stop the
-  activity and lock earlier, which is not worse.
+- **One ROM, two dialogs.** `PAUSED` under `com.android.intentresolver` and
+  `STOPPED` under `com.google.android.documentsui` are Android 15 Realme
+  observations. A ROM whose chooser is opaque would stop the activity and lock
+  *earlier*, which is not worse; a picker that only paused would make the
+  suppression redundant rather than wrong. Both failure directions are safe,
+  which is why one ROM is tolerable here and is not a claim about all of them.
+- **The reference device still does not exist here** (§25.9), so every NFR-PERF
+  figure remains a necessary condition only.
+- **A cloud provider's tree and an SD card** are still untested as backup
+  destinations.
+- **`GreyscaleCaptureTest` still waits on a fixed `Thread.sleep(1_500)`**
+  (§26.6). Its assertions are over a harvested label set rather than any one
+  node, so there is nothing single to await; it is the last timing-based wait in
+  the Compose suites.

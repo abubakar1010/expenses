@@ -178,7 +178,13 @@ class Importer(private val db: AppDatabase) {
 
         dao.insertSources(export.sources.map { it.toEntity() })
         dao.insertBudgets(export.budgets.map { it.toEntity() })
+        // People before expenses: `expense.payer_person_id` references one.
+        dao.insertPersons(export.persons.map { it.toEntity() })
         dao.insertExpenses(export.expenses.map { it.derived().toEntity() })
+        // Shares after both, and after the expenses carry their payer —
+        // `trg_share_only_when_i_paid` reads it and would abort otherwise.
+        dao.insertShares(export.shares.map { it.toEntity() })
+        dao.insertSettlements(export.settlements.map { it.toEntity() })
         dao.insertIncomeEntries(export.incomeEntries.map { it.derived().toEntity() })
         dao.insertRules(export.rules.map { it.toEntity() })
         writeMeta(export)
@@ -190,6 +196,9 @@ class Importer(private val db: AppDatabase) {
             EXPENSES to ImportCounts(inserted = export.expenses.size),
             INCOME to ImportCounts(inserted = export.incomeEntries.size),
             RULES to ImportCounts(inserted = export.rules.size),
+            PERSONS to ImportCounts(inserted = export.persons.size),
+            SHARES to ImportCounts(inserted = export.shares.size),
+            SETTLEMENTS to ImportCounts(inserted = export.settlements.size),
             META to ImportCounts(inserted = export.meta.size),
         )
     }
@@ -251,12 +260,52 @@ class Importer(private val db: AppDatabase) {
         dao.updateBudgets(budgetPlan.updates.map { it.toEntity() })
         counts[BUDGETS] = budgetPlan.counts
 
-        val expenses = export.expenses
-            .map { it.derived().copy(categoryId = category(it.categoryId)) }
+        // --- people, before the expenses that name them as payer -------------
+        val personPlan = plan(export.persons, dao.allPersons().associate { it.uuid to it.toDto() }) { d, id -> d.copy(id = id) }
+        dao.insertPersons(personPlan.inserts.map { it.toEntity() })
+        dao.updatePersons(personPlan.updates.map { it.toEntity() })
+        counts[PERSONS] = personPlan.counts
+
+        val personIds = resolve(export.persons, dao.allPersons().map { it.toDto() })
+        fun person(fileId: Long): Long = personIds[fileId] ?: throw DanglingReference()
+
+        val expenses = export.expenses.map {
+            it.derived().copy(
+                categoryId = category(it.categoryId),
+                payerPersonId = it.payerPersonId?.let(::person),
+            )
+        }
         val expensePlan = plan(expenses, dao.allExpenses().associate { it.uuid to it.toDto() }) { d, id -> d.copy(id = id) }
         dao.insertExpenses(expensePlan.inserts.map { it.toEntity() })
         dao.updateExpenses(expensePlan.updates.map { it.toEntity() })
         counts[EXPENSES] = expensePlan.counts
+
+        // --- shares and settlements ------------------------------------------
+        //
+        // Expenses had no `resolve` step before this: nothing referenced them.
+        // A share does, and the re-read is what maps the file's expense id onto
+        // whatever SQLite assigned when the row was inserted — the same
+        // mechanism categories and sources already rely on, and it works because
+        // `plan` rewrites only the id, never the uuid.
+        val expenseIds = resolve(expenses, dao.allExpenses().map { it.toDto() })
+        fun expense(fileId: Long): Long = expenseIds[fileId] ?: throw DanglingReference()
+
+        // Both ids remapped **before** the natural key is read, since
+        // `ExpenseShareDto.naturalKey` is built from them and has to be local by
+        // the time the merge compares it — `BudgetDto`'s precedent.
+        val shares = export.shares.map {
+            it.copy(expenseId = expense(it.expenseId), personId = person(it.personId))
+        }
+        val sharePlan = plan(shares, dao.allShares().associate { it.uuid to it.toDto() }) { d, id -> d.copy(id = id) }
+        dao.insertShares(sharePlan.inserts.map { it.toEntity() })
+        dao.updateShares(sharePlan.updates.map { it.toEntity() })
+        counts[SHARES] = sharePlan.counts
+
+        val settlements = export.settlements.map { it.copy(personId = person(it.personId)) }
+        val settlementPlan = plan(settlements, dao.allSettlements().associate { it.uuid to it.toDto() }) { d, id -> d.copy(id = id) }
+        dao.insertSettlements(settlementPlan.inserts.map { it.toEntity() })
+        dao.updateSettlements(settlementPlan.updates.map { it.toEntity() })
+        counts[SETTLEMENTS] = settlementPlan.counts
 
         val income = export.incomeEntries
             .map { it.derived().copy(sourceId = source(it.sourceId)) }
@@ -413,6 +462,9 @@ class Importer(private val db: AppDatabase) {
         const val EXPENSES = "expenses"
         const val INCOME = "income_entries"
         const val RULES = "recurring_rules"
+        const val PERSONS = "persons"
+        const val SHARES = "shares"
+        const val SETTLEMENTS = "settlements"
         const val META = "meta"
 
         /**

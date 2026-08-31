@@ -25,6 +25,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import com.app.finance.core.money.Money
+import com.app.finance.domain.model.SaveOutcome
+import com.app.finance.domain.model.Split
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
@@ -95,6 +98,15 @@ class ExportImportRoundTripTest {
         ),
         "recurring_rule" to row(
             "SELECT COUNT(*), IFNULL(SUM(id + amount_minor + frequency + anchor_day + next_due_day), 0) FROM recurring_rule",
+        ),
+        // FR-SHR-07. Without these a round trip could drop every share and
+        // still pass, which is the shape of gate that is not one.
+        "person" to row("SELECT COUNT(*), IFNULL(SUM(id + sort_order + is_archived), 0) FROM person"),
+        "expense_share" to row(
+            "SELECT COUNT(*), IFNULL(SUM(id + expense_id + person_id + share_minor), 0) FROM expense_share",
+        ),
+        "settlement" to row(
+            "SELECT COUNT(*), IFNULL(SUM(id + person_id + amount_minor + settled_on), 0) FROM settlement",
         ),
         "app_meta" to row("SELECT COUNT(*), 0 FROM app_meta"),
         // Derived, and rebuilt rather than restored — which is exactly why it
@@ -240,6 +252,9 @@ class ExportImportRoundTripTest {
         assertEquals(count("budget"), parsed.budgets.size.toLong())
         assertEquals(count("expense"), parsed.expenses.size.toLong())
         assertEquals(count("income_entry"), parsed.incomeEntries.size.toLong())
+        assertEquals(count("person"), parsed.persons.size.toLong())
+        assertEquals(count("expense_share"), parsed.shares.size.toLong())
+        assertEquals(count("settlement"), parsed.settlements.size.toLong())
         assertEquals(count("app_meta"), parsed.meta.size.toLong())
     }
 
@@ -329,7 +344,8 @@ class ExportImportRoundTripTest {
         assertEquals(
             listOf(
                 "categories.csv", "sources.csv", "budgets.csv", "expenses.csv",
-                "income_entries.csv", "recurring_rules.csv", "meta.csv",
+                "income_entries.csv", "recurring_rules.csv",
+                "persons.csv", "shares.csv", "settlements.csv", "meta.csv",
             ),
             names,
         )
@@ -338,4 +354,96 @@ class ExportImportRoundTripTest {
     }
 
     private fun count(table: String): Long = row("SELECT COUNT(*), 0 FROM $table").substringBefore(':').toLong()
+
+    // --- FR-SHR-07: shared expenses survive the round trip --------------------
+
+    private suspend fun seedShared() {
+        val rahim = (fx.people.findOrCreate("Rahim") as SaveOutcome.Saved).id
+        val karim = (fx.people.findOrCreate("Karim") as SaveOutcome.Saved).id
+        val grocery = fx.leafId("Grocery")
+
+        val (yours, split) = Split.evenly(Money.ofTaka(1_000), listOf(rahim, karim))
+        fx.expenses.insert(yours, grocery, fx.today, split = split)
+        fx.expenses.insert(
+            Money.ofTaka(250), grocery, fx.today, split = Split.TheyPaid(rahim),
+        )
+        fx.settlements.record(rahim, Money.ofTaka(200), fx.today)
+    }
+
+    @Test
+    fun a_shared_ledger_survives_export_wipe_and_import() = runBlocking {
+        // FR-DAT-04 extended to FR-SHR-07: what comes back has to include who
+        // owed what, or the balances are silently forgiven by a restore.
+        seedShared()
+        val before = fingerprint()
+        val balanceBefore = fx.db.settlementDao().balanceOf(
+            fx.db.personDao().byNameKey("rahim")!!.id,
+        )
+
+        val json = exportJson()
+        wipe()
+        val outcome = fx.importer.import(ByteArrayInputStream(json), ImportMode.REPLACE)
+
+        assertTrue("import failed: $outcome", outcome is ImportOutcome.Done)
+        assertEquals(before, fingerprint())
+        assertEquals(
+            balanceBefore,
+            fx.db.settlementDao().balanceOf(fx.db.personDao().byNameKey("rahim")!!.id),
+        )
+    }
+
+    @Test
+    fun merging_a_shared_file_into_its_own_database_changes_nothing() = runBlocking {
+        // The symmetry guard on `toDto`/`toEntity`. If `toDto` failed to carry
+        // `payerPersonId`, `plan`'s skip test — data-class equality — would call
+        // every payer-bearing expense changed and re-update it forever.
+        seedShared()
+        val json = exportJson()
+
+        val outcome = fx.importer.import(ByteArrayInputStream(json), ImportMode.MERGE)
+
+        assertTrue(outcome is ImportOutcome.Done)
+        val done = outcome as ImportOutcome.Done
+        assertEquals("a merge into itself inserted rows", 0, done.totals.inserted)
+        assertEquals(
+            "a merge into itself rewrote rows",
+            done.perEntity["meta"]?.updated ?: 0,
+            done.totals.updated,
+        )
+    }
+
+    @Test
+    fun a_file_written_before_shared_expenses_existed_still_imports() = runBlocking {
+        // The existing older-schema test starts from a *new* export, so it does
+        // not prove this: what matters is a file with no `persons`, `shares` or
+        // `settlements` keys at all, and no `payer_person_id` on an expense.
+        // Every array is defaulted and `explicitNulls = false` drops the null,
+        // which is exactly what makes absence mean "you paid".
+        val grocery = fx.leafId("Grocery")
+        val v1 = """
+            {"schema_version":1,"exported_at":1,
+             "categories":[
+               {"id":900,"uuid":"root-u","name":"Fixed Expenses","name_key":"fixed expenses",
+                "nature":0,"created_at":1,"updated_at":1},
+               {"id":901,"uuid":"leaf-u","parent_id":900,"name":"Rent","name_key":"rent",
+                "nature":0,"created_at":1,"updated_at":1}],
+             "expenses":[
+               {"id":902,"uuid":"exp-u","category_id":901,"amount_minor":12345,
+                "spent_on":${fx.today.toEpochDay()},"period_ym":202608,
+                "created_at":1,"updated_at":1}]}
+        """.trimIndent()
+
+        val outcome = fx.importer.import(v1.byteInputStream(), ImportMode.MERGE)
+
+        assertTrue("an old backup was refused: $outcome", outcome is ImportOutcome.Done)
+        // Restored as an expense you paid, which is what every pre-feature
+        // expense was.
+        assertEquals(
+            0L,
+            row("SELECT COUNT(*), 0 FROM expense WHERE payer_person_id IS NOT NULL")
+                .substringBefore(':').toLong(),
+        )
+        assertEquals(0L, count("person"))
+        assertTrue(grocery > 0)
+    }
 }

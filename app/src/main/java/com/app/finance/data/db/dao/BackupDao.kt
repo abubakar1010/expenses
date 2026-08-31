@@ -9,6 +9,9 @@ import com.app.finance.data.db.entity.AppMetaEntity
 import com.app.finance.data.db.entity.BudgetEntity
 import com.app.finance.data.db.entity.CategoryEntity
 import com.app.finance.data.db.entity.ExpenseEntity
+import com.app.finance.data.db.entity.ExpenseShareEntity
+import com.app.finance.data.db.entity.PersonEntity
+import com.app.finance.data.db.entity.SettlementEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.IncomeSourceEntity
 import com.app.finance.data.db.entity.RecurringRuleEntity
@@ -56,6 +59,20 @@ interface BackupDao {
     @Query("SELECT * FROM recurring_rule ORDER BY id")
     suspend fun allRules(): List<RecurringRuleEntity>
 
+    /**
+     * Shared expenses — FR-SHR-07. `ORDER BY id`, this DAO's convention, and
+     * deliberately not `PersonDao.all()`, which orders for display: the export
+     * has to be deterministic and parents before children.
+     */
+    @Query("SELECT * FROM person ORDER BY id")
+    suspend fun allPersons(): List<PersonEntity>
+
+    @Query("SELECT * FROM expense_share ORDER BY id")
+    suspend fun allShares(): List<ExpenseShareEntity>
+
+    @Query("SELECT * FROM settlement ORDER BY id")
+    suspend fun allSettlements(): List<SettlementEntity>
+
     @Query("SELECT * FROM app_meta ORDER BY key")
     suspend fun allMeta(): List<AppMetaEntity>
 
@@ -97,6 +114,9 @@ interface BackupDao {
             UNION ALL SELECT MAX(updated_at), COUNT(*) FROM recurring_rule
             UNION ALL SELECT MAX(updated_at), COUNT(*) FROM category
             UNION ALL SELECT MAX(updated_at), COUNT(*) FROM income_source
+            UNION ALL SELECT MAX(updated_at), COUNT(*) FROM person
+            UNION ALL SELECT MAX(updated_at), COUNT(*) FROM expense_share
+            UNION ALL SELECT MAX(updated_at), COUNT(*) FROM settlement
         )
         """,
     )
@@ -127,6 +147,15 @@ interface BackupDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertRules(rows: List<RecurringRuleEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertPersons(rows: List<PersonEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertShares(rows: List<ExpenseShareEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertSettlements(rows: List<SettlementEntity>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMeta(rows: List<AppMetaEntity>)
 
@@ -147,6 +176,15 @@ interface BackupDao {
 
     @Update
     suspend fun updateRules(rows: List<RecurringRuleEntity>)
+
+    @Update
+    suspend fun updatePersons(rows: List<PersonEntity>)
+
+    @Update
+    suspend fun updateShares(rows: List<ExpenseShareEntity>)
+
+    @Update
+    suspend fun updateSettlements(rows: List<SettlementEntity>)
 
     // --- lookups the merge needs ---------------------------------------------
     //

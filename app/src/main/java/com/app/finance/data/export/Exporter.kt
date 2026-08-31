@@ -51,6 +51,11 @@ class Exporter(private val db: AppDatabase) {
             counts[EXPENSES] = w.array(EXPENSES, ExpenseDto.serializer(), dao.allExpenses()) { it.toDto() }
             counts[INCOME] = w.array(INCOME, IncomeEntryDto.serializer(), dao.allIncomeEntries()) { it.toDto() }
             counts[RULES] = w.array(RULES, RuleDto.serializer(), dao.allRules()) { it.toDto() }
+            // FR-SHR-07. After the rows they reference, so a reader that
+            // streams the file top to bottom meets a parent before its child.
+            counts[PERSONS] = w.array(PERSONS, PersonDto.serializer(), dao.allPersons()) { it.toDto() }
+            counts[SHARES] = w.array(SHARES, ExpenseShareDto.serializer(), dao.allShares()) { it.toDto() }
+            counts[SETTLEMENTS] = w.array(SETTLEMENTS, SettlementDto.serializer(), dao.allSettlements()) { it.toDto() }
             counts[META] = w.array(META, MetaDto.serializer(), exportableMeta()) { it.toDto() }
 
             w.write("}")
@@ -95,6 +100,7 @@ class Exporter(private val db: AppDatabase) {
                 listOf(
                     it.id.s(), it.uuid, it.categoryId.s(), it.amountMinor.s(), it.spentOn.s(),
                     it.periodYm.s(), it.paymentMethod.s(), it.note, it.status.s(),
+                    it.payerPersonId?.s(),
                     it.createdAt.s(), it.updatedAt.s(),
                 )
             }
@@ -109,6 +115,26 @@ class Exporter(private val db: AppDatabase) {
                     it.id.s(), it.uuid, it.target.s(), it.categoryId?.s(), it.sourceId?.s(),
                     it.amountMinor.s(), it.frequency.s(), it.anchorDay.s(), it.nextDueDay.s(),
                     it.lastRunDay?.s(), it.autoPost.s(), it.isActive.s(), it.note,
+                    it.createdAt.s(), it.updatedAt.s(),
+                )
+            }
+            // FR-SHR-07, in the same order as the JSON writes them.
+            counts[PERSONS] = zip.csv(PERSONS, PERSON_HEADER, dao.allPersons()) {
+                listOf(
+                    it.id.s(), it.uuid, it.name, it.nameKey, it.sortOrder.s(),
+                    it.isArchived.s(), it.createdAt.s(), it.updatedAt.s(),
+                )
+            }
+            counts[SHARES] = zip.csv(SHARES, SHARE_HEADER, dao.allShares()) {
+                listOf(
+                    it.id.s(), it.uuid, it.expenseId.s(), it.personId.s(),
+                    it.shareMinor.s(), it.createdAt.s(), it.updatedAt.s(),
+                )
+            }
+            counts[SETTLEMENTS] = zip.csv(SETTLEMENTS, SETTLEMENT_HEADER, dao.allSettlements()) {
+                listOf(
+                    it.id.s(), it.uuid, it.personId.s(), it.amountMinor.s(),
+                    it.settledOn.s(), it.paymentMethod.s(), it.note,
                     it.createdAt.s(), it.updatedAt.s(),
                 )
             }
@@ -188,6 +214,9 @@ class Exporter(private val db: AppDatabase) {
         const val EXPENSES = "expenses"
         const val INCOME = "income_entries"
         const val RULES = "recurring_rules"
+        const val PERSONS = "persons"
+        const val SHARES = "shares"
+        const val SETTLEMENTS = "settlements"
         const val META = "meta"
 
         const val CATEGORY_HEADER =
@@ -199,12 +228,20 @@ class Exporter(private val db: AppDatabase) {
             "id,uuid,category_id,period_ym,limit_minor,created_at,updated_at"
         const val EXPENSE_HEADER =
             "id,uuid,category_id,amount_minor,spent_on,period_ym,payment_method,note,status," +
+                "payer_person_id," +
                 "created_at,updated_at"
         const val INCOME_HEADER =
             "id,uuid,source_id,amount_minor,earned_on,period_ym,note,status,created_at,updated_at"
         const val RULE_HEADER =
             "id,uuid,target,category_id,source_id,amount_minor,frequency,anchor_day," +
                 "next_due_day,last_run_day,auto_post,is_active,note,created_at,updated_at"
+        const val PERSON_HEADER =
+            "id,uuid,name,name_key,sort_order,is_archived,created_at,updated_at"
+        const val SHARE_HEADER =
+            "id,uuid,expense_id,person_id,share_minor,created_at,updated_at"
+        const val SETTLEMENT_HEADER =
+            "id,uuid,person_id,amount_minor,settled_on,payment_method,note," +
+                "created_at,updated_at"
         const val META_HEADER = "key,value,updated_at"
     }
 }

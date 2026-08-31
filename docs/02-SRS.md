@@ -163,7 +163,43 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 - *Accept:* With 120 matching expenses and one page of 50 loaded, the displayed total equals a direct `SUM(amount_minor)` over all 120; loading the remaining pages leaves it unchanged.
 - *Note:* This is the one aggregate on the ledger that FR-EXP-09's per-day subtotals cannot give. A day subtotal answers "what did I spend that day"; a filtered total answers "what does this filter come to", and the two are only the same when the filter selects a single day. FR-EXP-10 is what makes it a query rather than a sum of what is on screen.
 
-### 2.6 Analytics — FR-AN
+### 2.6 Shared expenses — FR-SHR
+
+A bill split with other people. Those people never use this application; these
+requirements are about **one user's record of who owes whom**, which is why they
+sit inside a single-user, offline product rather than contradicting `01-PRD.md`
+§3's exclusion of "multi-user or family sharing" — that exclusion is about other
+people *using the app*.
+
+**The governing decision, from which the rest follows:** `expense.amount_minor`
+is **the user's own share**, never the whole bill. Every aggregate in this
+document — budgets, safe to spend, savings rate, category deltas — means what
+the user consumed, and a share is what they consumed. Recording the whole bill
+and correcting it later cannot work in a product whose budgets and rollups are
+keyed by calendar month: a dinner on 30 August repaid on 2 September would
+falsify both months permanently, and no later entry repairs them.
+
+**FR-SHR-01** The system MUST allow recording a person by name, unique on the normalised name key, creatable inline during expense entry. A person MUST be archivable, hidden thereafter from pickers while remaining in history. Deletion MUST be permitted only for a person referenced by no expense, share, or settlement.
+- *Accept:* "rahim", " Rahim" and "RAHIM" resolve to one person. Deleting a person with any history is refused with an explanation offering Archive instead.
+
+**FR-SHR-02** The system MUST allow splitting an expense among the user and one or more people, either evenly or by an amount typed per person. The amounts MUST account for every paisa of the bill: the user's share plus the recorded shares MUST equal the bill exactly.
+- *Accept:* ৳1,000 split three ways stores parts summing to exactly 100,000 paisa — no part is rounded away.
+
+**FR-SHR-03** An expense MUST record who paid: the user, or one other person. Where somebody else paid, the expense MUST still record the user's share, because they consumed it. Shares owed *to* the user MUST exist only where the user paid — the two are mutually exclusive and MUST be presented as one choice, not two.
+- *Accept:* A meal a friend paid for still charges the user's food budget their share, and offers no way to also record somebody owing them for it.
+
+**FR-SHR-04** The system MUST allow recording money moving between the user and a person that is not consumption — a repayment, or a loan made outright. Such a record MUST NOT enter any expense or income aggregate.
+- *Accept:* A friend repaying ৳750 leaves every rollup, the period total and the savings rate unchanged.
+
+**FR-SHR-05** The system MUST display, per person, the net amount owed in either direction, and MUST distinguish the two directions clearly.
+- *Accept:* Each balance equals a direct sum over that person's shares, the expenses they paid, and their settlements. A person who is square appears in neither list.
+
+**FR-SHR-06** The ledger MUST be filterable by person, matching expenses that person shares in or paid for. While such a filter is active the ledger MUST show the balance with that person rather than FR-EXP-11's filtered total, which answers a different question.
+
+**FR-SHR-07** People, shares and settlements MUST survive export and import, including a merge from another device, where a person MUST deduplicate on the normalised name key exactly as an income source does.
+- *Accept:* Export → wipe → import restores every balance unchanged; merging a file naming a person this device already knows adds no second person.
+
+### 2.7 Analytics — FR-AN
 
 **FR-AN-01** The dashboard MUST display **safe to spend today** = (remaining limits of variable + unpredictable leaves) ÷ (days remaining in period, inclusive of today). When the numerator is negative the value MUST render as zero with an over-budget indicator.
 
@@ -186,7 +222,7 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 **FR-AN-10** Averages presented as "monthly average income" MUST be computed over a trailing 12 periods, never over a single period or a partial year.
 - *Rationale:* seasonal sources earn nothing for months and then a lump sum; a short window produces figures that are wrong in both directions.
 
-### 2.7 Recurring rules — FR-REC *(P1)*
+### 2.8 Recurring rules — FR-REC *(P1)*
 
 **FR-REC-01** The system SHOULD allow defining a recurring income or expense template with amount, target source or category, frequency (monthly | weekly | yearly), and anchor day.
 
@@ -198,7 +234,7 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 
 **FR-REC-05** Anchor days beyond the length of a short month MUST clamp to that month's final day.
 
-### 2.8 Data portability — FR-DAT
+### 2.9 Data portability — FR-DAT
 
 **FR-DAT-01** The system MUST export the complete dataset as JSON to a user-chosen location via the system document picker.
 
@@ -251,7 +287,7 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 **FR-DAT-12** The system MUST read plain, compressed and encrypted backups. From the first public release onward it MUST continue to read files written by any earlier release; before that release the on-disk formats carry no compatibility promise and may change outright.
 - *Accept:* A `daybook-export.json` — the plain JSON `Exporter` writes, which carries no magic number — restores through the same path as a wrapped backup.
 
-### 2.9 Application-level requirements — FR-APP
+### 2.10 Application-level requirements — FR-APP
 
 **FR-APP-01** The system MUST NOT declare the `INTERNET` permission.
 - *Accept:* The merged manifest of a release build contains no `android.permission.INTERNET` entry.

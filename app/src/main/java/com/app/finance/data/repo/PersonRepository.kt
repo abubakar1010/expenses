@@ -125,6 +125,21 @@ class PersonRepository(
         )
     }
 
+    /*
+     * There is deliberately no `move`.
+     *
+     * `person.sort_order` exists and is maintained, because the column is worth
+     * having and `nextSortOrder` keeps it dense. But the balances screen groups
+     * by *direction* — they owe you, you owe them, square — and within a group
+     * the order is a detail nobody is choosing between. A manual reorder there
+     * would be a control whose effect the user cannot see, and writing one that
+     * nothing surfaced would be a second implementation kept warm by nothing,
+     * which is what §20 removed `pageAfter` for.
+     *
+     * Categories and income sources have `move` because their screens are
+     * *lists the user arranges*. This one is a list the balances arrange.
+     */
+
     /** See [toWriteError] — only the constraint half is this repository's. */
     private fun Throwable.toPersonError(): EntryError = toWriteError("save a person") {
         when {

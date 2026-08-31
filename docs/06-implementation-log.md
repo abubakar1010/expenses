@@ -4978,5 +4978,9 @@ could not have caught this.
   third line.** The state driving all three is covered; the composition is not.
 - **`coverageVerify` has not been re-run**, and this pass added several source
   files that the 50% per-file floor will judge.
-- **Reordering people** is unimplemented. `person.sort_order` and
-  `PersonDao.nextSortOrder` exist; no `move` does.
+- **Reordering people is deliberately not implemented.** `person.sort_order`
+  exists and stays dense, but the balances screen groups by direction and within
+  a group the order is a detail nobody chooses between — a control whose effect
+  the user cannot see. Categories and sources have `move` because their screens
+  are lists the user arranges; this one is a list the balances arrange. Recorded
+  here rather than left looking like an omission.

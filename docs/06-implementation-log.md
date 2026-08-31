@@ -4998,14 +4998,56 @@ not manufacture.
 | `delete` stops cascading to `expense_share` | both delete tests |
 | The v1→v2 rebuild drops triggers and forgets to recreate them | 2 of 5 migration tests |
 
-### 25.6 Still not done
+### 25.6 NFR-PERF-05, measured
 
-- **NFR-PERF-05 has not been re-measured**, and this pass put a correlated
-  subquery on the ledger's paging query — the read that requirement is about.
-  The subquery is an index probe per row over `ux_share_expense_person` on a
-  50-row page, so the expected cost is negligible, but "expected" is not
-  "measured" and the reference device (02 §1.3) still does not exist here.
-- **The split has not been driven by hand on a device.** Every layer under it is
-  tested and the three surfaces now render in Compose tests, but nobody has
-  typed ৳1,000, picked two people and looked at the result.
+FR-SHR-02 put a correlated subquery on the ledger's paging query — the app's
+most performance-sensitive read — and FR-SHR-06 put a semi-join beside it. Both
+are now measured against 02 §3.1's corpus (22,323 expenses) on the Realme
+RMX3930, and the plan is asserted rather than assumed.
+
+| | median | worst | budget |
+|---|---|---|---|
+| Ledger page, deep, no filter | **3 ms** | 7 ms | 16 ms, one frame |
+| Ledger page, person filter | **24 ms** | 34 ms | — |
+
+**The subquery is free.** Three milliseconds for fifty rows including the sum of
+what everybody owes on each, because `ux_share_expense_person` leads with
+`expense_id` and the probe is a covered-index lookup. `SchemaAssertionsTest`
+asserts exactly that now, and asserts the payer join is not a scan either.
+
+**The person filter is a different shape, and worth naming.** Twenty-four
+milliseconds is not a scroll cost — it is what one tap on a person chip costs —
+but the reason it is eight times the unfiltered page is structural: the
+`EXISTS` runs per candidate row, so a filter matching *few* rows walks the whole
+ledger evaluating it. Cost is bounded by the ledger, not by the matches. At this
+corpus and on this device that is 24 ms; on a 1.4 GHz A53 it would be several
+times that and still a filter tap rather than a frame. If it ever needs fixing,
+the lever is the one the category filter already uses — resolve the person to a
+set of expense ids in the repository and hand SQLite an `IN` — and that is a
+change to make when a measurement asks for it, not before.
+
+#### The plan check was explaining a query the app does not run
+
+`the_paged_ledger_query_is_a_pure_index_walk` kept its own simplified copy of
+the statement — `SELECT * FROM expense WHERE status = 0 AND (spent_on, id) < …`
+— which had already drifted past the category join before this pass, and would
+now have missed the person join and the share subquery entirely. NFR-MAIN-03's
+plan check was covering none of them.
+
+This is §22.5's finding a second time, in the query next to the one that was
+fixed, and it is fixed the same way: `ExpenseDao.PAGE` is a compile-time
+constant, `@Query` takes it, and the test substitutes the bind parameters and
+explains **it**. The budget-bar check has said since §22 that "there is one
+string now and the claim is true"; that is true of both hot queries now.
+
+### 25.7 Still not done
+
+- **The split has not been driven by hand.** Every layer under it is tested and
+  all three surfaces render in Compose tests, but nobody has typed ৳1,000,
+  picked two people and looked at the result. Attempted this session and
+  blocked: the device carries a secure lock that adb cannot dismiss.
+- **The reference device still does not exist here.** Every figure above is a
+  necessary condition, not a sufficient one — 02 §3.1 is explicit that a
+  measurement off a 1.4 GHz A53 is not evidence of compliance. What these
+  figures *can* do is disprove, and none of them does.
 - **One provider, one ROM** for the backup folder, unchanged since §21.12.

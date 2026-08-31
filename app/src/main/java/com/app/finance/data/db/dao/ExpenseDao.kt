@@ -144,34 +144,7 @@ interface ExpenseDao {
      * warm by nothing. Removed rather than given the test §22 was going to
      * write for it.
      */
-    @Query(
-        """
-        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature,
-               p.name AS payerName,
-               (SELECT IFNULL(SUM(s.share_minor), 0) FROM expense_share s
-                 WHERE s.expense_id = e.id) AS sharedMinor
-          FROM expense e JOIN category c ON c.id = e.category_id
-          LEFT JOIN person p ON p.id = e.payer_person_id
-         WHERE e.status = 0
-           AND (:noKeyset = 1 OR (e.spent_on, e.id) < (:lastDay, :lastId))
-           AND e.spent_on BETWEEN :fromDay AND :toDay
-           AND (:anyCategory = 1 OR e.category_id IN (:categoryIds))
-           AND (:anyMethod = 1 OR e.payment_method = :method)
-           AND (
-                :anyPerson = 1
-                OR e.payer_person_id = :personId
-                OR EXISTS (SELECT 1 FROM expense_share xs
-                            WHERE xs.expense_id = e.id AND xs.person_id = :personId)
-               )
-           AND (
-                :noQuery = 1
-                OR e.note LIKE '%' || :query || '%' ESCAPE '\'
-                OR (:hasAmount = 1 AND e.amount_minor = :exactAmount)
-               )
-         ORDER BY e.spent_on DESC, e.id DESC
-         LIMIT :limit
-        """,
-    )
+    @Query(PAGE)
     suspend fun page(
         noKeyset: Int,
         lastDay: Long,
@@ -308,6 +281,50 @@ interface ExpenseDao {
         """,
     )
     fun observeNatureTotalsInRange(fromDay: Long, toDay: Long): Flow<List<NatureTotal>>
+
+    companion object {
+        /**
+         * [page]'s statement, as a constant so a test can explain **it** rather
+         * than a transcription of it.
+         *
+         * `RollupDao.BUDGET_BARS` is here for the same reason and records the
+         * history: `SchemaAssertionsTest` used to keep its own copy of a hot
+         * query under a comment claiming the assertion could not drift from the
+         * query it was about — and it had drifted, so the test was explaining a
+         * statement the app does not run. This one had drifted further still:
+         * the copy predates the category join, the person join and the shared
+         * subquery, so NFR-MAIN-03's plan check was covering none of them.
+         *
+         * `@Query` takes a compile-time constant, so there is one string. The
+         * test substitutes the bind parameters and explains the result.
+         */
+        const val PAGE = """
+        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature,
+               p.name AS payerName,
+               (SELECT IFNULL(SUM(s.share_minor), 0) FROM expense_share s
+                 WHERE s.expense_id = e.id) AS sharedMinor
+          FROM expense e JOIN category c ON c.id = e.category_id
+          LEFT JOIN person p ON p.id = e.payer_person_id
+         WHERE e.status = 0
+           AND (:noKeyset = 1 OR (e.spent_on, e.id) < (:lastDay, :lastId))
+           AND e.spent_on BETWEEN :fromDay AND :toDay
+           AND (:anyCategory = 1 OR e.category_id IN (:categoryIds))
+           AND (:anyMethod = 1 OR e.payment_method = :method)
+           AND (
+                :anyPerson = 1
+                OR e.payer_person_id = :personId
+                OR EXISTS (SELECT 1 FROM expense_share xs
+                            WHERE xs.expense_id = e.id AND xs.person_id = :personId)
+               )
+           AND (
+                :noQuery = 1
+                OR e.note LIKE '%' || :query || '%' ESCAPE '\'
+                OR (:hasAmount = 1 AND e.amount_minor = :exactAmount)
+               )
+         ORDER BY e.spent_on DESC, e.id DESC
+         LIMIT :limit
+        """
+    }
 }
 
 /** One nature's spend over a range. */

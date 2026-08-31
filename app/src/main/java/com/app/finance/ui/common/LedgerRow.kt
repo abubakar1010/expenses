@@ -43,6 +43,16 @@ fun LedgerRow(
     modifier: Modifier = Modifier,
     secondary: String? = null,
     trailing: String? = null,
+    /**
+     * A third caption line — FR-SHR-02's `৳250 of ৳1,000`, or `Rahim paid`.
+     *
+     * Its own slot because [secondary] and [trailing] are both already spoken
+     * for on the ledger, which puts the note on one and the payment method on
+     * the other. Null on every unshared row, so the height stays 56 dp and
+     * NFR-PERF-05's scroll over twenty thousand rows is untouched — only the
+     * handful of shared rows grow.
+     */
+    split: String? = null,
     status: BudgetStatus? = null,
     showLeaderDots: Boolean = true,
     onClick: (() -> Unit)? = null,
@@ -107,6 +117,17 @@ fun LedgerRow(
                     Text(trailing, style = type.caption, color = colors.inkSoft)
                 }
             }
+        }
+
+        if (split != null) {
+            Text(
+                text = split,
+                style = type.caption,
+                color = colors.inkSoft,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = Space.s1),
+            )
         }
 
         if (status != null) {

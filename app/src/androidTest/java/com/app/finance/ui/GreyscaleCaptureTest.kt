@@ -268,6 +268,7 @@ class GreyscaleCaptureTest {
                 snackbarHostState = SnackbarHostState(),
                 onEdit = {},
                 onAdd = {},
+                onOpenPeople = {},
             )
         }
 

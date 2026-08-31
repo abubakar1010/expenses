@@ -9,9 +9,12 @@ import com.app.finance.data.db.dao.PendingExpense
 import com.app.finance.data.db.dao.PendingIncome
 import com.app.finance.data.db.entity.ExpenseEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
+import com.app.finance.data.db.entity.PersonEntity
 import com.app.finance.data.repo.CategoryRepository
 import com.app.finance.data.repo.DeletedExpense
 import com.app.finance.data.repo.ExpenseRepository
+import com.app.finance.data.repo.PersonRepository
+import com.app.finance.data.repo.SettlementRepository
 import com.app.finance.data.repo.RecurringRepository
 import com.app.finance.domain.model.CategoryNode
 import com.app.finance.domain.model.LedgerFilters
@@ -52,6 +55,10 @@ data class LedgerUiState(
     val filteredCount: Int = 0,
     val filters: LedgerFilters = LedgerFilters.NONE,
     val tree: List<CategoryNode> = emptyList(),
+    /** Active people, for FR-SHR-06's filter chips. */
+    val people: List<PersonEntity> = emptyList(),
+    /** The balance with the filtered person, when one is filtered — FR-SHR-06. */
+    val personBalance: Money = Money.ZERO,
     /**
      * `LocalDate.ofEpochDay(0)`, not `LocalDate.EPOCH` — that constant was only
      * added in API 34 and this app ships to API 26, so it would have thrown
@@ -136,6 +143,8 @@ class LedgerViewModel(
     private val repo: ExpenseRepository,
     categories: CategoryRepository,
     private val recurring: RecurringRepository,
+    people: PersonRepository,
+    private val settlements: SettlementRepository,
     private val clock: Clock,
     /**
      * Injected so tests can run on a single deterministic dispatcher. With a
@@ -158,6 +167,9 @@ class LedgerViewModel(
      * itself changing — can move this figure.
      */
     private var total = FilteredTotal(totalMinor = 0L, txnCount = 0)
+
+    /** The balance with the filtered person, when one is filtered — FR-SHR-06. */
+    private var personBalance = Money.ZERO
     private var pagesLoaded = 1
     private var loadJob: Job? = null
 
@@ -170,6 +182,9 @@ class LedgerViewModel(
         }
         viewModelScope.launch {
             categories.observeTree().collect { tree -> _state.update { it.copy(tree = tree) } }
+        }
+        viewModelScope.launch {
+            people.observeActive().collect { rows -> _state.update { it.copy(people = rows) } }
         }
         // FR-REC-02. Two flows rather than one union query: an expense and an
         // income entry are different rows with different confirmations, and a
@@ -344,8 +359,16 @@ class LedgerViewModel(
                 }
                 pages to repo.filteredTotal(filters)
             }
+            // FR-SHR-06. Filtered to a person, the header answers "what does
+            // this come to between us" rather than FR-EXP-11's "what did I
+            // spend" — which is a different question and not the one being
+            // asked by picking a name.
+            val balance = filters.personId?.let {
+                withContext(io) { settlements.balanceOf(it) }
+            } ?: Money.ZERO
             rows = fresh
             total = freshTotal
+            personBalance = balance
             publish(
                 endReached = fresh.size < repo.pageSize * pagesLoaded,
                 loadingMore = false,
@@ -369,6 +392,8 @@ class LedgerViewModel(
                 days = grouped,
                 filteredTotal = Money(total.totalMinor),
                 filteredCount = total.txnCount,
+                people = it.people,
+                personBalance = personBalance,
                 initialLoad = false,
                 loadingMore = loadingMore,
                 endReached = endReached,

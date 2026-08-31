@@ -2,6 +2,8 @@ package com.app.finance.ui.feature.entry
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +44,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -104,6 +107,7 @@ fun QuickAddSheet(
                 container.expenseRepo,
                 container.categoryRepo,
                 container.appMetaRepo,
+                container.personRepo,
                 container.clock,
             )
         },
@@ -144,7 +148,35 @@ fun QuickAddSheet(
                 onDate = { vm.openSheet(EntrySheet.DATE) },
                 onMethod = { vm.openSheet(EntrySheet.METHOD) },
                 onNote = { vm.openSheet(EntrySheet.NOTE) },
+                onSplit = { vm.openSheet(EntrySheet.SPLIT) },
             )
+
+            // FR-SHR-02. Present only while a split is, so the sheet is
+            // unchanged for an ordinary expense. Says what the ledger will
+            // actually store, because the field above holds the bill.
+            if (state.split.isShared) {
+                state.yourShare?.let { share ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = Space.gutter, vertical = Space.s1),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.your_share),
+                            style = DayBookTheme.type.caption,
+                            color = colors.inkSoft,
+                        )
+                        MoneyText(
+                            money = share,
+                            style = DayBookTheme.type.caption,
+                            color = colors.ink,
+                            spokenSuffix = stringResource(R.string.your_share_spoken, ""),
+                        )
+                    }
+                }
+            }
 
             state.error?.let { error ->
                 Text(
@@ -222,6 +254,15 @@ fun QuickAddSheet(
         EntrySheet.NOTE -> NoteSheet(
             note = state.note,
             onDone = { vm.setNote(it); vm.dismissSheet() },
+            onDismiss = vm::dismissSheet,
+        )
+
+        EntrySheet.SPLIT -> SplitSheet(
+            state = state,
+            onEvenly = vm::splitEvenly,
+            onPaidBy = vm::paidBy,
+            onClear = vm::clearSplit,
+            onAddPerson = vm::addPerson,
             onDismiss = vm::dismissSheet,
         )
 
@@ -326,11 +367,17 @@ private fun InlineSentence(
     onDate: () -> Unit,
     onMethod: () -> Unit,
     onNote: () -> Unit,
+    onSplit: () -> Unit,
 ) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = Space.gutter, vertical = Space.s1),
+            .padding(horizontal = Space.gutter, vertical = Space.s1)
+            // Four parts do not fit at 320 dp and 1.3× (NFR-COMP-04), and the
+            // row is the one place in this sheet that can afford to scroll:
+            // nothing in it is a target the user has to find, they are all
+            // labelled by what they currently say.
+            .horizontalScroll(rememberScrollState()),
         horizontalArrangement = Arrangement.spacedBy(Space.s2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -342,7 +389,22 @@ private fun InlineSentence(
             text = state.note?.takeIf { it.isNotBlank() } ?: stringResource(R.string.add_note),
             onClick = onNote,
         )
+        Dot()
+        // FR-SHR-02's entry point. A fourth part of the sentence rather than a
+        // control of its own, so an unshared expense — the overwhelming
+        // majority — costs exactly what it costs today and 05 §5.6's three
+        // taps are untouched.
+        SentencePart(text = state.splitLabel(), onClick = onSplit)
     }
+}
+
+/** *Split* until it is one, then what it became. */
+@Composable
+private fun QuickAddUiState.splitLabel(): String = when {
+    payer != null -> stringResource(R.string.split_paid_by, payer!!.name)
+    split.owed.isNotEmpty() ->
+        pluralStringResource(R.plurals.split_with_count, split.owed.size, split.owed.size)
+    else -> stringResource(R.string.split)
 }
 
 @Composable

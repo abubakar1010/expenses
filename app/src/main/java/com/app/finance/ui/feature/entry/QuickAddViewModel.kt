@@ -6,12 +6,16 @@ import androidx.lifecycle.viewModelScope
 import com.app.finance.core.money.Money
 import com.app.finance.data.repo.AppMetaRepository
 import com.app.finance.data.repo.CategoryRepository
+import com.app.finance.data.db.entity.PersonEntity
 import com.app.finance.data.repo.ExpenseRepository
+import com.app.finance.data.repo.PersonRepository
 import com.app.finance.domain.model.CategoryNode
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.domain.model.SaveOutcome
+import com.app.finance.domain.model.Split
 import com.app.finance.ui.common.KeypadKey
+import com.app.finance.ui.common.editableText
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,7 +29,16 @@ import java.time.Clock
 import java.time.LocalDate
 
 /** Which of the sheet's secondary pickers is open, if any. */
-enum class EntrySheet { NONE, CATEGORY, METHOD, DATE, NOTE }
+enum class EntrySheet { NONE, CATEGORY, METHOD, DATE, NOTE, SPLIT }
+
+/**
+ * How the bill is divided — FR-SHR-02, FR-SHR-03.
+ *
+ * One enum rather than independent flags, because [Split]'s two arms are
+ * mutually exclusive in the database and the sheet must not offer a state that
+ * cannot be stored.
+ */
+enum class SplitMode { NONE, EVEN, CUSTOM, THEY_PAID }
 
 data class QuickAddUiState(
     /**
@@ -58,18 +71,86 @@ data class QuickAddUiState(
     val seeded: Boolean = false,
     /** Null for a new entry; the row being edited otherwise (FR-EXP-07). */
     val editingId: Long? = null,
+    /**
+     * How this expense is shared — FR-SHR-02, FR-SHR-03.
+     *
+     * The **mode** is stored and the [split] derived from it, rather than
+     * storing computed share amounts. An even split depends on the bill, and
+     * the bill is still being typed: storing the amounts would leave them stale
+     * the moment another digit landed, and the staleness would be invisible
+     * until the ledger disagreed with the receipt.
+     *
+     * All four fields are defaulted, which is what keeps them out of
+     * [QuickAddViewModel.reset] — it rebuilds this state from scratch
+     * preserving only the tree, the chips and the method, so a defaulted field
+     * cannot leak into the next entry the way `editingId` once did.
+     */
+    val splitMode: SplitMode = SplitMode.NONE,
+    /** Who it is divided between, for [SplitMode.EVEN]. */
+    val splitWith: List<Long> = emptyList(),
+    /** Hand-typed amounts, for [SplitMode.CUSTOM]. */
+    val customOwed: List<Split.Owed> = emptyList(),
+    /** Who paid, for [SplitMode.THEY_PAID]. */
+    val payerId: Long? = null,
+    /** People available to split with — active only (FR-CAT-08's rule, for people). */
+    val people: List<PersonEntity> = emptyList(),
 ) {
     val isEditing: Boolean get() = editingId != null
 
+    /**
+     * What the amount field holds.
+     *
+     * **The bill, not your share.** You type what left your wallet, because
+     * that is what the receipt says and doing the division in your head is the
+     * work this feature exists to remove. What the ledger stores is
+     * [yourShare].
+     */
     val amount: Money?
         get() = Money.parseOrNull(input)?.let { if (negative) -it.absoluteValue else it }
+
+    /**
+     * The split, derived from [splitMode] and the bill currently typed.
+     *
+     * Recomputed on every keystroke, which is the point — an even division of a
+     * bill that is still being entered cannot be stored without going stale.
+     */
+    val split: Split
+        get() = when (splitMode) {
+            SplitMode.NONE -> Split.NONE
+            SplitMode.EVEN ->
+                amount?.let { Split.evenly(it, splitWith).second } ?: Split.NONE
+            SplitMode.CUSTOM ->
+                if (customOwed.isEmpty()) Split.NONE else Split.YouPaid(customOwed)
+            SplitMode.THEY_PAID ->
+                payerId?.let { Split.TheyPaid(it) } ?: Split.NONE
+        }
+
+    /**
+     * What the expense will actually store — the bill less what others owe.
+     *
+     * Works for both arms: somebody else paying leaves no `owed` rows, so the
+     * figure you typed is already your share.
+     */
+    val yourShare: Money?
+        get() = amount?.let { bill -> Money(bill.paisa - split.owed.sumOf { it.amount.paisa }) }
 
     val selectedCategory: CategoryNode?
         get() = allLeaves.firstOrNull { it.id == selectedCategoryId }
 
-    /** The save button is enabled only when the write would actually succeed. */
+    /** The person who paid, when it was not you. */
+    val payer: PersonEntity?
+        get() = split.payerPersonId?.let { id -> people.firstOrNull { it.id == id } }
+
+    /**
+     * The save button is enabled only when the write would actually succeed.
+     *
+     * Tested on [yourShare] rather than [amount]: a bill entirely accounted for
+     * by other people leaves you nothing, and `CHECK (amount_minor <> 0)`
+     * refuses that row — correctly, because paying wholly on somebody's behalf
+     * is a loan rather than something you consumed.
+     */
     val canSave: Boolean
-        get() = !saving && selectedCategoryId != null && amount?.isZero == false
+        get() = !saving && selectedCategoryId != null && yourShare?.isZero == false
 }
 
 /**
@@ -92,6 +173,7 @@ class QuickAddViewModel(
     private val expenses: ExpenseRepository,
     private val categories: CategoryRepository,
     private val meta: AppMetaRepository,
+    private val people: PersonRepository,
     private val clock: Clock,
     private val saved: SavedStateHandle = SavedStateHandle(),
     /**
@@ -141,6 +223,12 @@ class QuickAddViewModel(
                     }
                 }
         }
+        // Separate collector rather than a third `combine` arm: the people list
+        // has nothing to do with which chips are shown, and folding it in would
+        // re-derive the chip row every time somebody was renamed.
+        viewModelScope.launch {
+            people.observeActive().collect { rows -> _state.update { it.copy(people = rows) } }
+        }
     }
 
     /**
@@ -158,6 +246,10 @@ class QuickAddViewModel(
             val today = LocalDate.now(clock)
             val restored = saved.get<String>(KEY_INPUT)
             val editing = withContext(io) { expenseId?.let { expenses.byId(it) } }
+            // The bill, reconstructed from the stored parts — FR-SHR-02. The
+            // amount field holds what was typed, and for a shared expense that
+            // is not the figure in `amount_minor`.
+            val loaded = withContext(io) { expenseId?.let { expenses.splitOf(it) } }
             val lastMethod = withContext(io) { meta.lastPaymentMethod() }
             val lastCategory = withContext(io) { meta.lastCategoryId() }
 
@@ -166,7 +258,11 @@ class QuickAddViewModel(
                     // Editing wins over any restored draft: the user asked for
                     // this specific row.
                     editing != null -> current.copy(
-                        input = Money(editing.amountMinor).absoluteValue.editableText(),
+                        // The bill when there is one, so reopening a ৳1,000
+                        // dinner you paid shows ৳1,000 rather than your ৳250
+                        // slice of it.
+                        input = (loaded?.bill ?: Money(editing.amountMinor))
+                            .absoluteValue.editableText(),
                         negative = editing.amountMinor < 0,
                         selectedCategoryId = editing.categoryId,
                         date = LocalDate.ofEpochDay(editing.spentOn),
@@ -174,6 +270,18 @@ class QuickAddViewModel(
                         method = PaymentMethod.fromCode(editing.paymentMethod),
                         note = editing.note,
                         editingId = editing.id,
+                        // Restored as typed amounts rather than as an even
+                        // split, because an even division is only recoverable
+                        // by guessing: three equal shares might have been
+                        // divided evenly or typed by hand, and re-dividing
+                        // would silently overwrite the second case.
+                        splitMode = when (val s = loaded?.split) {
+                            is Split.TheyPaid -> SplitMode.THEY_PAID
+                            is Split.YouPaid -> SplitMode.CUSTOM
+                            else -> SplitMode.NONE
+                        },
+                        customOwed = (loaded?.split as? Split.YouPaid)?.owed.orEmpty(),
+                        payerId = (loaded?.split as? Split.TheyPaid)?.personId,
                         seeded = true,
                     )
 
@@ -267,10 +375,55 @@ class QuickAddViewModel(
 
     fun dismissSheet() = _state.update { it.copy(openSheet = EntrySheet.NONE) }
 
+    // --- splitting (FR-SHR-02, FR-SHR-03) ------------------------------------
+
+    /** Divides the bill evenly between you and [personIds]. */
+    fun splitEvenly(personIds: List<Long>) = _state.update {
+        if (personIds.isEmpty()) it.copy(splitMode = SplitMode.NONE, error = null)
+        else it.copy(splitMode = SplitMode.EVEN, splitWith = personIds, error = null)
+    }
+
+    /** Hand-typed amounts, one per person — the uneven bill. */
+    fun splitByAmount(owed: List<Split.Owed>) = _state.update {
+        if (owed.isEmpty()) it.copy(splitMode = SplitMode.NONE, error = null)
+        else it.copy(splitMode = SplitMode.CUSTOM, customOwed = owed, error = null)
+    }
+
+    /**
+     * Somebody else paid.
+     *
+     * A mode rather than a flag alongside the shares, because the two cannot
+     * coexist: `trg_payer_excludes_shares` refuses the row, so offering both
+     * would be offering a state the database has no way to hold.
+     */
+    fun paidBy(personId: Long) =
+        _state.update { it.copy(splitMode = SplitMode.THEY_PAID, payerId = personId, error = null) }
+
+    fun clearSplit() = _state.update { it.copy(splitMode = SplitMode.NONE, error = null) }
+
+    /**
+     * Adds somebody without leaving the sheet — FR-SHR-01, FR-IS-03's shape.
+     *
+     * Idempotent on the name key, so typing a name that already exists finds
+     * that person rather than opening a second balance beside them. The people
+     * flow re-emits, so the new name appears in the list without anything here
+     * refreshing it.
+     */
+    fun addPerson(name: String) {
+        viewModelScope.launch {
+            val outcome = withContext(io) { people.findOrCreate(name) }
+            if (outcome is SaveOutcome.Rejected) {
+                _state.update { it.copy(error = outcome.error) }
+            }
+        }
+    }
+
     /** The write path — 04 §5.1 and §8. Everything runs on IO. */
     fun save(onSaved: () -> Unit) {
         val snapshot = _state.value
-        val amount = snapshot.amount
+        // The bill is what was typed; this is what gets stored. For an
+        // unshared expense the two are the same figure.
+        val amount = snapshot.yourShare
         val categoryId = snapshot.selectedCategoryId
 
         if (amount == null || amount.isZero) {
@@ -293,6 +446,7 @@ class QuickAddViewModel(
                         spentOn = snapshot.date,
                         method = snapshot.method,
                         note = snapshot.note,
+                        split = snapshot.split,
                     )
                 } else {
                     expenses.update(
@@ -302,6 +456,7 @@ class QuickAddViewModel(
                         spentOn = snapshot.date,
                         method = snapshot.method,
                         note = snapshot.note,
+                        split = snapshot.split,
                     )
                 }
             }
@@ -420,10 +575,3 @@ class QuickAddViewModel(
     }
 }
 
-/** Renders a stored amount back into the keypad's raw text form. */
-private fun Money.editableText(): String {
-    val whole = paisa / 100
-    val fraction = (paisa % 100).toInt()
-    return if (fraction == 0) whole.toString()
-    else "$whole.${fraction.toString().padStart(2, '0')}"
-}

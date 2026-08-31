@@ -58,7 +58,7 @@ class LedgerViewModelTest {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                LedgerViewModel(fx.expenses, fx.categories, fx.recurring, fx.clock) as T
+                LedgerViewModel(fx.expenses, fx.categories, fx.recurring, fx.people, fx.settlements, fx.clock) as T
         },
     )["vm${seq++}", LedgerViewModel::class.java]
 

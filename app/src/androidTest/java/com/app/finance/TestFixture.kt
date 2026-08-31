@@ -12,6 +12,7 @@ import com.app.finance.data.repo.ExpenseRepository
 import com.app.finance.data.repo.IncomeRepository
 import com.app.finance.data.repo.ReportsRepository
 import com.app.finance.data.repo.PersonRepository
+import com.app.finance.data.repo.SettlementRepository
 import com.app.finance.data.repo.RecurringRepository
 import com.app.finance.data.repo.SettingsRepository
 import com.app.finance.di.AppContainer
@@ -57,6 +58,7 @@ class TestFixture(
     val dashboard = DashboardRepository(db)
     val recurring = RecurringRepository(db, clock)
     val people = PersonRepository(db, clock)
+    val settlements = SettlementRepository(db, clock)
     val settings = SettingsRepository(db, clock)
     val exporter = Exporter(db)
     val importer = Importer(db)

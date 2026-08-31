@@ -38,6 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.OutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -220,17 +221,30 @@ private fun discardAndReopen(context: Context) {
  * A checkpoint would be the tidier fix, but this screen exists precisely because
  * the database could not be opened, so there is nothing to checkpoint through.
  */
-private fun copyDatabase(context: Context, target: Uri): Boolean = runCatching {
-    val main = context.getDatabasePath(AppDatabase.NAME)
+private fun copyDatabase(context: Context, target: Uri): Boolean =
+    zipDatabase(context.getDatabasePath(AppDatabase.NAME)) {
+        context.contentResolver.openOutputStream(target)
+    }
+
+/**
+ * The copy itself, with the two Android seams — where the database lives, and
+ * where the user chose to put it — handed in.
+ *
+ * Split out from [copyDatabase] to be testable at all. The whole of it sat
+ * behind an `ACTION_CREATE_DOCUMENT` result callback, which no instrumented
+ * test can reach, so the one function on the rescue path that has to be right
+ * was the one function nothing could exercise (§26.2).
+ */
+internal fun zipDatabase(main: File, openTarget: () -> OutputStream?): Boolean = runCatching {
     if (!main.exists()) return false
 
     val parts = listOf(
         main,
-        File(main.parentFile, "${AppDatabase.NAME}-wal"),
-        File(main.parentFile, "${AppDatabase.NAME}-shm"),
+        File(main.parentFile, "${main.name}-wal"),
+        File(main.parentFile, "${main.name}-shm"),
     ).filter(File::exists)
 
-    context.contentResolver.openOutputStream(target)?.use { out ->
+    openTarget()?.use { out ->
         ZipOutputStream(out.buffered()).use { zip ->
             parts.forEach { file ->
                 zip.putNextEntry(ZipEntry(file.name))

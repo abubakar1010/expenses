@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
@@ -58,6 +59,27 @@ class LedgerSplitRowTest {
         (fx.people.findOrCreate(name) as SaveOutcome.Saved).id
     }
 
+    /**
+     * Waits for [text] to reach the composition, then asserts it.
+     *
+     * `waitForIdle()` in [show] settles composition and layout but does not
+     * wait for a Room flow to **emit**, and every row on this screen arrives
+     * that way. `PeopleScreenTest` had the identical shape and failed once
+     * inside a 682-test run while passing alone every time (§26.6).
+     */
+    private fun awaitText(
+        text: String,
+        substring: Boolean = false,
+        ignoreCase: Boolean = false,
+    ) {
+        compose.waitUntil(WAIT_MS) {
+            compose.onAllNodesWithText(text, substring = substring, ignoreCase = ignoreCase)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText(text, substring = substring, ignoreCase = ignoreCase)
+            .assertIsDisplayed()
+    }
+
     private fun show() {
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
@@ -91,7 +113,7 @@ class LedgerSplitRowTest {
 
         show()
 
-        compose.onNodeWithText("of ", substring = true).assertIsDisplayed()
+        awaitText("of ", substring = true)
     }
 
     @Test
@@ -106,7 +128,7 @@ class LedgerSplitRowTest {
 
         show()
 
-        compose.onNodeWithText("Rahim paid").assertIsDisplayed()
+        awaitText("Rahim paid")
     }
 
     @Test
@@ -119,8 +141,10 @@ class LedgerSplitRowTest {
 
         show()
 
-        compose.onNodeWithText("rice").assertIsDisplayed()
+        awaitText("rice")
         compose.onNodeWithText("of ", substring = true).assertDoesNotExist()
         compose.onNodeWithText("paid", substring = true).assertDoesNotExist()
     }
 }
+
+private const val WAIT_MS = 5_000L

@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
@@ -71,6 +72,29 @@ class PeopleScreenTest {
         fx.expenses.insert(yours, fx.leafId("Grocery"), fx.today, split = split)
     }
 
+    /**
+     * Waits for [text] to reach the composition, then asserts it.
+     *
+     * `waitForIdle()` in [show] settles composition and layout; it does not wait
+     * for a Room flow to **emit**, and everything on this screen arrives that
+     * way. An assertion made straight after `show()` is therefore asserting a
+     * race — which is exactly how `an_empty_list_invites_rather_than_reports`
+     * failed once inside a 682-test run and passed every time it was run alone
+     * (§26.6). The same shape, and the same cause, as §21.9 J.
+     */
+    private fun awaitText(
+        text: String,
+        substring: Boolean = false,
+        ignoreCase: Boolean = false,
+    ) {
+        compose.waitUntil(WAIT_MS) {
+            compose.onAllNodesWithText(text, substring = substring, ignoreCase = ignoreCase)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText(text, substring = substring, ignoreCase = ignoreCase)
+            .assertIsDisplayed()
+    }
+
     private fun show() {
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
@@ -97,8 +121,8 @@ class PeopleScreenTest {
 
         show()
 
-        compose.onNodeWithText("They owe you", ignoreCase = true).assertIsDisplayed()
-        compose.onNodeWithText("Rahim").assertIsDisplayed()
+        awaitText("They owe you", ignoreCase = true)
+        awaitText("Rahim")
     }
 
     @Test
@@ -116,17 +140,17 @@ class PeopleScreenTest {
 
         show()
 
-        compose.onNodeWithText("They owe you", ignoreCase = true).assertIsDisplayed()
-        compose.onNodeWithText("You owe", ignoreCase = true).assertIsDisplayed()
-        compose.onNodeWithText("Rahim").assertIsDisplayed()
-        compose.onNodeWithText("Karim").assertIsDisplayed()
+        awaitText("They owe you", ignoreCase = true)
+        awaitText("You owe", ignoreCase = true)
+        awaitText("Rahim")
+        awaitText("Karim")
     }
 
     @Test
     fun an_empty_list_invites_rather_than_reports() {
         // 05 §9: "Empty states are invitations, not reports."
         show()
-        compose.onNodeWithText("Nobody yet", substring = true).assertIsDisplayed()
+        awaitText("Nobody yet", substring = true)
     }
 
     @Test
@@ -139,8 +163,10 @@ class PeopleScreenTest {
 
         show()
 
-        compose.onNodeWithText("Settled up", ignoreCase = true).assertIsDisplayed()
+        awaitText("Settled up", ignoreCase = true)
         compose.onNodeWithText("They owe you", ignoreCase = true).assertDoesNotExist()
         compose.onNodeWithText("You owe", ignoreCase = true).assertDoesNotExist()
     }
 }
+
+private const val WAIT_MS = 5_000L

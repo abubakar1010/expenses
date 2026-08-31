@@ -4881,3 +4881,102 @@ recorded in CLAUDE.md this session does not reach them.
   the state that drives it is covered six ways, the composition is not.
 - **`coverageVerify` has not been re-run.** `am instrument` writes no JaCoCo
   `.ec`, and the gate needs Gradle's `connectedDebugAndroidTest`.
+
+---
+
+## 25. Shared expenses
+
+**Date:** 31 August 2026
+
+Reported from use: *"I purchase something I share with people, the expense
+should divide as per my preference — or someone pays my portion. I want to know
+who owes me and how much, and from whom I owe and how much, and filter by
+person."*
+
+### 25.1 The decision everything else follows from
+
+`expense.amount_minor` stays **the user's own share**, never the whole bill.
+
+That is not a storage preference. Every aggregate in `02-SRS.md` — budgets, safe
+to spend, savings rate, category deltas, stable coverage — means what the user
+consumed, and a share is what they consumed. The alternative, recording the bill
+and correcting it when people repay, cannot work in a product whose budgets and
+rollups are keyed by calendar month:
+
+> A ৳1,000 dinner on 30 August, repaid on 2 September, leaves August claiming
+> three dinners nobody ate and September claiming a negative one. Both months are
+> permanently wrong and no later entry repairs them.
+
+The consequence worth stating plainly is what *did not* change: **not one rollup
+trigger was touched**, because your share already is your spend.
+`a_repayment_next_month_does_not_touch_either_month` is the test that pins it.
+
+### 25.2 What the schema could not express, and how
+
+A share means "they owe me", which is only true when you paid — so a share and a
+payer are mutually exclusive. That is a database invariant, enforced from both
+sides by `trg_share_only_when_i_paid`, its update twin, and
+`trg_payer_excludes_shares`. Modelling it in Kotlin as one `Split` with two arms
+rather than two independent flags is what stops the entry sheet offering a state
+the database has no way to hold; the sheet asks *who paid* first, and only then
+offers a list of people.
+
+There is **no total-bill column**. A bill is `amount_minor + SUM(share_minor)`,
+so the parts define the whole and a rounding leak has nowhere to live. That
+matters because `Money.divideBy` truncates: ৳1,000 three ways gives 3 × ৳333.33
+and mislays a paisa. `SplitAllocator` places every one of them, and the user's
+share is the remainder rather than a part in its own right — so whatever the
+allocator stores reconstructs exactly the bill that was typed.
+
+### 25.3 Two defects found on the way
+
+**Swipe-to-delete threw on every shared row.** `expense_share.expense_id` is
+`ON DELETE RESTRICT`, so deleting a shared expense raised rather than cascading —
+the ledger's most-used gesture failing on exactly the rows this feature creates.
+`ExpenseRepository.delete` now clears the shares in the same transaction and
+*returns* them, because afterwards they exist nowhere else and an undo restoring
+only the expense would silently forgive every debt on it. `delete` and `restore`
+were neither transactional nor error-wrapped before; both are now.
+
+**A positional DTO constructor, caught twice.** `ExpenseDto` gained
+`payer_person_id` between `status` and `created_at`. `ExportFormat.kt` had
+already been converted to named arguments with a comment saying why; a JVM test
+had not, and failed. It is the same hazard both times: a positional call
+silently re-binds every argument after an insertion rather than failing, and it
+failed here only because the arity changed too.
+
+### 25.4 What the export needed that was not obvious
+
+`expense` had no `resolve` step in the merge, because nothing referenced it.
+`expense_share` does, so one was added — the same uuid-based remap categories
+and sources already rely on, which works because `plan` rewrites only the id and
+never the uuid. `ExpenseShareDto.naturalKey` is read **after** both ids are
+remapped, following `BudgetDto`'s precedent, or an insert could collide with
+`ux_share_expense_person` and take the whole import down.
+
+`BackupDao.ledgerRevision()` gained the three tables. Without them, recording a
+settlement would not bump the revision and FR-DAT-08's automatic backup would
+skip it — the new data sitting unbacked-up until an unrelated expense changed.
+
+**No schema-version bump for the format change.** FR-DAT-12 now scopes
+compatibility to "the first public release onward", and the app has not shipped.
+A file written before this feature still imports, and
+`a_file_written_before_shared_expenses_existed_still_imports` proves it against
+a literal v1-shaped JSON rather than against a fresh export with a rewritten
+version number, which is what the existing older-schema test does and why it
+could not have caught this.
+
+### 25.5 Still not done
+
+- **The instrumented suites for the People screen, the entry split UI, the
+  ledger row and the export changes have not been run.** The phone was
+  disconnected for most of this pass. Everything compiles, the JVM suite passes
+  and `lintRelease` is clean, but the repository and ViewModel suites that
+  matter here are unrun, and Compose tests need the device's foreground to
+  themselves besides.
+- **No Compose test renders the split sheet, the People screen or the ledger's
+  third line.** The state driving all three is covered; the composition is not.
+- **`coverageVerify` has not been re-run**, and this pass added several source
+  files that the 50% per-file floor will judge.
+- **Reordering people** is unimplemented. `person.sort_order` and
+  `PersonDao.nextSortOrder` exist; no `move` does.

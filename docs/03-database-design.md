@@ -433,6 +433,32 @@ One income source is seeded — Salary, kind Stable — because the first thing 
 - Each migration ships with a test that opens a populated database exported from the previous released version and asserts both schema and data integrity afterwards (NFR-REL-03).
 - Rollup tables may be dropped and rebuilt by any migration; they are derived and therefore safe to regenerate.
 - The exported JSON carries `schema_version`; import refuses files from a newer schema (FR-DAT-05).
+- **Migrations hold frozen DDL and may never read `Schema`.** A migration describes a historical transition and has to keep describing it after the schema has moved on; pointing it at the current definitions would rewrite the past every time the present changed, and the version a migration claims to produce would stop being the version it produces. `Migrations.kt` carries the duplication deliberately.
+- **Room compares `TableInfo` only *after* a migration.** An ordinary open verifies an identity hash out of `room_master_table` and skips the column comparison entirely. Version 1 therefore shipped with two mismatches nothing could see — `id INTEGER PRIMARY KEY AUTOINCREMENT` reads back as `notnull = 0` while the entities expect non-null, and `ux_category_parent_key` is a functional index the entities cannot declare — and the first migration to exist, whatever it was for, would have failed on them. Version 2 exists to repair the first; `Schema.ROOM_INVISIBLE_INDICES` handles the second by creating that index in `onOpen` rather than in any migration, so at the moment Room validates, `category` carries only the indices its entity declares.
+
+---
+
+## 8a. Shared expenses (FR-SHR)
+
+`person`, `expense_share`, `settlement`, and `expense.payer_person_id`, added in version 3.
+
+**`expense.amount_minor` remains the user's own share.** That is the decision the whole design rests on, and it is why **no rollup trigger changed**: your share *is* your spend, which is what they already sum. Recording the whole bill and correcting it on repayment cannot work here — budgets and both rollups are keyed by calendar month, so a dinner on 30 August repaid on 2 September would falsify both months permanently.
+
+**There is no total-bill column anywhere.** A bill is `expense.amount_minor + SUM(share_minor)`, so the parts define the whole and a rounding leak cannot be represented. `SplitAllocator` places every paisa; the user's share absorbs the remainder.
+
+**A share and a payer are mutually exclusive**, enforced by trigger from both sides:
+
+| Trigger | Refuses |
+|---|---|
+| `trg_share_only_when_i_paid` | a share inserted on an expense somebody else paid |
+| `trg_share_only_when_i_paid_upd` | the same, by moving a share onto one |
+| `trg_payer_excludes_shares` | naming a payer on an expense that still has shares |
+
+A share means "they owe me", which is only true when you paid. If a friend paid and three of you split it, the other two owe *them* — not your ledger, and not stored.
+
+**A settlement is neither an expense nor income**, and no rollup reads it. A repayment is the user's own money coming home; counting it would lift the savings rate every time somebody paid them back. The same table records a loan made outright, since that is the same row with the sign reversed.
+
+**No rollup table backs the balances.** Share rows scale with how often the user splits rather than with the 20,000-row ledger, and people number in the tens, so `SettlementDao.observeBalances` is an indexed sum over a small table. It uses correlated subqueries rather than three `LEFT JOIN`s: joining two one-to-many tables against `person` multiplies their rows together and silently inflates both sums.
 
 ---
 

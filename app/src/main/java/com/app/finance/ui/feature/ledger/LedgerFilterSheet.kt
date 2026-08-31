@@ -31,6 +31,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import com.app.finance.R
+import com.app.finance.data.db.entity.PersonEntity
 import com.app.finance.domain.model.CategoryNode
 import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.ui.common.DayBookChip
@@ -63,6 +64,8 @@ fun LedgerFilterSheet(
     tree: List<CategoryNode>,
     /** Leaf ids with expenses in the loaded ledger — see [leaves]. */
     present: Set<Long>,
+    /** Active people, for FR-SHR-06's chip row. */
+    people: List<PersonEntity>,
     today: LocalDate,
     onApply: (LedgerFilters) -> Unit,
     onClear: () -> Unit,
@@ -187,6 +190,30 @@ fun LedgerFilterSheet(
                         selected = draft.method == method,
                         onClick = { draft = draft.copy(method = method) },
                     )
+                }
+            }
+
+            // FR-SHR-06. Absent when there is nobody, rather than an empty
+            // section — the same rule every other list on this sheet follows.
+            if (people.isNotEmpty()) {
+                SectionHeader(stringResource(R.string.filter_any_person))
+                FlowRow(
+                    Modifier.fillMaxWidth().padding(horizontal = Space.gutter),
+                    horizontalArrangement = Arrangement.spacedBy(Space.s2),
+                    verticalArrangement = Arrangement.spacedBy(Space.s1),
+                ) {
+                    DayBookChip(
+                        label = stringResource(R.string.filter_any_person),
+                        selected = draft.personId == null,
+                        onClick = { draft = draft.copy(personId = null) },
+                    )
+                    people.forEach { person ->
+                        DayBookChip(
+                            label = person.name,
+                            selected = draft.personId == person.id,
+                            onClick = { draft = draft.copy(personId = person.id) },
+                        )
+                    }
                 }
             }
 

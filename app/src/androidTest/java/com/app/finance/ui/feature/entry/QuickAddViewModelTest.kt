@@ -9,7 +9,9 @@ import com.app.finance.awaitState
 import com.app.finance.core.money.Money
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.PaymentMethod
+import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.domain.model.SaveOutcome
+import com.app.finance.domain.model.Split
 import com.app.finance.ui.common.KeypadKey
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -75,7 +77,7 @@ class QuickAddViewModelTest {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                QuickAddViewModel(fx.expenses, fx.categories, fx.meta, fx.clock) as T
+                QuickAddViewModel(fx.expenses, fx.categories, fx.meta, fx.people, fx.clock) as T
         },
     )["vm${seq++}", QuickAddViewModel::class.java]
 
@@ -351,5 +353,165 @@ class QuickAddViewModelTest {
         assertNull(state.amount)
         assertFalse(state.isEditing)
         assertEquals(fx.today, state.date)
+    }
+
+    // --- splitting (FR-SHR-02, FR-SHR-03) ------------------------------------
+
+    private suspend fun person(name: String): Long =
+        (fx.people.findOrCreate(name) as SaveOutcome.Saved).id
+
+    private suspend fun QuickAddViewModel.type(amount: String) {
+        amount.forEach { onKey(KeypadKey.Digit(it)) }
+    }
+
+    @Test
+    fun the_amount_field_holds_the_bill_and_the_ledger_stores_your_share() = runBlocking {
+        // The decision the whole entry flow rests on: you type what left your
+        // wallet, and the app does the division. Typing your share instead
+        // would mean doing it in your head at the till.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        val karim = person("Karim")
+        vm.state.awaitState { it.people.size == 2 }
+
+        vm.type("1000")
+        vm.splitEvenly(listOf(rahim, karim))
+
+        val state = vm.state.awaitState { it.split.owed.size == 2 }
+        assertEquals("the field should still show the bill", Money.ofTaka(1_000), state.amount)
+        assertEquals("the ledger gets your share", Money.ofTaka(1_000 / 3 + 1), state.yourShare)
+        // ৳1,000 three ways is 33,334 + 33,333 + 33,333 — every paisa placed.
+        assertEquals(
+            100_000L,
+            state.yourShare!!.paisa + state.split.owed.sumOf { it.amount.paisa },
+        )
+    }
+
+    @Test
+    fun an_even_split_follows_the_bill_as_it_is_typed() = runBlocking {
+        // The split is derived from the mode, not stored as amounts. Storing
+        // them would leave the shares describing a bill of ৳10 the moment a
+        // third digit landed, and nothing on screen would say so.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.type("10")
+        vm.splitEvenly(listOf(rahim))
+        assertEquals(Money.ofTaka(5), vm.state.awaitState { it.split.owed.size == 1 }.yourShare)
+
+        vm.type("00") // now ৳1,000
+        assertEquals(
+            Money.ofTaka(500),
+            vm.state.awaitState { it.amount == Money.ofTaka(1_000) }.yourShare,
+        )
+    }
+
+    @Test
+    fun someone_else_paying_and_someone_owing_you_are_one_choice() = runBlocking {
+        // trg_payer_excludes_shares makes them mutually exclusive in the
+        // database. Choosing one has to clear the other here, or the sheet
+        // would let the user build a row that cannot be written.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.type("1000")
+        vm.splitEvenly(listOf(rahim))
+        assertTrue(vm.state.awaitState { it.split.owed.isNotEmpty() }.split is Split.YouPaid)
+
+        vm.paidBy(rahim)
+        val state = vm.state.awaitState { it.splitMode == SplitMode.THEY_PAID }
+        assertTrue(state.split is Split.TheyPaid)
+        assertTrue("shares survived the switch", state.split.owed.isEmpty())
+        assertEquals("your share is what you typed", Money.ofTaka(1_000), state.yourShare)
+    }
+
+    @Test
+    fun a_bill_entirely_owed_by_others_cannot_be_saved() = runBlocking {
+        // Paying wholly on somebody's behalf is a loan, not consumption, and
+        // `CHECK (amount_minor <> 0)` refuses the row. The Save button has to
+        // say so before the database does.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.type("500")
+        vm.splitByAmount(listOf(Split.Owed(rahim, Money.ofTaka(500))))
+
+        val state = vm.state.awaitState { it.split.owed.size == 1 }
+        assertEquals(Money.ZERO, state.yourShare)
+        assertFalse("save should be disabled", state.canSave)
+    }
+
+    @Test
+    fun saving_a_split_writes_your_share_and_the_shares() = runBlocking {
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.type("1000")
+        vm.splitEvenly(listOf(rahim))
+        vm.state.awaitState { it.split.owed.size == 1 }
+        vm.saveAndWait()
+
+        val saved = fx.expenses.filteredPage(LedgerFilters.NONE).single()
+        assertEquals(Money.ofTaka(500), Money(saved.expense.amountMinor))
+        assertEquals("the bill should be reconstructable", 100_000L, saved.billMinor)
+    }
+
+    @Test
+    fun a_split_does_not_leak_into_the_next_entry() = runBlocking {
+        // `reset` rebuilds the state from scratch, and the split fields are
+        // defaulted precisely so they cannot survive it — the shape of defect
+        // that once sent the next new entry down the `update` branch.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.type("1000")
+        vm.splitEvenly(listOf(rahim))
+        vm.state.awaitState { it.split.owed.size == 1 }
+        vm.saveAndWait()
+
+        val next = vm.state.awaitState { it.splitMode == SplitMode.NONE }
+        assertEquals(Split.NONE, next.split)
+        assertTrue(next.splitWith.isEmpty())
+        assertNull(next.payerId)
+    }
+
+    @Test
+    fun reopening_a_shared_expense_shows_the_bill_not_your_slice() = runBlocking {
+        // FR-SHR-02. Only your share is stored, so the field has to be filled
+        // from the reconstructed bill or the user sees ৳500 for a ৳1,000
+        // dinner and "corrects" it.
+        val rahim = person("Rahim")
+        val (yours, split) = Split.evenly(Money.ofTaka(1_000), listOf(rahim))
+        val id = (
+            fx.expenses.insert(
+                yours, fx.leafId("Grocery"), fx.today, split = split,
+            ) as SaveOutcome.Saved
+            ).id
+
+        val vm = startedVm(editingId = id)
+        val state = vm.state.awaitState { it.editingId == id && it.split.owed.isNotEmpty() }
+
+        assertEquals(Money.ofTaka(1_000), state.amount)
+        assertEquals(Money.ofTaka(500), state.yourShare)
+        assertEquals(SplitMode.CUSTOM, state.splitMode)
+    }
+
+    @Test
+    fun adding_a_person_inline_finds_one_that_already_exists() = runBlocking {
+        // FR-SHR-01, and FR-IS-03's shape. Typing a name that exists must reach
+        // that person's balance, not open a second one beside it.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+
+        vm.addPerson("  rahim ")
+        val state = vm.state.awaitState { it.people.isNotEmpty() }
+
+        assertEquals(1, state.people.size)
+        assertEquals(rahim, state.people.single().id)
     }
 }

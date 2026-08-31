@@ -132,3 +132,21 @@ private fun buildMoneyString(
         append(money.formatFigure(locale))
     }
 }
+
+/**
+ * A stored amount rendered back into the keypad's raw text form.
+ *
+ * The inverse of [Money.parseOrNull], and shared because three screens need it:
+ * the entry sheet reopening an expense, the budget sheet reopening a limit, and
+ * the settle-up sheet pre-filling a balance. It was written out twice before
+ * the third asked for it.
+ *
+ * Not `format()`: that groups digits and prefixes the symbol, and feeding
+ * "৳1,250" back into a numeric keypad is not a round trip.
+ */
+fun Money.editableText(): String {
+    val whole = paisa / 100
+    val fraction = (paisa % 100).toInt()
+    return if (fraction == 0) whole.toString()
+    else "$whole.${fraction.toString().padStart(2, '0')}"
+}

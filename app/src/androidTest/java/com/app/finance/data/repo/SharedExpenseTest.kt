@@ -5,6 +5,7 @@ import com.app.finance.TestFixture
 import com.app.finance.core.money.Money
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.SaveOutcome
+import com.app.finance.domain.model.Split
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -304,6 +305,58 @@ class SharedExpenseTest {
         )
         assertEquals(SaveOutcome.Rejected(EntryError.SPLIT_DOES_NOT_BALANCE), outcome)
         assertEquals(0L, scalar("SELECT COUNT(*) FROM expense"))
+    }
+
+    // --- FR-SHR-06: filtering by person ---------------------------------------
+
+    @Test
+    fun filtering_by_person_matches_from_both_sides() = runBlocking {
+        // "Things I did with Rahim" means the dinner he owes me for *and* the
+        // one he paid for. Catching only one silently answers half the question.
+        val grocery = fx.leafId("Grocery")
+        val rahim = person("Rahim")
+        val karim = person("Karim")
+
+        val (yours, split) = Split.evenly(Money.ofTaka(1_000), listOf(rahim))
+        savedId(fx.expenses.insert(yours, grocery, fx.today, split = split))
+        savedId(
+            fx.expenses.insert(
+                Money.ofTaka(250), grocery, fx.today, split = Split.TheyPaid(rahim),
+            ),
+        )
+        // Karim's, and a plain one — neither should match.
+        val (kYours, kSplit) = Split.evenly(Money.ofTaka(600), listOf(karim))
+        savedId(fx.expenses.insert(kYours, grocery, fx.today, split = kSplit))
+        savedId(fx.expenses.insert(Money.ofTaka(90), grocery, fx.today))
+
+        val filters = com.app.finance.domain.model.LedgerFilters(personId = rahim)
+        val page = fx.expenses.filteredPage(filters)
+
+        assertEquals(2, page.size)
+        assertEquals(1, filters.activeCount)
+    }
+
+    @Test
+    fun the_filtered_total_agrees_with_the_page_under_a_person_filter() = runBlocking {
+        // FR-EXP-11 still holds: `page` and `filteredTotal` share one predicate,
+        // and adding a semi-join to both is exactly where they could diverge.
+        val grocery = fx.leafId("Grocery")
+        val rahim = person("Rahim")
+        val (yours, split) = Split.evenly(Money.ofTaka(1_000), listOf(rahim))
+        savedId(fx.expenses.insert(yours, grocery, fx.today, split = split))
+        savedId(
+            fx.expenses.insert(
+                Money.ofTaka(250), grocery, fx.today, split = Split.TheyPaid(rahim),
+            ),
+        )
+        savedId(fx.expenses.insert(Money.ofTaka(90), grocery, fx.today))
+
+        val filters = com.app.finance.domain.model.LedgerFilters(personId = rahim)
+        val page = fx.expenses.filteredPage(filters)
+        val total = fx.expenses.filteredTotal(filters)
+
+        assertEquals(page.size, total.txnCount)
+        assertEquals(page.sumOf { it.expense.amountMinor }, total.totalMinor)
     }
 
     @Test

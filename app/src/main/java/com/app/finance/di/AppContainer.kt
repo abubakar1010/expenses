@@ -17,6 +17,7 @@ import com.app.finance.data.repo.PersonRepository
 import com.app.finance.data.repo.RecurringRepository
 import com.app.finance.data.repo.ReportsRepository
 import com.app.finance.data.repo.SettingsRepository
+import com.app.finance.data.repo.SettlementRepository
 import com.app.finance.log.CrashLog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -68,6 +69,7 @@ class AppContainer(
     val reportsRepo: ReportsRepository by lazy { ReportsRepository(db) }
     val recurringRepo: RecurringRepository by lazy { RecurringRepository(db, clock) }
     val personRepo: PersonRepository by lazy { PersonRepository(db, clock) }
+    val settlementRepo: SettlementRepository by lazy { SettlementRepository(db, clock) }
     val settingsRepo: SettingsRepository by lazy { SettingsRepository(db, clock) }
     val exporter: Exporter by lazy { Exporter(db) }
     val importer: Importer by lazy { Importer(db) }

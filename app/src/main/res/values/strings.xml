@@ -44,6 +44,47 @@
     <string name="key_decimal">Decimal point</string>
     <string name="key_negate">Make this a refund</string>
 
+    <!-- Splitting a bill (FR-SHR-02, FR-SHR-03). The control reads "Split"
+         until it is one, then says what it became — 05 §9's "a control says
+         what happens", applied to a control that reports as well as acts. -->
+    <string name="split">Split</string>
+    <string name="split_title">Who shared this?</string>
+    <string name="split_paid_by">%1$s paid</string>
+    <plurals name="split_with_count">
+        <item quantity="one">Split with %1$d</item>
+        <item quantity="other">Split with %1$d</item>
+    </plurals>
+    <string name="split_i_paid">I paid</string>
+    <string name="split_they_paid">Someone else paid</string>
+    <string name="split_who_owes">Who owes you</string>
+    <string name="split_who_paid">Who paid</string>
+    <string name="split_owes_you">Owes you</string>
+    <string name="split_paid_this">Paid this</string>
+    <string name="split_no_people">Nobody to split with yet. Add a person to start.</string>
+    <string name="your_share">Your share</string>
+    <!-- The ledger's third line: "of ৳1,000" under a ৳250 share. -->
+    <string name="split_of_bill">of %1$s</string>
+
+    <!-- People and balances (FR-SHR-01, FR-SHR-04, FR-SHR-05). -->
+    <string name="people_title">People</string>
+    <string name="manage_people">People</string>
+    <string name="add_person">Add person</string>
+    <string name="rename_person">Rename</string>
+    <string name="owed_to_you">They owe you</string>
+    <string name="you_owe">You owe</string>
+    <string name="all_settled">Settled up</string>
+    <string name="owes_you">Owes you</string>
+    <string name="you_owe_them">You owe</string>
+    <string name="square">Square</string>
+    <string name="archived">Archived</string>
+    <string name="empty_people">Nobody yet. Split an expense to start a balance.</string>
+    <string name="they_paid_me">They paid me</string>
+    <string name="i_paid_them">I paid them</string>
+    <string name="record_settlement">Record it</string>
+    <string name="settlement_removed">Settlement removed</string>
+    <!-- Spoken, so TalkBack does not read a bare number beside the bill. -->
+    <string name="your_share_spoken">%1$s your share</string>
+
     <!-- Payment methods (FR-EXP-05) -->
     <string name="method_cash">Cash</string>
     <string name="method_bkash">bKash</string>
@@ -80,6 +121,7 @@
     <string name="filter_total">%1$s in total</string>
     <string name="filter_any_category">Any category</string>
     <string name="filter_any_method">Any payment method</string>
+    <string name="filter_any_person">Anyone</string>
     <string name="filter_any_date">Any date</string>
     <string name="filter_from">From</string>
     <string name="filter_to">To</string>

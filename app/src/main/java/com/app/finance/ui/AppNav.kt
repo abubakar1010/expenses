@@ -44,6 +44,7 @@ import com.app.finance.ui.feature.entry.QuickAddSheet
 import com.app.finance.ui.feature.income.IncomeScreen
 import com.app.finance.ui.feature.income.SourceManagerScreen
 import com.app.finance.ui.feature.ledger.LedgerScreen
+import com.app.finance.ui.feature.people.PeopleScreen
 import com.app.finance.ui.feature.reports.ReportsScreen
 import com.app.finance.ui.feature.settings.RecurringScreen
 import com.app.finance.ui.feature.settings.SettingsScreen
@@ -198,6 +199,7 @@ fun DayBookApp(container: AppContainer) {
                         snackbarHostState = snackbarHostState,
                         onEdit = { id -> sheetTarget = id },
                         onAdd = { sheetTarget = SHEET_NEW },
+                        onOpenPeople = { navController.navigate(ROUTE_PEOPLE) },
                     )
                 }
                 composable(Route.Income.path) {
@@ -259,6 +261,13 @@ fun DayBookApp(container: AppContainer) {
                         onBack = { navController.popBackStack() },
                     )
                 }
+                composable(ROUTE_PEOPLE) {
+                    PeopleScreen(
+                        container = container,
+                        snackbarHostState = snackbarHostState,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
                 composable(ROUTE_RECURRING) {
                     RecurringScreen(
                         container = container,
@@ -298,6 +307,13 @@ private const val ROUTE_SETTINGS = "settings"
 private const val ROUTE_RECURRING = "recurring"
 private const val ROUTE_REPORTS = "reports"
 private const val ROUTE_BACKUP = "backup"
+
+/**
+ * FR-SHR-05. Reached from the Ledger header, the way Categories hangs off
+ * Budget and Income sources off Income — each manager lives on the screen that
+ * owns its data, and the ledger is where shared expenses appear.
+ */
+private const val ROUTE_PEOPLE = "people"
 
 private const val SHEET_CLOSED = -1L
 private const val SHEET_NEW = 0L

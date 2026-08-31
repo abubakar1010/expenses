@@ -15,7 +15,7 @@ import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.domain.model.SaveOutcome
-import com.app.finance.domain.usecase.SplitAllocator
+import com.app.finance.domain.model.Split
 import kotlinx.coroutines.flow.Flow
 import java.time.Clock
 import java.time.LocalDate
@@ -32,86 +32,6 @@ data class DeletedExpense(
     val expense: ExpenseEntity,
     val shares: List<ExpenseShareEntity> = emptyList(),
 )
-
-/**
- * How an expense is shared, if it is — FR-SHR-02, FR-SHR-03.
- *
- * The two arms are **mutually exclusive**, and that is a database invariant
- * rather than a convention: `trg_payer_excludes_shares` refuses an expense that
- * names a payer while shares exist, because a share means "they owe me" and
- * that is only true when you paid. Modelling it as one value with two arms is
- * what stops the UI offering the impossible combination.
- */
-sealed interface Split {
-
-    /** Who paid, or null for you. */
-    val payerPersonId: Long?
-
-    /** Who owes you, and how much. Empty unless you paid. */
-    val owed: List<Owed>
-
-    /** Not shared: you paid, nobody owes you. */
-    data object NONE : Split {
-        override val payerPersonId: Long? get() = null
-        override val owed: List<Owed> get() = emptyList()
-    }
-
-    /** You paid the bill; these people owe you their parts. */
-    @JvmInline
-    value class YouPaid(override val owed: List<Owed>) : Split {
-        override val payerPersonId: Long? get() = null
-    }
-
-    /**
-     * Somebody else paid; you owe them your share.
-     *
-     * No [owed] rows: if three of you split a bill Rahim paid, the other two
-     * owe *Rahim*. That is not your ledger.
-     */
-    @JvmInline
-    value class TheyPaid(val personId: Long) : Split {
-        override val payerPersonId: Long? get() = personId
-        override val owed: List<Owed> get() = emptyList()
-    }
-
-    /**
-     * Whether this split can stand beside [yourShare], the amount the expense
-     * will store.
-     *
-     * The bill is `yourShare + owed`, so there is nothing to cross-check
-     * against — what can still be wrong is a share of zero or less, which
-     * `CHECK (share_minor > 0)` would refuse and which describes somebody who
-     * should not be on the list at all.
-     */
-    fun validate(yourShare: Money): EntryError? = when {
-        owed.any { it.amount.paisa <= 0L } -> EntryError.SPLIT_DOES_NOT_BALANCE
-        owed.map { it.personId }.toSet().size != owed.size -> EntryError.SPLIT_DOES_NOT_BALANCE
-        else -> null
-    }
-
-    /** One person's part of a bill you paid. */
-    data class Owed(val personId: Long, val amount: Money)
-
-    /** The reverse of a split, for reopening an expense to edit it. */
-    data class Loaded(val split: Split, val bill: Money)
-
-    companion object {
-        /**
-         * An even split of [bill] between you and [personIds].
-         *
-         * Goes through [SplitAllocator] rather than dividing here, because the
-         * paisa that integer division drops is a paisa the bill no longer adds
-         * up to — and your share is whatever the others leave, so it absorbs
-         * the rounding.
-         */
-        fun evenly(bill: Money, personIds: List<Long>): Pair<Money, Split> {
-            if (personIds.isEmpty()) return bill to NONE
-            val parts = SplitAllocator.even(bill, personIds.size + 1)
-            val owed = personIds.mapIndexed { i, id -> Owed(id, parts[i + 1]) }
-            return SplitAllocator.yourShare(bill, owed.map { it.amount }) to YouPaid(owed)
-        }
-    }
-}
 
 /**
  * The expense write path — 04-system-architecture.md §5.1, the hot path of the
@@ -331,6 +251,8 @@ class ExpenseRepository(
             anyCategory = p.anyCategory,
             categoryIds = p.categoryIds,
             anyMethod = p.anyMethod,
+            anyPerson = p.anyPerson,
+            personId = p.personId,
             method = p.method,
             noQuery = p.noQuery,
             query = p.query,
@@ -358,6 +280,8 @@ class ExpenseRepository(
             anyCategory = p.anyCategory,
             categoryIds = p.categoryIds,
             anyMethod = p.anyMethod,
+            anyPerson = p.anyPerson,
+            personId = p.personId,
             method = p.method,
             noQuery = p.noQuery,
             query = p.query,
@@ -384,6 +308,8 @@ class ExpenseRepository(
             // and a sentinel that matches nothing is clearer than relying on it.
             categoryIds = categoryIds ?: NO_CATEGORY_SENTINEL,
             anyMethod = if (filters.method == null) 1 else 0,
+            anyPerson = if (filters.personId == null) 1 else 0,
+            personId = filters.personId ?: NO_PERSON_SENTINEL,
             method = filters.method?.code ?: -1,
             noQuery = if (filters.hasQuery) 0 else 1,
             query = filters.query.trim().escapeForLike(),
@@ -399,6 +325,8 @@ class ExpenseRepository(
         val anyCategory: Int,
         val categoryIds: List<Long>,
         val anyMethod: Int,
+        val anyPerson: Int,
+        val personId: Long,
         val method: Int,
         val noQuery: Int,
         val query: String,
@@ -539,5 +467,8 @@ class ExpenseRepository(
 
         /** No category has a negative id, so this matches nothing. */
         val NO_CATEGORY_SENTINEL = listOf(-1L)
+
+        /** Matches nobody, for the same reason the category sentinel does. */
+        const val NO_PERSON_SENTINEL = -1L
     }
 }

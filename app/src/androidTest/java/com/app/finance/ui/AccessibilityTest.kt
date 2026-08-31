@@ -249,6 +249,7 @@ class AccessibilityTest {
                 snackbarHostState = SnackbarHostState(),
                 onEdit = {},
                 onAdd = {},
+                onOpenPeople = {},
             )
         }
 
@@ -272,6 +273,7 @@ class AccessibilityTest {
                 snackbarHostState = SnackbarHostState(),
                 onEdit = {},
                 onAdd = {},
+                onOpenPeople = {},
             )
         }
 
@@ -325,6 +327,7 @@ class AccessibilityTest {
                     snackbarHostState = SnackbarHostState(),
                     onEdit = {},
                     onAdd = {},
+                    onOpenPeople = {},
                 )
             }
         }

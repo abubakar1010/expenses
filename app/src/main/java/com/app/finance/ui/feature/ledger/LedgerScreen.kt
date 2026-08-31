@@ -53,7 +53,9 @@ import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.ui.common.EmptyState
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.LedgerRow
+import com.app.finance.data.db.dao.ExpenseWithCategory
 import com.app.finance.ui.common.MoneyText
+import com.app.finance.ui.common.rememberJavaLocale
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.labelRes
 import com.app.finance.ui.theme.DayBookTheme
@@ -81,6 +83,7 @@ fun LedgerScreen(
     snackbarHostState: SnackbarHostState,
     onEdit: (Long) -> Unit,
     onAdd: () -> Unit,
+    onOpenPeople: () -> Unit,
 ) {
     val vm: LedgerViewModel = viewModel(
         factory = viewModelFactory {
@@ -88,6 +91,8 @@ fun LedgerScreen(
                 repo = container.expenseRepo,
                 categories = container.categoryRepo,
                 recurring = container.recurringRepo,
+                people = container.personRepo,
+                settlements = container.settlementRepo,
                 clock = container.clock,
             )
         },
@@ -142,13 +147,24 @@ fun LedgerScreen(
             activeFilters = state.filters.activeCount,
             onQuery = vm::setQuery,
             onFilters = vm::openFilters,
+            onPeople = onOpenPeople,
         )
 
         // FR-EXP-11. Above the list rather than under it: the answer to "how
         // much is this filter worth" should not require scrolling to the end of
         // what the filter matched.
         if (state.showsFilteredTotal) {
-            FilterTotal(total = state.filteredTotal, count = state.filteredCount)
+            // FR-SHR-06. Filtered to a person the header answers a different
+            // question — "what does this come to between us" — because "your
+            // share of things you did with Rahim" is not what picking a name
+            // asks.
+            val person = state.filters.personId
+                ?.let { id -> state.people.firstOrNull { it.id == id } }
+            if (person != null) {
+                PersonBalanceHeader(name = person.name, balance = state.personBalance)
+            } else {
+                FilterTotal(total = state.filteredTotal, count = state.filteredCount)
+            }
         }
 
         // FR-REC-02, above the day groups and above the empty states.
@@ -220,6 +236,7 @@ fun LedgerScreen(
                                 trailing = stringResource(
                                     PaymentMethod.fromCode(row.expense.paymentMethod).labelRes(),
                                 ),
+                                split = row.splitLine(),
                                 onClick = { onEdit(row.expense.id) },
                             )
                         }
@@ -234,6 +251,7 @@ fun LedgerScreen(
             current = state.filters,
             tree = state.tree,
             present = state.categoriesPresent,
+            people = state.people,
             today = state.today,
             onApply = vm::applyFilters,
             onClear = vm::clearFilters,
@@ -255,6 +273,7 @@ private fun SearchBar(
     activeFilters: Int,
     onQuery: (String) -> Unit,
     onFilters: () -> Unit,
+    onPeople: () -> Unit,
 ) {
     val colors = DayBookTheme.colors
     var text by rememberSaveable(query) { mutableStateOf(query) }
@@ -304,6 +323,13 @@ private fun SearchBar(
             },
             selected = activeFilters > 0,
             onClick = onFilters,
+        )
+        // FR-SHR-05, reached from the screen that owns the data — the same
+        // arrangement as Categories on Budget and Income sources on Income.
+        DayBookChip(
+            label = stringResource(R.string.manage_people),
+            selected = false,
+            onClick = onPeople,
         )
     }
 }
@@ -390,6 +416,49 @@ private fun FilterTotal(total: Money, count: Int) {
                 spokenSuffix = stringResource(R.string.filter_total, ""),
             )
         },
+    )
+}
+
+/**
+ * What the filtered person's balance comes to — FR-SHR-06.
+ *
+ * Replaces FR-EXP-11's total rather than joining it, because two money figures
+ * side by side that mean different things is worse than the wrong one alone.
+ */
+@Composable
+private fun PersonBalanceHeader(name: String, balance: Money) {
+    SectionHeader(
+        text = name,
+        trailing = {
+            MoneyText(
+                money = balance,
+                style = DayBookTheme.type.caption,
+                // Signed, so `MoneyText` already renders what you owe in
+                // vermilion with a true minus.
+                color = null,
+                spokenSuffix = stringResource(
+                    if (balance.isNegative) R.string.you_owe_them else R.string.owes_you,
+                ),
+            )
+        },
+    )
+}
+
+/**
+ * The third line on a shared row — FR-SHR-02, FR-SHR-03. Null on every other.
+ *
+ * Without it the ledger shows ৳250 for a dinner the user remembers paying
+ * ৳1,000 for, which reads as simply wrong. Saying what the figure is a share
+ * *of* is what makes the stored number legible.
+ */
+@Composable
+private fun ExpenseWithCategory.splitLine(): String? {
+    if (!isShared) return null
+    val locale = rememberJavaLocale()
+    payerName?.let { return stringResource(R.string.split_paid_by, it) }
+    return stringResource(
+        R.string.split_of_bill,
+        Money(billMinor).format(locale),
     )
 }
 

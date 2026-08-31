@@ -25,6 +25,14 @@ data class LedgerFilters(
     val rootId: Long? = null,
     val leafId: Long? = null,
     val method: PaymentMethod? = null,
+    /**
+     * Expenses this person shares in or paid for — FR-SHR-06.
+     *
+     * Matches from both sides, because "things I did with Rahim" means the
+     * dinner he owes me for *and* the one he paid for. A filter that caught
+     * only one would silently answer half the question.
+     */
+    val personId: Long? = null,
     val query: String = "",
 ) {
     /** Shown on the filter control so hidden rows are never a surprise. */
@@ -34,6 +42,7 @@ data class LedgerFilters(
             rootId != null,
             leafId != null,
             method != null,
+            personId != null,
         ).count { it }
 
     val hasQuery: Boolean get() = query.isNotBlank()

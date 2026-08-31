@@ -108,6 +108,7 @@ class LedgerUndoScreenTest {
                         snackbarHostState = host,
                         onEdit = {},
                         onAdd = {},
+                        onOpenPeople = {},
                     )
                 }
             }

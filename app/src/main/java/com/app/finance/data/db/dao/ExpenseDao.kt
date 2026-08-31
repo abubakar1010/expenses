@@ -14,7 +14,23 @@ data class ExpenseWithCategory(
     @Embedded val expense: ExpenseEntity,
     val categoryName: String,
     val categoryNature: Int,
-)
+    /** Who paid, when it was not you — FR-SHR-03. Null on an ordinary row. */
+    val payerName: String? = null,
+    /** What other people owe on this — FR-SHR-02. Zero on an ordinary row. */
+    val sharedMinor: Long = 0L,
+) {
+    /**
+     * The bill this expense was part of.
+     *
+     * Reconstructed, because nothing stores it: your share plus what the others
+     * owe. Equal to the amount on any unshared row, which is why the ledger can
+     * ask every row for it without a branch.
+     */
+    val billMinor: Long get() = expense.amountMinor + sharedMinor
+
+    /** True when the row has something to say beyond its own figure. */
+    val isShared: Boolean get() = sharedMinor != 0L || expense.payerPersonId != null
+}
 
 @Dao
 interface ExpenseDao {
@@ -39,8 +55,12 @@ interface ExpenseDao {
      */
     @Query(
         """
-        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature
+        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature,
+               p.name AS payerName,
+               (SELECT IFNULL(SUM(s.share_minor), 0) FROM expense_share s
+                 WHERE s.expense_id = e.id) AS sharedMinor
           FROM expense e JOIN category c ON c.id = e.category_id
+          LEFT JOIN person p ON p.id = e.payer_person_id
          WHERE e.status = 0
          ORDER BY e.spent_on DESC, e.id DESC
          LIMIT :limit
@@ -126,13 +146,23 @@ interface ExpenseDao {
      */
     @Query(
         """
-        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature
+        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature,
+               p.name AS payerName,
+               (SELECT IFNULL(SUM(s.share_minor), 0) FROM expense_share s
+                 WHERE s.expense_id = e.id) AS sharedMinor
           FROM expense e JOIN category c ON c.id = e.category_id
+          LEFT JOIN person p ON p.id = e.payer_person_id
          WHERE e.status = 0
            AND (:noKeyset = 1 OR (e.spent_on, e.id) < (:lastDay, :lastId))
            AND e.spent_on BETWEEN :fromDay AND :toDay
            AND (:anyCategory = 1 OR e.category_id IN (:categoryIds))
            AND (:anyMethod = 1 OR e.payment_method = :method)
+           AND (
+                :anyPerson = 1
+                OR e.payer_person_id = :personId
+                OR EXISTS (SELECT 1 FROM expense_share xs
+                            WHERE xs.expense_id = e.id AND xs.person_id = :personId)
+               )
            AND (
                 :noQuery = 1
                 OR e.note LIKE '%' || :query || '%' ESCAPE '\'
@@ -152,6 +182,8 @@ interface ExpenseDao {
         categoryIds: List<Long>,
         anyMethod: Int,
         method: Int,
+        anyPerson: Int,
+        personId: Long,
         noQuery: Int,
         query: String,
         hasAmount: Int,
@@ -189,6 +221,12 @@ interface ExpenseDao {
            AND (:anyCategory = 1 OR e.category_id IN (:categoryIds))
            AND (:anyMethod = 1 OR e.payment_method = :method)
            AND (
+                :anyPerson = 1
+                OR e.payer_person_id = :personId
+                OR EXISTS (SELECT 1 FROM expense_share xs
+                            WHERE xs.expense_id = e.id AND xs.person_id = :personId)
+               )
+           AND (
                 :noQuery = 1
                 OR e.note LIKE '%' || :query || '%' ESCAPE '\'
                 OR (:hasAmount = 1 AND e.amount_minor = :exactAmount)
@@ -202,6 +240,8 @@ interface ExpenseDao {
         categoryIds: List<Long>,
         anyMethod: Int,
         method: Int,
+        anyPerson: Int,
+        personId: Long,
         noQuery: Int,
         query: String,
         hasAmount: Int,
@@ -211,8 +251,12 @@ interface ExpenseDao {
     /** Top N of the period, descending — one of the eight dashboard metrics. */
     @Query(
         """
-        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature
+        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature,
+               p.name AS payerName,
+               (SELECT IFNULL(SUM(s.share_minor), 0) FROM expense_share s
+                 WHERE s.expense_id = e.id) AS sharedMinor
           FROM expense e JOIN category c ON c.id = e.category_id
+          LEFT JOIN person p ON p.id = e.payer_person_id
          WHERE e.status = 0 AND e.period_ym = :period
          ORDER BY e.amount_minor DESC
          LIMIT :limit
@@ -230,8 +274,12 @@ interface ExpenseDao {
      */
     @Query(
         """
-        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature
+        SELECT e.*, c.name AS categoryName, c.nature AS categoryNature,
+               p.name AS payerName,
+               (SELECT IFNULL(SUM(s.share_minor), 0) FROM expense_share s
+                 WHERE s.expense_id = e.id) AS sharedMinor
           FROM expense e JOIN category c ON c.id = e.category_id
+          LEFT JOIN person p ON p.id = e.payer_person_id
          WHERE e.status = 0 AND e.spent_on BETWEEN :fromDay AND :toDay
          ORDER BY e.amount_minor DESC
          LIMIT :limit
@@ -254,6 +302,7 @@ interface ExpenseDao {
                SUM(e.amount_minor) AS totalMinor,
                COUNT(*) AS txnCount
           FROM expense e JOIN category c ON c.id = e.category_id
+          LEFT JOIN person p ON p.id = e.payer_person_id
          WHERE e.status = 0 AND e.spent_on BETWEEN :fromDay AND :toDay
          GROUP BY c.nature
         """,

@@ -379,7 +379,9 @@ class QuickAddViewModelTest {
 
         val state = vm.state.awaitState { it.split.owed.size == 2 }
         assertEquals("the field should still show the bill", Money.ofTaka(1_000), state.amount)
-        assertEquals("the ledger gets your share", Money.ofTaka(1_000 / 3 + 1), state.yourShare)
+        // ৳333.34 — 100,000 paisa three ways is 33,333 remainder 1, and your
+        // share is the remainder, so it takes the odd paisa.
+        assertEquals("the ledger gets your share", Money(33_334), state.yourShare)
         // ৳1,000 three ways is 33,334 + 33,333 + 33,333 — every paisa placed.
         assertEquals(
             100_000L,

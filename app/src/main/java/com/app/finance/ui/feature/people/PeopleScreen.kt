@@ -200,11 +200,11 @@ private fun PersonRow(
         // with a true minus and speaks it as words — so the direction reads
         // correctly with no extra work here.
         amount = Money(row.balanceMinor),
-        secondary = when {
-            row.balanceMinor > 0 -> stringResource(R.string.owes_you)
-            row.balanceMinor < 0 -> stringResource(R.string.you_owe_them)
-            else -> stringResource(R.string.square)
-        },
+        // No direction caption. The section header above already says which way
+        // this points, and the sign and colour say it again — a row reading
+        // "You owe" under a heading reading "You owe" is one repetition too
+        // many, and it made "You owe" ambiguous to anything looking for it.
+        secondary = if (row.balanceMinor == 0L) stringResource(R.string.square) else null,
         trailing = if (row.archived) stringResource(R.string.archived) else null,
         onClick = { onSettle(row) },
     )

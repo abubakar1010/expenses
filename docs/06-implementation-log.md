@@ -5344,7 +5344,7 @@ was fixed alongside rather than left to fail on a busier day.
 there is no one node to wait for; its sleep is a deliberate choice with a comment
 saying so. Worth revisiting, not worth destabilising a capture test for.
 
-Re-run after the fix: **682 tests, zero failures, 459 s.** The JVM suite is 321.
+Re-run after the fix: **682 tests, zero failures, 459 s.** The JVM suite is 311, also zero.
 
 ### 26.7 Gates
 

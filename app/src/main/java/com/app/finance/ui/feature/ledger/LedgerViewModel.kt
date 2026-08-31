@@ -10,6 +10,7 @@ import com.app.finance.data.db.dao.PendingIncome
 import com.app.finance.data.db.entity.ExpenseEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.repo.CategoryRepository
+import com.app.finance.data.repo.DeletedExpense
 import com.app.finance.data.repo.ExpenseRepository
 import com.app.finance.data.repo.RecurringRepository
 import com.app.finance.domain.model.CategoryNode
@@ -396,8 +397,15 @@ sealed interface DismissedEntry {
  * top of each losing its own window. One queue, one effect, one at a time.
  */
 sealed interface LedgerUndo {
-    /** An expense removed by FR-EXP-07's swipe. */
-    @JvmInline value class Deleted(val row: ExpenseEntity) : LedgerUndo
+    /**
+     * An expense removed by FR-EXP-07's swipe, with its shares.
+     *
+     * [DeletedExpense] rather than the row alone: a shared expense's
+     * `expense_share` rows are deleted with it and exist nowhere else
+     * afterwards, so undoing only the expense would restore a dinner and forget
+     * that three people owed for it.
+     */
+    @JvmInline value class Deleted(val row: DeletedExpense) : LedgerUndo
 
     /** A pending row turned down rather than confirmed — FR-REC-02. */
     @JvmInline value class Dismissed(val entry: DismissedEntry) : LedgerUndo

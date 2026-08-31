@@ -197,7 +197,7 @@ class ExpenseRepositoryTest {
         val removed = fx.expenses.delete(id)!!
         val newId = fx.expenses.restore(removed)
 
-        assertEquals(removed.uuid, fx.expenses.byId(newId)!!.uuid)
+        assertEquals(removed.expense.uuid, fx.expenses.byId(newId)!!.uuid)
     }
 
     // --- filtering and search (FR-EXP-08) -----------------------------------

@@ -5142,3 +5142,227 @@ changes is that repeating it on a new ROM is cheap rather than laborious.
   disprove compliance; none of them does.
 - **A cloud provider's tree is still untested**, and so is an SD card. Two
   ROMs is better than one and is not all of them.
+
+## 26. The three untested corners, and the data-loss defect under one of them
+
+Three items had survived every audit for the same reason: each sat behind
+something the instrumented suite cannot reach — a window wider than the device,
+a system file-save dialog, a share chooser. They were taken on together on
+31 August 2026, on the Realme RMX3930 (Android 15, `wm size 720x1600`).
+
+The first two were expected to be confirmations. The second one was not: driving
+it found that **`RecoveryScreen` was unreachable in the case it most exists for,
+and the ledger was being deleted instead**.
+
+### 26.1 NFR-COMP-03 at 480 dp
+
+> "Screen widths 320 dp to 480 dp; no tablet layouts required."
+
+The narrow end has been checked since M4 — `wm density 360` on a 720 px panel
+gives exactly 320 dp. The wide end never had been. The existing coverage used
+Compose's `ForcedSize`, which constrains a composition *downward* and cannot
+give it more room than the window actually has, so 480 dp was asserted about
+content and never about a real window.
+
+`wm density 240` on the same 720 px panel gives exactly 480 dp. The whole
+Compose-rendering half of the suite was then run against it:
+
+| suite | tests |
+| --- | --- |
+| `PeopleScreenTest`, `LedgerSplitRowTest`, `SplitSheetTest`, `LedgerUndoScreenTest`, `AccessibilityTest` | 26 |
+| `BudgetScreenTest`, `DashboardScreenTest`, `IncomeScreenTest`, `WelcomeScreenTest`, `GreyscaleCaptureTest`, `MainActivityTest` | 85 |
+
+**111 tests, zero failures.** This is worth more than an eyeball pass because
+`assertIsDisplayed()` fails on a node that lands outside the window, so every
+one of those assertions is also a layout assertion at that width.
+
+Density was reset afterwards. Driven by adb around a targeted run rather than
+asserted in-suite: changing density recreates every activity, so a suite that
+changed it mid-run would be measuring its own teardown.
+
+### 26.2 `zipDatabase`, split out so it could be tested at all
+
+`RecoveryScreen`'s copy ran entirely inside an `ACTION_CREATE_DOCUMENT` result
+callback. Nothing instrumented can reach that callback, so the one function on
+the rescue path that has to be right was the one function nothing exercised.
+
+The Android seams — where the database lives, where the user chose to put it —
+are now parameters, and `copyDatabase` is the three-line adapter that supplies
+them. `RecoveryCopyTest` covers six cases: the WAL travelling with the database,
+a checkpointed database with no sidecars, entries staying separate rather than
+concatenated, a missing database not reporting success, an unopenable target,
+and a stream that fails midway.
+
+**Verified by mutation** (§23.5's standard):
+
+| mutation | killed by |
+| --- | --- |
+| sidecars dropped, only `daybook.db` copied | `the_wal_travels_with_the_database`, `the_entries_are_separate_files_and_not_a_concatenation` |
+| a missing database reports success | `no_database_is_not_a_silent_success` |
+
+The second matters more than it looks: `copied` is FR-DAT-10's interlock, and a
+`true` returned for a copy that never happened enables "Start over" — the
+destructive button — on the strength of nothing.
+
+### 26.3 The defect: a corrupt ledger was deleted, not recovered
+
+04 §8 is unambiguous:
+
+> "Release builds never fall back to destructive migration. Failure surfaces a
+> recovery screen offering export of the raw database file."
+
+That policy was only half-enforced, and the missing half deleted user data.
+
+`fallbackToDestructiveMigration` is correctly withheld from release builds, which
+covers a **migration** failure. Corruption never reaches Room's migration path at
+all. SQLite raises `SQLITE_NOTADB`; androidx.sqlite's default `onCorruption`
+**deletes the file**; `SQLiteDatabase.open()` retries; Room creates an empty
+database in its place; and `verifyDatabase()` then *succeeds*. `databaseFailed`
+stays false, and the user lands on `WelcomeScreen` — onboarding, with the ledger
+already gone.
+
+Measured on the device. A 155 MB unreadable `daybook.db` was put in place and the
+app launched once:
+
+```
+before   -rw-rw----  155198576  daybook.db     header: P K 003 004
+after    -rw-rw----       4096  daybook.db     header: S Q L i t e   f o r m a t   3
+log      W SupportSQLite: deleting the database file: /data/user/0/.../daybook.db
+screen   "Restore from a backup" / "Start fresh"
+```
+
+Nothing about that path is debug-only; release behaves identically.
+
+**The fix** is one replaced callback. `AppDatabase` now installs an
+`openHelperFactory` that copies Room's configuration faithfully — including
+`allowDataLossOnRecovery`, which governs a *different* androidx deletion that
+Room already leaves off — and replaces `onCorruption` with a no-op. The open goes
+on failing, which is the point: `verifyDatabase()` reports it, the recovery
+screen appears, and the bytes are still there to copy. Deleting them stays a
+decision only the user makes, through "Start over", which already removes all
+three files deliberately.
+
+`DatabaseCorruptionTest` pins it, and deliberately asserts about **the bytes on
+disk** rather than about the exception — what the recovery screen needs is the
+file. Its helper asserts its own postcondition, because a corruption that failed
+to land would make every assertion below it vacuous.
+
+**Verified by mutation:**
+
+| mutation | result |
+| --- | --- |
+| `onCorruption` delegates to androidx's default | 2 of 3 fail — the guard is load-bearing |
+| `allowDataLossOnRecovery` left unset | passes — that flag is *not* what was deleting the ledger |
+
+The second mutation corrected a wrong reading. An earlier run had appeared to
+show both guards were needed; that run had installed only the androidTest APK,
+so `AppDatabase` on the device was still the unfixed one. The comment now claims
+only what the mutations support.
+
+### 26.4 The rescue, walked end to end
+
+With the fix in place, the same 155 MB corrupt ledger:
+
+| step | result |
+| --- | --- |
+| launch | "Your data needs attention" — `E DayBook: database unusable` |
+| interlock before | "Save a copy first."; the *Start over* node reports `enabled="false"` |
+| tap *Save a copy* | `com.android.documentsui` opens, filename prefilled `daybook-backup.zip` |
+| tap *SAVE* | "Copy saved" after **~15 s**; app kept focus, answered every `uiautomator` query, **no ANR** |
+| interlock after | hint becomes "Discards the ledger DayBook cannot open..."; *Start over* now `enabled="true"` |
+| the file | 145,886,930 bytes, local header `PK\003\004`, first entry `daybook.db` |
+| tap *Start over* | process restarts into `WelcomeScreen`, fresh 4 KB database |
+
+The 15 seconds is the useful number. The ANR threshold is 5 s, so a copy on the
+main thread could not have survived this; `uiautomator dump` needs the UI thread
+to answer, and it answered throughout. That is the confirmation
+`withContext(Dispatchers.IO)` never had.
+
+### 26.5 The lock after a share sheet
+
+`LockControllerTest` pins the state machine and `MainActivityTest` pins the
+lifecycle wiring, but nothing had put a real chooser in front of a real window.
+The specific worry was mechanical: a chooser that only *pauses* the activity
+would never fire `ON_STOP`, and the lock would never engage.
+
+Measured, with *Require unlock* on and a backup present:
+
+| moment | task state |
+| --- | --- |
+| chooser up (`com.android.intentresolver/...ChooserActivityLauncher` focused) | `visible=true visibleRequested=true`, MainActivity is `mLastPausedActivity` |
+| Home from the chooser | `visible=false visibleRequested=false` |
+| relaunch | **"Your ledger is locked." / "Unlock"** |
+
+So the worry is real as far as it goes — **the chooser alone does not stop the
+activity** — and the behaviour is still correct, because the moment the user
+actually leaves, the app stops and locks. That is exactly what `BackupScreen`'s
+comment argues for in declining to suppress the hand-off here: the share sheet
+is fire-and-forget, there is no result to bring a suppression back down, and
+coming back to the gate after sending the whole ledger somewhere is the point of
+FR-APP-04.
+
+
+### 26.6 A race the full suite found and a single run never would
+
+The regression run after the fix came back **682 tests, 1 failure**:
+
+```
+1) an_empty_list_invites_rather_than_reports(com.app.finance.ui.feature.people.PeopleScreenTest)
+   The component ... contains 'Nobody yet' as substring is not displayed!
+```
+
+Run alone it passed, and it had passed in the 480 dp batch earlier the same day.
+That combination is the signature §21.9 J described: **an assertion racing an
+emission, which only loses when the machine is busy.**
+
+`PeopleScreenTest.show()` ended in `waitForIdle()`, which settles composition and
+layout — and waits for no flow at all. Everything the People screen renders
+arrives from Room through `PeopleViewModel`, so every assertion made directly
+after `show()` was a race. It happens to win when the device has nothing else to
+do, and 681 other tests are something else to do.
+
+The fix is the convention CLAUDE.md already states — await the state you are
+about to assert on — spelled as an `awaitText` helper that waits for the node to
+exist before asserting it is displayed.
+
+A survey of the ten Compose-rendering suites found the discipline was already
+there almost everywhere:
+
+| suite | `waitUntil` | note |
+| --- | --- | --- |
+| `BudgetScreenTest`, `LedgerUndoScreenTest`, `IncomeScreenTest`, `DashboardScreenTest`, `AccessibilityTest`, `WelcomeScreenTest` | yes | already awaiting |
+| `PeopleScreenTest`, `LedgerSplitRowTest` | **no** | flow-backed screens, fixed here |
+| `SplitSheetTest` | no | renders a constructed `QuickAddUiState`; no flow, no race |
+| `GreyscaleCaptureTest` | no | deliberate fixed `Thread.sleep(1_500)`, left alone |
+
+`LedgerSplitRowTest` had not failed, but it is the identical shape — a real
+screen against `TestFixture`, asserted straight after `waitForIdle()` — so it
+was fixed alongside rather than left to fail on a busier day.
+
+`GreyscaleCaptureTest` is the one knowing exception. Its assertions are over a
+*set* of labels harvested from the whole screen rather than any single string, so
+there is no one node to wait for; its sleep is a deliberate choice with a comment
+saying so. Worth revisiting, not worth destabilising a capture test for.
+
+Re-run after the fix: **682 tests, zero failures, 459 s.** The JVM suite is 321.
+
+### 26.7 Gates
+
+| gate | result |
+| --- | --- |
+| `:app:testDebugUnitTest` | pass |
+| `:app:connectedAndroidTest` (as `am instrument`) | 682, zero failures |
+| `:app:architectureCheck` | pass |
+| `:app:lintRelease` | no errors |
+| `:app:assembleRelease` | pass — R8 full mode keeps the new open-helper callback |
+
+### 26.8 Still not done
+
+- **Unlocking was not driven**, only the gate appearing. Completing a
+  device-credential prompt needs the owner's PIN.
+- **The picker's *suppression* was not re-checked under a live lock.** Granting a
+  folder and returning was walked in this session, but with the lock off; the
+  pairing is covered at the unit level only.
+- **One ROM, one chooser.** `visible=true` under `com.android.intentresolver` is
+  an Android 15 Realme observation. A ROM whose chooser is opaque would stop the
+  activity and lock earlier, which is not worse.

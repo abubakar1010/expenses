@@ -321,6 +321,7 @@ The FAB placement is a usability requirement, not decoration: NFR-USE-06 require
 | Validation failure | Field-level error in the entry form; save disabled until resolved |
 | Constraint violation | Repository maps `SQLiteConstraintException` to a typed domain error with an actionable message; never a raw exception surfaced to the user |
 | Migration failure | Release builds never fall back to destructive migration. Failure surfaces a recovery screen offering export of the raw database file |
+| Database corruption | The corrupt file is **kept**, not deleted, so the same recovery screen can copy it. androidx.sqlite's default `onCorruption` deletes it and lets Room open an empty database in its place, which made the recovery screen unreachable for the case it most exists for; `AppDatabase` replaces that one callback (06 §26.3) |
 | Import failure | Whole import runs in one transaction; any failure rolls back leaving the prior state untouched (FR-DAT-04, NFR-REL-04) |
 | Backup folder gone | Reported, and the setting is kept — a card that is out today goes back in tomorrow. The app is not armed until a folder *and* a schedule are both set, so it never believes it is protected when it is not |
 | Altered or truncated backup | Refused in full before a row is written. Each block carries its own AEAD tag and the last one is marked, so a file cut at a block boundary is detected rather than read as a shorter ledger |

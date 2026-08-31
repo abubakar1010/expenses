@@ -5,6 +5,8 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
+import androidx.sqlite.db.framework.FrameworkSQLiteOpenHelperFactory
 import com.app.finance.BuildConfig
 import com.app.finance.data.db.dao.AppMetaDao
 import com.app.finance.data.db.dao.BackupDao
@@ -88,6 +90,7 @@ abstract class AppDatabase : RoomDatabase() {
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(CanonicalSchema)
                 .addMigrations(*Migrations.ALL)
+                .openHelperFactory(preserveOnCorruption())
                 .build()
 
         fun build(context: Context): AppDatabase =
@@ -98,6 +101,7 @@ abstract class AppDatabase : RoomDatabase() {
                 .setJournalMode(JournalMode.WRITE_AHEAD_LOGGING)
                 .addCallback(CanonicalSchema)
                 .addMigrations(*Migrations.ALL)
+                .openHelperFactory(preserveOnCorruption())
                 .apply {
                     // 03 §8: release builds never fall back to destructive
                     // migration. Losing a user's financial history to a schema
@@ -107,6 +111,63 @@ abstract class AppDatabase : RoomDatabase() {
                     if (BuildConfig.DEBUG) fallbackToDestructiveMigration(dropAllTables = true)
                 }
                 .build()
+
+        /**
+         * Keeps a corrupt ledger on disk instead of deleting it — FR-DAT-10.
+         *
+         * **[com.app.finance.ui.RecoveryScreen] was unreachable for the case it
+         * most exists for, and this is what made it so.** 04 §8 says a database
+         * that will not open must surface the recovery screen "offering export
+         * of the raw database file", and `fallbackToDestructiveMigration` is
+         * correctly withheld from release builds to that end — but that only
+         * governs a *migration* failure. Corruption never reaches Room's
+         * migration path at all: SQLite raises `SQLITE_NOTADB`, and
+         * androidx.sqlite's default `onCorruption` **deletes the file**.
+         * `SQLiteDatabase.open()` then retries, Room creates an empty database
+         * in its place, and `verifyDatabase()` *succeeds* — so `databaseFailed`
+         * stays false and the user lands on the welcome screen. Onboarding,
+         * with the ledger already gone.
+         *
+         * Driven on a device rather than reasoned about: a 155 MB unreadable
+         * `daybook.db` came back as a fresh 4 KB one across a single launch,
+         * logging only `W SupportSQLite: deleting the database file` (§26.3).
+         * Nothing about that path is debug-only; release behaves identically.
+         *
+         * So the corruption hook does nothing at all. The open goes on failing,
+         * which is the point: `verifyDatabase()` reports it, the recovery screen
+         * appears, and the bytes are still there to copy. Deleting them is a
+         * decision only the user makes, through "Start over", which already
+         * removes all three files deliberately.
+         *
+         * Everything else about the configuration is copied across unchanged —
+         * `allowDataLossOnRecovery` included, which governs a *different*
+         * androidx deletion (the silent `deleteDatabase` retry) that Room
+         * already leaves off. Only the one callback is replaced.
+         */
+        private fun preserveOnCorruption(): SupportSQLiteOpenHelper.Factory =
+            SupportSQLiteOpenHelper.Factory { configuration ->
+                val room = configuration.callback
+                val guarded = object : SupportSQLiteOpenHelper.Callback(room.version) {
+                    override fun onConfigure(db: SupportSQLiteDatabase) = room.onConfigure(db)
+                    override fun onCreate(db: SupportSQLiteDatabase) = room.onCreate(db)
+                    override fun onOpen(db: SupportSQLiteDatabase) = room.onOpen(db)
+                    override fun onUpgrade(db: SupportSQLiteDatabase, old: Int, new: Int) =
+                        room.onUpgrade(db, old, new)
+                    override fun onDowngrade(db: SupportSQLiteDatabase, old: Int, new: Int) =
+                        room.onDowngrade(db, old, new)
+
+                    /** Deliberately empty; see above. */
+                    override fun onCorruption(db: SupportSQLiteDatabase) = Unit
+                }
+                FrameworkSQLiteOpenHelperFactory().create(
+                    SupportSQLiteOpenHelper.Configuration.builder(configuration.context)
+                        .name(configuration.name)
+                        .callback(guarded)
+                        .noBackupDirectory(configuration.useNoBackupDirectory)
+                        .allowDataLossOnRecovery(configuration.allowDataLossOnRecovery)
+                        .build(),
+                )
+            }
 
         /**
          * Replaces Room's generated tables with the canonical schema.

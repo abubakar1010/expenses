@@ -6,11 +6,13 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.core.money.Money
 import com.app.finance.core.time.Period
 import com.app.finance.data.db.AppDatabase
+import com.app.finance.data.db.dao.ExpenseWithCategory
 import com.app.finance.data.export.BackupCodec
 import com.app.finance.data.export.ImportMode
 import com.app.finance.data.export.ImportOutcome
 import com.app.finance.data.export.Importer
 import com.app.finance.data.export.Exporter
+import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.data.repo.CategoryRepository
 import com.app.finance.data.repo.DashboardRepository
 import com.app.finance.data.repo.ExpenseRepository
@@ -98,6 +100,58 @@ class PerformanceProbeTest {
         }
         Log.i(TAG, "dashboard rollup reads at five years: ${elapsed}ms")
         assertTrue("dashboard reads took ${elapsed}ms", elapsed <= 300)
+    }
+
+    @Test
+    fun a_ledger_page_stays_inside_the_frame_budget_at_five_years() = runBlocking {
+        // The database half of NFR-PERF-05. The macrobenchmark measures frames;
+        // this isolates the read behind them, so a regression in the paging
+        // query is attributable rather than lost inside composition.
+        //
+        // FR-SHR-02 put a correlated subquery on this statement — the sum of
+        // what other people owe on each row — and NFR-PERF-05 allows no frame
+        // over 16 ms at p95. A page is fetched off the main thread and
+        // prefetched before the bottom is reached, so it does not have to fit
+        // inside one frame; but a read that took longer than a frame to return
+        // fifty rows would make the join visible on every flick, which is the
+        // thing the requirement is protecting.
+        //
+        // Deep pages, not the first: `noKeyset = 0` is the state the user is in
+        // while scrolling, and the first page is the one case where the keyset
+        // predicate does no work.
+        val samples = mutableListOf<Long>()
+        var cursor = expenses.filteredPage(LedgerFilters.NONE).lastOrNull()
+        repeat(SAMPLES) {
+            val page: List<ExpenseWithCategory>
+            samples += measureTimeMillis {
+                page = expenses.filteredPage(LedgerFilters.NONE, after = cursor)
+            }
+            cursor = page.lastOrNull() ?: cursor
+        }
+        samples.sort()
+        val median = samples[samples.size / 2]
+
+        Log.i(TAG, "NFR-PERF-05 ledger page: median ${median}ms, worst ${samples.last()}ms")
+        assertTrue("a ledger page took ${median}ms at the median", median <= 16)
+    }
+
+    @Test
+    fun filtering_the_ledger_by_person_does_not_change_the_shape_of_that_cost() = runBlocking {
+        // FR-SHR-06's semi-join, on the same statement. Nobody in the corpus
+        // owes anything, so this measures the predicate's cost rather than its
+        // selectivity — which is the honest thing to measure, since the
+        // predicate runs on every row the filter considers whether or not it
+        // matches.
+        val filters = LedgerFilters(personId = 1L)
+        val samples = mutableListOf<Long>()
+        repeat(SAMPLES) {
+            samples += measureTimeMillis { expenses.filteredPage(filters) }
+        }
+        samples.sort()
+        val median = samples[samples.size / 2]
+
+        Log.i(TAG, "NFR-PERF-05 person-filtered page: median ${median}ms, worst ${samples.last()}ms")
+        assertTrue("a person-filtered page took ${median}ms at the median", median <= 100)
     }
 
     @Test

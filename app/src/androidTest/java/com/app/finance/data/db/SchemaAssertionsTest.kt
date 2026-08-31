@@ -9,6 +9,7 @@ import com.app.finance.data.db.entity.CategoryEntity
 import com.app.finance.data.db.entity.ExpenseEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.IncomeSourceEntity
+import com.app.finance.data.db.dao.ExpenseDao
 import com.app.finance.data.db.dao.RollupDao
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -481,19 +482,70 @@ class SchemaAssertionsTest {
         // NFR-MAIN-03 requires a documented EXPLAIN QUERY PLAN for every
         // hot-path query confirming index use. A temp B-tree here would mean
         // keyset pagination had quietly stopped working.
-        val plan = db.openHelper.writableDatabase.query(
-            """
-            EXPLAIN QUERY PLAN
-            SELECT * FROM expense
-             WHERE status = 0 AND (spent_on, id) < (20678, 5)
-             ORDER BY spent_on DESC, id DESC LIMIT 50
-            """.trimIndent(),
-        ).use {
-            buildString { while (it.moveToNext()) append(it.getString(it.columnCount - 1)).append('\n') }
-        }
+        //
+        // `ExpenseDao.PAGE`, not a transcription of it. This test used to keep
+        // its own simplified copy — `SELECT * FROM expense WHERE status = 0 AND
+        // (spent_on, id) < (…)` — which had drifted past the category join, and
+        // then past the person join and the shared-expense subquery FR-SHR
+        // added. It was explaining a statement the app does not run, which is
+        // the defect §22.5 found in the budget-bar plan check and fixed the
+        // same way.
+        val plan = queryPlan(boundPageQuery())
+
         assertTrue("expected ix_expense_date to be used, plan was:\n$plan", plan.contains("ix_expense_date"))
         assertTrue("expected no temp B-tree sort, plan was:\n$plan", !plan.contains("TEMP B-TREE"))
     }
+
+    @Test
+    fun the_shared_expense_subquery_is_an_index_probe_not_a_scan() {
+        // FR-SHR-02 put a correlated subquery on the app's most
+        // performance-sensitive read. Per row of a fifty-row page it must be a
+        // lookup on `ux_share_expense_person`, whose leading column is
+        // `expense_id` — a scan here would be invisible with three shares and
+        // quadratic with three thousand, which is exactly the shape NFR-PERF-05
+        // exists to prevent.
+        val plan = queryPlan(boundPageQuery())
+
+        assertTrue(
+            "the share subquery must use ux_share_expense_person, plan was:\n$plan",
+            plan.contains("ux_share_expense_person"),
+        )
+        assertTrue(
+            "the share subquery must not scan expense_share, plan was:\n$plan",
+            !plan.contains("SCAN s") && !plan.contains("SCAN expense_share"),
+        )
+        // The payer join is a primary-key lookup on a table with tens of rows.
+        // Asserted so a future index change cannot quietly turn it into a scan
+        // per ledger row.
+        assertTrue(
+            "the payer join must not scan person, plan was:\n$plan",
+            !plan.contains("SCAN p") && !plan.contains("SCAN person"),
+        )
+    }
+
+    /**
+     * [ExpenseDao.PAGE] with its bind parameters substituted.
+     *
+     * Every filter is off and the keyset is engaged — the state the ledger is
+     * in while the user scrolls, which is the one NFR-PERF-05 measures.
+     */
+    private fun boundPageQuery(): String = ExpenseDao.PAGE
+        .replace(":noKeyset", "0")
+        .replace(":lastDay", "20678")
+        .replace(":lastId", "5")
+        .replace(":fromDay", "-1000000")
+        .replace(":toDay", "1000000")
+        .replace(":anyCategory", "1")
+        .replace(":categoryIds", "-1")
+        .replace(":anyMethod", "1")
+        .replace(":method", "-1")
+        .replace(":anyPerson", "1")
+        .replace(":personId", "-1")
+        .replace(":noQuery", "1")
+        .replace(":query", "''")
+        .replace(":hasAmount", "0")
+        .replace(":exactAmount", "0")
+        .replace(":limit", "50")
 
     @Test
     fun the_budget_bar_query_never_touches_the_expense_table() {

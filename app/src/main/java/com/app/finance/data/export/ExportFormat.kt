@@ -4,6 +4,9 @@ import com.app.finance.data.db.entity.AppMetaEntity
 import com.app.finance.data.db.entity.BudgetEntity
 import com.app.finance.data.db.entity.CategoryEntity
 import com.app.finance.data.db.entity.ExpenseEntity
+import com.app.finance.data.db.entity.ExpenseShareEntity
+import com.app.finance.data.db.entity.PersonEntity
+import com.app.finance.data.db.entity.SettlementEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.IncomeSourceEntity
 import com.app.finance.data.db.entity.RecurringRuleEntity
@@ -57,11 +60,19 @@ data class DayBookExport(
     val expenses: List<ExpenseDto> = emptyList(),
     @SerialName("income_entries") val incomeEntries: List<IncomeEntryDto> = emptyList(),
     @SerialName("recurring_rules") val rules: List<RuleDto> = emptyList(),
+    /**
+     * Shared expenses — FR-SHR-07. Defaulted like every other array, which is
+     * what lets a file written before this feature decode without them.
+     */
+    val persons: List<PersonDto> = emptyList(),
+    val shares: List<ExpenseShareDto> = emptyList(),
+    val settlements: List<SettlementDto> = emptyList(),
     val meta: List<MetaDto> = emptyList(),
 ) {
     val rowCount: Int
         get() = categories.size + sources.size + budgets.size + expenses.size +
-            incomeEntries.size + rules.size + meta.size
+            incomeEntries.size + rules.size + persons.size + shares.size +
+            settlements.size + meta.size
 
     companion object {
         /**
@@ -185,9 +196,79 @@ data class ExpenseDto(
     @SerialName("payment_method") val paymentMethod: Int = 0,
     val note: String? = null,
     val status: Int = 0,
+    /**
+     * Who paid, when it was not you — FR-SHR-03.
+     *
+     * Defaulted to null, and `explicitNulls = false` means it is simply absent
+     * from the file when it is null. That is what makes an older backup import:
+     * every expense taken before this feature existed was one you paid, and
+     * absence restores exactly that.
+     */
+    @SerialName("payer_person_id") val payerPersonId: Long? = null,
     @SerialName("created_at") val createdAt: Long,
     @SerialName("updated_at") val updatedAt: Long,
 ) : ExportRow
+
+/** Somebody you split with — FR-SHR-01. */
+@Serializable
+data class PersonDto(
+    override val id: Long,
+    override val uuid: String,
+    val name: String,
+    @SerialName("name_key") val nameKey: String,
+    @SerialName("sort_order") val sortOrder: Int = 0,
+    @SerialName("is_archived") val isArchived: Boolean = false,
+    @SerialName("created_at") val createdAt: Long,
+    @SerialName("updated_at") val updatedAt: Long,
+) : ExportRow {
+    /**
+     * `ux_person_name_key`, mirrored — and the reason merging works.
+     *
+     * Exactly [SourceDto]'s shape: another phone's "Rahim" is this phone's
+     * Rahim, so a merge lands on the existing balance rather than exploding on
+     * the unique index or opening a second one beside it.
+     */
+    override val naturalKey: String get() = nameKey
+}
+
+/** One person's part of a shared bill — FR-SHR-02. */
+@Serializable
+data class ExpenseShareDto(
+    override val id: Long,
+    override val uuid: String,
+    @SerialName("expense_id") val expenseId: Long,
+    @SerialName("person_id") val personId: Long,
+    @SerialName("share_minor") val shareMinor: Long,
+    @SerialName("created_at") val createdAt: Long,
+    @SerialName("updated_at") val updatedAt: Long,
+) : ExportRow {
+    /**
+     * `ux_share_expense_person`, mirrored.
+     *
+     * Read **after** both ids have been remapped to this phone's, exactly as
+     * [BudgetDto]'s is, so it is a local key by the time the merge compares it.
+     * Without it an insert can collide with the unique index and take the whole
+     * import down.
+     */
+    override val naturalKey: String get() = "$expenseId/$personId"
+}
+
+/** Money between you and a person that is not consumption — FR-SHR-04. */
+@Serializable
+data class SettlementDto(
+    override val id: Long,
+    override val uuid: String,
+    @SerialName("person_id") val personId: Long,
+    @SerialName("amount_minor") val amountMinor: Long,
+    @SerialName("settled_on") val settledOn: Long,
+    @SerialName("payment_method") val paymentMethod: Int = 0,
+    val note: String? = null,
+    @SerialName("created_at") val createdAt: Long,
+    @SerialName("updated_at") val updatedAt: Long,
+) : ExportRow
+// No natural key, deliberately. There is no unique index on `settlement`, and
+// two repayments of the same amount on the same day are two repayments — the
+// same reasoning `ExpenseDto` and `IncomeEntryDto` carry.
 
 @Serializable
 data class IncomeEntryDto(
@@ -243,9 +324,60 @@ fun IncomeSourceEntity.toDto() = SourceDto(
 fun BudgetEntity.toDto() =
     BudgetDto(id, uuid, categoryId, periodYm, limitMinor, createdAt, updatedAt)
 
+// Named, for the same reason `toEntity` below is: `payer_person_id` sits
+// between `status` and `created_at`, and a positional call silently re-binds
+// every argument after an insertion rather than failing.
+//
+// It must also be *populated*. `BackupDao.updateExpenses` is an `@Update`,
+// which writes every column, so a `toDto` that omitted the payer would blank it
+// on any merge that updated the row — and `plan`'s skip test is data-class
+// equality, so it would also re-update the same rows forever.
 fun ExpenseEntity.toDto() = ExpenseDto(
-    id, uuid, categoryId, amountMinor, spentOn, periodYm,
-    paymentMethod, note, status, createdAt, updatedAt,
+    id = id,
+    uuid = uuid,
+    categoryId = categoryId,
+    amountMinor = amountMinor,
+    spentOn = spentOn,
+    periodYm = periodYm,
+    paymentMethod = paymentMethod,
+    note = note,
+    status = status,
+    payerPersonId = payerPersonId,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun PersonEntity.toDto() = PersonDto(
+    id = id,
+    uuid = uuid,
+    name = name,
+    nameKey = nameKey,
+    sortOrder = sortOrder,
+    isArchived = isArchived,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun ExpenseShareEntity.toDto() = ExpenseShareDto(
+    id = id,
+    uuid = uuid,
+    expenseId = expenseId,
+    personId = personId,
+    shareMinor = shareMinor,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun SettlementEntity.toDto() = SettlementDto(
+    id = id,
+    uuid = uuid,
+    personId = personId,
+    amountMinor = amountMinor,
+    settledOn = settledOn,
+    paymentMethod = paymentMethod,
+    note = note,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
 )
 
 fun IncomeEntryEntity.toDto() = IncomeEntryDto(
@@ -274,13 +406,8 @@ fun BudgetDto.toEntity() =
     BudgetEntity(id, uuid, categoryId, periodYm, limitMinor, createdAt, updatedAt)
 
 // Named rather than positional from here on: `expense` gained
-// `payer_person_id` between `status` and `created_at` in v2, and a positional
-// call silently re-binds every argument after an insertion rather than failing.
-// It failed here only because the arity changed too.
-//
-// `payerPersonId` is not carried yet — the shared-expense arrays arrive with
-// the rest of FR-SHR in the export format, and until then a restored expense is
-// one you paid, which is what every v1 expense was.
+// `payer_person_id` between `status` and `created_at`, and a positional call
+// silently re-binds every argument after an insertion rather than failing.
 fun ExpenseDto.toEntity() = ExpenseEntity(
     id = id,
     uuid = uuid,
@@ -291,6 +418,40 @@ fun ExpenseDto.toEntity() = ExpenseEntity(
     paymentMethod = paymentMethod,
     note = note,
     status = status,
+    payerPersonId = payerPersonId,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun PersonDto.toEntity() = PersonEntity(
+    id = id,
+    uuid = uuid,
+    name = name,
+    nameKey = nameKey,
+    sortOrder = sortOrder,
+    isArchived = isArchived,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun ExpenseShareDto.toEntity() = ExpenseShareEntity(
+    id = id,
+    uuid = uuid,
+    expenseId = expenseId,
+    personId = personId,
+    shareMinor = shareMinor,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun SettlementDto.toEntity() = SettlementEntity(
+    id = id,
+    uuid = uuid,
+    personId = personId,
+    amountMinor = amountMinor,
+    settledOn = settledOn,
+    paymentMethod = paymentMethod,
+    note = note,
     createdAt = createdAt,
     updatedAt = updatedAt,
 )

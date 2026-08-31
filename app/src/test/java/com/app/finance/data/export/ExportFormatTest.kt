@@ -29,7 +29,11 @@ class ExportFormatTest {
         sources = listOf(SourceDto(1, "src-1", "Salary", "salary", 0, createdAt = 1, updatedAt = 1)),
         budgets = listOf(BudgetDto(1, "bud-1", 2, 202608, 1_800_000, 1, 1)),
         expenses = listOf(
-            ExpenseDto(1, "exp-1", 2, 34_000, 20_678, 202608, 0, "Rice, dal", 0, 1, 1),
+            ExpenseDto(
+                id = 1, uuid = "exp-1", categoryId = 2, amountMinor = 34_000,
+                spentOn = 20_678, periodYm = 202608, paymentMethod = 0,
+                note = "Rice, dal", status = 0, createdAt = 1, updatedAt = 1,
+            ),
         ),
         incomeEntries = listOf(
             IncomeEntryDto(1, "inc-1", 1, 3_000_000, 20_666, 202608, null, 0, 1, 1),
@@ -132,7 +136,13 @@ class ExportFormatTest {
         val text = codec.encodeToString(
             DayBookExport.serializer(),
             sample().copy(
-                expenses = listOf(ExpenseDto(1, "e", 2, 100, 1, 202608, 0, null, 0, 1, 1)),
+                expenses = listOf(
+                    ExpenseDto(
+                        id = 1, uuid = "e", categoryId = 2, amountMinor = 100,
+                        spentOn = 1, periodYm = 202608, paymentMethod = 0,
+                        note = null, status = 0, createdAt = 1, updatedAt = 1,
+                    ),
+                ),
             ),
         )
         assertFalse(text.contains("\"note\""))

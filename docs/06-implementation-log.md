@@ -5086,9 +5086,59 @@ is present whether or not the list is empty, because the person you need is
 usually the one you have not added yet. `SplitSheetTest` covers it now, along
 with the exclusive who-paid choice.
 
-### 25.8 Still not done
+### 25.8 A second provider, on a second ROM
+
+§21.12 has recorded "one provider, one ROM" as permanently open since the backup
+subsystem was built: `SafBackupStore` had only ever met the AOSP emulator's
+`ExternalStorageProvider`, walked by hand in §21.8, and the specific worry named
+there was **Xiaomi-style name mangling** — a provider that derives a file's
+extension from its MIME type, renaming `daybook-backup-….daybook` into something
+`isBackupName` no longer recognises. The file would be written, valid, and
+invisible to the app.
+
+Walked on the Realme RMX3930 (UNISOC T612, Realme UI, API 35) — a manufacturer
+ROM with its own provider stack. The whole path:
+
+| Step | Result |
+|---|---|
+| Settings → Automatic backup | "Never backed up"; the folder row offers a choice, its title and hint no longer identical (§21.8's fix, holding) |
+| Choose a folder → Documents | `ACTION_OPEN_DOCUMENT_TREE`, then **"Allow DayBook to access folder?"** |
+| Row afterwards | **Documents / Change folder** |
+| Back up now | `daybook-backup-2026-08-31-0836.daybook`, 1,410 bytes, **no `.part` left behind** |
+| The bytes | `44 41 59 42 4f 4f 4b 31 0a` — `DAYBOOK1\n` — then `00` (plain) and `1f` (gzip) |
+| Status line | "28 records · daybook-backup-2026-08-31-0836.daybook" |
+| A second backup | Two generations, both kept; retention is 5 |
+| **`adb uninstall`** | **Both backups still there** |
+| Reinstall, launch | `WelcomeScreen`, empty database, new uid |
+| Restore → pick the file | **"Your ledger is back. Added: 28 · Updated: 0 · Unchanged: 0"** |
+| After restoring | The shared expense with its "of ৳1,000" line; Karim ৳333.33 owed, Rahim square |
+
+**No mangling.** `application/octet-stream` is left alone by this provider too,
+which is the reason the MIME type was chosen. The gap is not closed — a third
+provider could still behave differently, and a cloud tree is untested — but it
+is narrower than "one ROM", and the specific failure §21.12 feared did not
+occur on the manufacturer ROM most likely to produce it.
+
+**Two other things the walk confirmed rather than assumed.** The filename stamp
+read `0836` while the device clock said 14:36 local — Bangladesh is UTC+6, so
+the stamp is UTC, which is §22.4's fix against a backwards clock change
+inverting the retention sort. And the restore ended by asking where backups
+should now go, because `backup_tree_uri` is in `AppMetaDao.TRANSIENT_KEYS` and
+does not travel in the file: the restored install did not silently inherit the
+old one's folder grant. That is §21.4's third defect, still fixed.
+
+**And a note on what "manual only" meant.** §21.12 says a document tree "cannot
+be granted without a human tapping a picker". That is true of *instrumentation*,
+which is scoped to the app under test and cannot reach `DocumentsUI` — but adb's
+`uiautomator` crosses app boundaries, so this walk was scripted end to end. It
+still does not belong in the instrumented suite, and the conclusion stands; what
+changes is that repeating it on a new ROM is cheap rather than laborious.
+
+### 25.9 Still not done
 
 - **The reference device still does not exist here.** Every figure in §25.6 is a
   necessary condition, not a sufficient one — 02 §3.1 is explicit that a
-  measurement off a 1.4 GHz A53 is not evidence of compliance.
-- **One provider, one ROM** for the backup folder, unchanged since §21.12.
+  measurement off a 1.4 GHz A53 is not evidence of compliance. The probes can
+  disprove compliance; none of them does.
+- **A cloud provider's tree is still untested**, and so is an SD card. Two
+  ROMs is better than one and is not all of them.

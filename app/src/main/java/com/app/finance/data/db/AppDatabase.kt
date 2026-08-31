@@ -11,6 +11,7 @@ import com.app.finance.data.db.dao.BackupDao
 import com.app.finance.data.db.dao.BudgetDao
 import com.app.finance.data.db.dao.CategoryDao
 import com.app.finance.data.db.dao.ExpenseDao
+import com.app.finance.data.db.dao.ExpenseShareDao
 import com.app.finance.data.db.dao.IncomeDao
 import com.app.finance.data.db.dao.PersonDao
 import com.app.finance.data.db.dao.RecurringDao
@@ -62,6 +63,8 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun recurringDao(): RecurringDao
 
     abstract fun personDao(): PersonDao
+
+    abstract fun expenseShareDao(): ExpenseShareDao
 
     abstract fun settlementDao(): SettlementDao
 

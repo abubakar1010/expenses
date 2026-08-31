@@ -10,14 +10,108 @@ import com.app.finance.data.db.dao.ExpenseWithCategory
 import com.app.finance.data.db.dao.FilteredTotal
 import com.app.finance.data.db.entity.AppMetaEntity
 import com.app.finance.data.db.entity.ExpenseEntity
+import com.app.finance.data.db.entity.ExpenseShareEntity
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.domain.model.SaveOutcome
+import com.app.finance.domain.usecase.SplitAllocator
 import kotlinx.coroutines.flow.Flow
 import java.time.Clock
 import java.time.LocalDate
 import java.util.UUID
+
+/**
+ * An expense removed from the ledger, whole, so Undo can put it back.
+ *
+ * The shares travel with it because after the delete they exist nowhere else.
+ * Returning only the expense — which is what this used to be — would restore a
+ * dinner and quietly forget that three people owed for it.
+ */
+data class DeletedExpense(
+    val expense: ExpenseEntity,
+    val shares: List<ExpenseShareEntity> = emptyList(),
+)
+
+/**
+ * How an expense is shared, if it is — FR-SHR-02, FR-SHR-03.
+ *
+ * The two arms are **mutually exclusive**, and that is a database invariant
+ * rather than a convention: `trg_payer_excludes_shares` refuses an expense that
+ * names a payer while shares exist, because a share means "they owe me" and
+ * that is only true when you paid. Modelling it as one value with two arms is
+ * what stops the UI offering the impossible combination.
+ */
+sealed interface Split {
+
+    /** Who paid, or null for you. */
+    val payerPersonId: Long?
+
+    /** Who owes you, and how much. Empty unless you paid. */
+    val owed: List<Owed>
+
+    /** Not shared: you paid, nobody owes you. */
+    data object NONE : Split {
+        override val payerPersonId: Long? get() = null
+        override val owed: List<Owed> get() = emptyList()
+    }
+
+    /** You paid the bill; these people owe you their parts. */
+    @JvmInline
+    value class YouPaid(override val owed: List<Owed>) : Split {
+        override val payerPersonId: Long? get() = null
+    }
+
+    /**
+     * Somebody else paid; you owe them your share.
+     *
+     * No [owed] rows: if three of you split a bill Rahim paid, the other two
+     * owe *Rahim*. That is not your ledger.
+     */
+    @JvmInline
+    value class TheyPaid(val personId: Long) : Split {
+        override val payerPersonId: Long? get() = personId
+        override val owed: List<Owed> get() = emptyList()
+    }
+
+    /**
+     * Whether this split can stand beside [yourShare], the amount the expense
+     * will store.
+     *
+     * The bill is `yourShare + owed`, so there is nothing to cross-check
+     * against — what can still be wrong is a share of zero or less, which
+     * `CHECK (share_minor > 0)` would refuse and which describes somebody who
+     * should not be on the list at all.
+     */
+    fun validate(yourShare: Money): EntryError? = when {
+        owed.any { it.amount.paisa <= 0L } -> EntryError.SPLIT_DOES_NOT_BALANCE
+        owed.map { it.personId }.toSet().size != owed.size -> EntryError.SPLIT_DOES_NOT_BALANCE
+        else -> null
+    }
+
+    /** One person's part of a bill you paid. */
+    data class Owed(val personId: Long, val amount: Money)
+
+    /** The reverse of a split, for reopening an expense to edit it. */
+    data class Loaded(val split: Split, val bill: Money)
+
+    companion object {
+        /**
+         * An even split of [bill] between you and [personIds].
+         *
+         * Goes through [SplitAllocator] rather than dividing here, because the
+         * paisa that integer division drops is a paisa the bill no longer adds
+         * up to — and your share is whatever the others leave, so it absorbs
+         * the rounding.
+         */
+        fun evenly(bill: Money, personIds: List<Long>): Pair<Money, Split> {
+            if (personIds.isEmpty()) return bill to NONE
+            val parts = SplitAllocator.even(bill, personIds.size + 1)
+            val owed = personIds.mapIndexed { i, id -> Owed(id, parts[i + 1]) }
+            return SplitAllocator.yourShare(bill, owed.map { it.amount }) to YouPaid(owed)
+        }
+    }
+}
 
 /**
  * The expense write path — 04-system-architecture.md §5.1, the hot path of the
@@ -42,6 +136,7 @@ class ExpenseRepository(
     private val expenseDao = db.expenseDao()
     private val categoryDao = db.categoryDao()
     private val appMetaDao = db.appMetaDao()
+    private val shareDao = db.expenseShareDao()
 
     /** The ledger page size. 03 §5.5 measures the keyset query at this width. */
     val pageSize: Int get() = PAGE_SIZE
@@ -52,8 +147,10 @@ class ExpenseRepository(
         spentOn: LocalDate = LocalDate.now(clock),
         method: PaymentMethod = PaymentMethod.DEFAULT,
         note: String? = null,
+        split: Split = Split.NONE,
     ): SaveOutcome {
         validate(amount, categoryId, spentOn)?.let { return SaveOutcome.Rejected(it) }
+        split.validate(amount)?.let { return SaveOutcome.Rejected(it) }
 
         val now = clock.millis()
         val entity = ExpenseEntity(
@@ -68,6 +165,7 @@ class ExpenseRepository(
             paymentMethod = method.code,
             note = note?.trim()?.ifBlank { null },
             status = 0,
+            payerPersonId = split.payerPersonId,
             createdAt = now,
             updatedAt = now,
         )
@@ -75,6 +173,7 @@ class ExpenseRepository(
         return runCatchingWrite {
             db.withTransaction {
                 val id = expenseDao.insert(entity) // trigger updates the rollup
+                writeShares(id, split, now)
                 rememberDefaults(categoryId, method, now)
                 id
             }
@@ -97,12 +196,21 @@ class ExpenseRepository(
         spentOn: LocalDate,
         method: PaymentMethod,
         note: String?,
+        split: Split = Split.NONE,
     ): SaveOutcome {
         validate(amount, categoryId, spentOn)?.let { return SaveOutcome.Rejected(it) }
+        split.validate(amount)?.let { return SaveOutcome.Rejected(it) }
         val existing = expenseDao.byId(id) ?: return SaveOutcome.Rejected(EntryError.CONSTRAINT_VIOLATION)
 
         return runCatchingWrite {
             db.withTransaction {
+                // Shares first, and cleared unconditionally. `trg_payer_excludes_shares`
+                // aborts an update that names a payer while shares still exist,
+                // so an expense changing from "I paid, three owe me" to "Rahim
+                // paid" has to shed the old rows before the new payer lands.
+                // Clearing then rewriting is also simpler than diffing, and the
+                // set is a handful of rows inside a transaction either way.
+                shareDao.deleteForExpense(id)
                 expenseDao.update(
                     existing.copy(
                         categoryId = categoryId,
@@ -111,9 +219,11 @@ class ExpenseRepository(
                         periodYm = Period.from(spentOn).ym,
                         paymentMethod = method.code,
                         note = note?.trim()?.ifBlank { null },
+                        payerPersonId = split.payerPersonId,
                         updatedAt = clock.millis(),
                     ),
                 )
+                writeShares(id, split, clock.millis())
                 id
             }
         }.fold(
@@ -130,16 +240,70 @@ class ExpenseRepository(
      * fact and is dismissed reflexively; a snackbar corrects after it and costs
      * nothing when the action was intended."
      */
-    suspend fun delete(id: Long): ExpenseEntity? {
+    suspend fun delete(id: Long): DeletedExpense? {
         val row = expenseDao.byId(id) ?: return null
-        expenseDao.delete(row)
-        return row
+        return db.withTransaction {
+            // `expense_share.expense_id` is `ON DELETE RESTRICT`, so the shares
+            // have to go first — without this, swiping a shared expense away
+            // throws instead of deleting, and the ledger's most-used gesture
+            // fails on exactly the rows this feature creates.
+            //
+            // They are returned, not just removed: after this call the shares
+            // exist nowhere else, and Undo has to put back the whole expense,
+            // not the half of it the ledger happened to be holding.
+            val shares = shareDao.forExpense(id)
+            shareDao.deleteForExpense(id)
+            expenseDao.delete(row)
+            DeletedExpense(row, shares)
+        }
     }
 
-    /** Re-inserts a deleted row verbatim, UUID included, for Undo. */
-    suspend fun restore(row: ExpenseEntity): Long = expenseDao.insert(row.copy(id = 0))
+    /**
+     * Re-inserts a deleted expense verbatim, UUID included, with its shares.
+     *
+     * The new row id is not the old one, so the shares are re-pointed at it.
+     * Their own UUIDs survive, which is what lets a backup taken either side of
+     * an undo merge without duplicating them.
+     */
+    suspend fun restore(deleted: DeletedExpense): Long = db.withTransaction {
+        val id = expenseDao.insert(deleted.expense.copy(id = 0))
+        if (deleted.shares.isNotEmpty()) {
+            shareDao.insert(deleted.shares.map { it.copy(id = 0, expenseId = id) })
+        }
+        id
+    }
 
     suspend fun byId(id: Long): ExpenseEntity? = expenseDao.byId(id)
+
+    /**
+     * An expense's split, and the bill it was part of — FR-SHR-02.
+     *
+     * The bill is reconstructed, not stored: `amount_minor + SUM(share_minor)`.
+     * That is the whole reason a rounding leak is impossible here — there is no
+     * second number to disagree with the parts — and it is what the entry sheet
+     * puts back in the amount field when you reopen a shared expense, so you
+     * see the figure you actually typed rather than your slice of it.
+     */
+    suspend fun splitOf(id: Long): Split.Loaded? {
+        val expense = expenseDao.byId(id) ?: return null
+        val yours = Money(expense.amountMinor)
+        val payer = expense.payerPersonId
+        if (payer != null) return Split.Loaded(Split.TheyPaid(payer), yours)
+
+        val shares = shareDao.forExpense(id)
+        if (shares.isEmpty()) return Split.Loaded(Split.NONE, yours)
+
+        val owed = shares.map { Split.Owed(it.personId, Money(it.shareMinor)) }
+        return Split.Loaded(
+            Split.YouPaid(owed),
+            Money(yours.paisa + owed.sumOf { it.amount.paisa }),
+        )
+    }
+
+    /** Shares for a page of ledger rows, keyed by expense — one query, not fifty. */
+    suspend fun sharesFor(expenseIds: List<Long>): Map<Long, List<ExpenseShareEntity>> =
+        if (expenseIds.isEmpty()) emptyMap()
+        else shareDao.forExpenses(expenseIds).groupBy { it.expenseId }
 
     suspend fun firstPage(): List<ExpenseWithCategory> = expenseDao.firstPage(PAGE_SIZE)
 
@@ -324,10 +488,41 @@ class ExpenseRepository(
     }
 
     /** See [toWriteError] — only the constraint half is this repository's. */
+    /**
+     * Writes an expense's shares, if it has any.
+     *
+     * Called inside the caller's transaction, never on its own: a share without
+     * its expense is a debt for something that did not happen.
+     */
+    private suspend fun writeShares(expenseId: Long, split: Split, now: Long) {
+        if (split.owed.isEmpty()) return
+        shareDao.insert(
+            split.owed.map {
+                ExpenseShareEntity(
+                    uuid = UUID.randomUUID().toString(),
+                    expenseId = expenseId,
+                    personId = it.personId,
+                    shareMinor = it.amount.paisa,
+                    createdAt = now,
+                    updatedAt = now,
+                )
+            },
+        )
+    }
+
     private fun Throwable.toEntryError(): EntryError = toWriteError("save an expense") {
         when {
             it.message?.contains("leaf categories") == true -> EntryError.NOT_A_LEAF_CATEGORY
             it.message?.contains("amount_minor") == true -> EntryError.ZERO_AMOUNT
+            // The two shared-expense guards, matched on the text they raise.
+            // Without these the user reads "check the amount and category"
+            // about an expense whose amount and category are both fine — the
+            // shape of defect §22 found in the category repository.
+            it.message?.contains("a share may only be recorded") == true ->
+                EntryError.SHARE_ON_FOREIGN_PAYMENT
+            it.message?.contains("was not paid by someone else") == true ->
+                EntryError.SHARE_ON_FOREIGN_PAYMENT
+            it.message?.contains("share_minor") == true -> EntryError.SPLIT_DOES_NOT_BALANCE
             else -> null
         }
     }

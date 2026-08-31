@@ -430,6 +430,7 @@ One income source is seeded — Salary, kind Stable — because the first thing 
 ## 8. Migration policy
 
 - Room's `Migration` classes only; destructive fallback is disabled in release builds, because losing a user's financial history to a schema change is unrecoverable in a product with no server backup.
+- **Corruption is a separate path from migration, and it deleted the ledger.** SQLite's `SQLITE_NOTADB` never reaches Room's migration handling; androidx.sqlite's default `onCorruption` deletes the file, Room opens an empty one in its place, and the launch probe then reports success. `AppDatabase` installs an open helper whose corruption callback does nothing, so the open keeps failing and `RecoveryScreen` gets its file to copy (06 §26.3).
 - Each migration ships with a test that opens a populated database exported from the previous released version and asserts both schema and data integrity afterwards (NFR-REL-03).
 - Rollup tables may be dropped and rebuilt by any migration; they are derived and therefore safe to regenerate.
 - The exported JSON carries `schema_version`; import refuses files from a newer schema (FR-DAT-05).

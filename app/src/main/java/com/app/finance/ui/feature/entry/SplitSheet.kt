@@ -2,6 +2,7 @@ package com.app.finance.ui.feature.entry
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -9,6 +10,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
@@ -20,8 +24,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.app.finance.R
 import com.app.finance.ui.common.DayBookChip
@@ -122,6 +130,18 @@ fun SplitSheet(
                 )
             }
 
+            // FR-SHR-01's inline creation, and it is not optional: without it
+            // the empty state above says "add a person to start" on a sheet
+            // that offers no way to, so the only route is backing out to the
+            // People screen and losing the amount already typed. FR-IS-03 made
+            // the same argument for income sources — "without a separate
+            // navigation step" — and it is the same argument here.
+            //
+            // Always present, not only when the list is empty: the person you
+            // need is most often the one you have not added yet, and that is as
+            // true on the fourth split as on the first.
+            AddPersonField(onAdd = onAddPerson)
+
             Text(
                 text = stringResource(R.string.done),
                 style = DayBookTheme.type.body,
@@ -132,6 +152,68 @@ fun SplitSheet(
                     .heightIn(min = Sizes.minTouchTarget),
             )
         }
+    }
+}
+
+/**
+ * Type a name, add them, keep splitting — FR-SHR-01.
+ *
+ * Idempotent on the name key through [PersonRepository.findOrCreate], so typing
+ * a name that already exists selects that person's balance rather than opening
+ * a second one beside it. The field clears on submit, because the next thing
+ * you do is usually add another.
+ */
+@Composable
+private fun AddPersonField(onAdd: (String) -> Unit) {
+    val colors = DayBookTheme.colors
+    var name by remember { mutableStateOf("") }
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = Space.gutter, vertical = Space.s2),
+        horizontalArrangement = Arrangement.spacedBy(Space.s2),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        BasicTextField(
+            value = name,
+            onValueChange = { if (it.length <= NAME_MAX) name = it },
+            singleLine = true,
+            textStyle = DayBookTheme.type.body.copy(color = colors.ink),
+            cursorBrush = SolidColor(colors.indigo),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(
+                onDone = { if (name.isNotBlank()) { onAdd(name); name = "" } },
+            ),
+            modifier = Modifier
+                .weight(1f)
+                .heightIn(min = Sizes.minTouchTarget)
+                .drawBehind {
+                    drawLine(
+                        color = if (name.isEmpty()) colors.rule else colors.indigo,
+                        start = Offset(0f, size.height),
+                        end = Offset(size.width, size.height),
+                        strokeWidth = 2f,
+                    )
+                },
+            decorationBox = { inner ->
+                Box(contentAlignment = Alignment.CenterStart) {
+                    if (name.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.add_person_hint),
+                            style = DayBookTheme.type.body,
+                            color = colors.inkSoft,
+                        )
+                    }
+                    inner()
+                }
+            },
+        )
+        DayBookChip(
+            label = stringResource(R.string.add),
+            selected = name.isNotBlank(),
+            onClick = { if (name.isNotBlank()) { onAdd(name); name = "" } },
+        )
     }
 }
 
@@ -173,3 +255,5 @@ private fun PeopleList(
         }
     }
 }
+
+private const val NAME_MAX = 40

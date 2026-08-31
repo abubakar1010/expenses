@@ -5040,14 +5040,55 @@ constant, `@Query` takes it, and the test substitutes the bind parameters and
 explains **it**. The budget-bar check has said since §22 that "there is one
 string now and the claim is true"; that is true of both hot queries now.
 
-### 25.7 Still not done
+### 25.7 Driven by hand, and the dead end it found
 
-- **The split has not been driven by hand.** Every layer under it is tested and
-  all three surfaces render in Compose tests, but nobody has typed ৳1,000,
-  picked two people and looked at the result. Attempted this session and
-  blocked: the device carries a secure lock that adb cannot dismiss.
-- **The reference device still does not exist here.** Every figure above is a
+Walked on the Realme RMX3930 through `uiautomator`, reading the view hierarchy
+rather than pixels — the app sets `FLAG_SECURE` for NFR-SEC-04, so every
+screenshot comes back black, which is the privacy feature working rather than a
+tooling problem.
+
+The whole path, and what each step actually said:
+
+| Step | On screen |
+|---|---|
+| First launch | `WelcomeScreen`, FR-DAT-10's restore offer. "Start fresh" |
+| Ledger | *Search · Filter · **People*** — the header entry point |
+| Quick Add, ৳1,000 typed | `Amount: one thousand taka` |
+| The inline sentence | *Today · Cash · Add note · **Split*** |
+| Split, two people chosen | Rahim ৳333.33, Karim ৳333.33 |
+| Back on the entry sheet | *Split with 2*, **Your share ৳333.34** |
+| Saved | Ledger row: House Rent · ৳333.34 · Cash · **of ৳1,000** |
+| People | THEY OWE YOU **৳666.66** — Rahim ৳333.33, Karim ৳333.33 |
+| Settle with Rahim | Pre-filled ৳333.33, *They paid me* preselected |
+| After settling | Rahim under **SETTLED UP**, ৳0, "Square" |
+| Dashboard | **Spent ৳333.34. Earned ৳0.** |
+| Ledger filtered to Karim | Header **KARIM ৳333.33 Owes you** |
+
+333.34 + 333.33 + 333.33 = 1,000.00. Every paisa placed, on a real device.
+
+The dashboard line is the whole design in two figures: a ৳1,000 bill charges the
+budget ৳333.34, and a ৳333.33 repayment reaches no aggregate at all.
+
+#### The sheet told the user to do something it gave them no way to do
+
+The split sheet's empty state read *"Nobody to split with yet. Add a person to
+start."* — on a sheet with no control to add one. The only route was backing out
+to the People screen, which loses the amount already typed.
+
+`onAddPerson` had been threaded through `QuickAddSheet` into `SplitSheet`'s
+signature and never called. Everything under it was tested and passing, because
+the defect was in what the sheet did **not** render — the one shape no test of
+existing behaviour can catch, and the reason this walk was worth doing.
+
+FR-IS-03 had already made the argument for income sources: created inline,
+"without a separate navigation step". `AddPersonField` does the same here, and
+is present whether or not the list is empty, because the person you need is
+usually the one you have not added yet. `SplitSheetTest` covers it now, along
+with the exclusive who-paid choice.
+
+### 25.8 Still not done
+
+- **The reference device still does not exist here.** Every figure in §25.6 is a
   necessary condition, not a sufficient one — 02 §3.1 is explicit that a
-  measurement off a 1.4 GHz A53 is not evidence of compliance. What these
-  figures *can* do is disprove, and none of them does.
+  measurement off a 1.4 GHz A53 is not evidence of compliance.
 - **One provider, one ROM** for the backup folder, unchanged since §21.12.

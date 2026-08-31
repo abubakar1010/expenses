@@ -60,7 +60,9 @@
     <string name="split_who_paid">Who paid</string>
     <string name="split_owes_you">Owes you</string>
     <string name="split_paid_this">Paid this</string>
-    <string name="split_no_people">Nobody to split with yet. Add a person to start.</string>
+    <string name="split_no_people">Nobody to split with yet. Add a person below.</string>
+    <string name="add_person_hint">Name</string>
+    <string name="add">Add</string>
     <string name="your_share">Your share</string>
     <!-- The ledger's third line: "of ৳1,000" under a ৳250 share. -->
     <string name="split_of_bill">of %1$s</string>

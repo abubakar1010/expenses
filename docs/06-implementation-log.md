@@ -4966,21 +4966,46 @@ a literal v1-shaped JSON rather than against a fresh export with a rewritten
 version number, which is what the existing older-schema test does and why it
 could not have caught this.
 
-### 25.5 Still not done
+### 25.5 Measured
 
-- **The instrumented suites for the People screen, the entry split UI, the
-  ledger row and the export changes have not been run.** The phone was
-  disconnected for most of this pass. Everything compiles, the JVM suite passes
-  and `lintRelease` is clean, but the repository and ViewModel suites that
-  matter here are unrun, and Compose tests need the device's foreground to
-  themselves besides.
-- **No Compose test renders the split sheet, the People screen or the ledger's
-  third line.** The state driving all three is covered; the composition is not.
-- **`coverageVerify` has not been re-run**, and this pass added several source
-  files that the 50% per-file floor will judge.
-- **Reordering people is deliberately not implemented.** `person.sort_order`
-  exists and stays dense, but the balances screen groups by direction and within
-  a group the order is a detail nobody chooses between — a control whose effect
-  the user cannot see. Categories and sources have `move` because their screens
-  are lists the user arranges; this one is a list the balances arrange. Recorded
-  here rather than left looking like an omission.
+| | before (§23.6) | after |
+|---|---|---|
+| Instrumented tests | 596 | **665**, zero failures |
+| JVM tests | 299 | **321** |
+| Line coverage, `domain/` + `core/` + `data/repo/` | 94.5% | **93.7%** |
+| `SplitAllocator.kt` / `Split.kt` / `SettlementRepository.kt` | — | **100%** each |
+| Lint (`lintRelease`, `abortOnError`) | clean | **clean** |
+
+Run on a Realme RMX3930 (`RE6054`, UNISOC T612, Android 15 / API 35) — the third
+physical device this project has met, and the first on which the whole suite has
+run twice: once detached through `am instrument`, then again under Gradle's
+`connectedDebugAndroidTest` for the JaCoCo data `coverageVerify` needs.
+
+The bundle figure moved *down* eight tenths of a point while every new file
+measured 100%. That is arithmetic rather than a regression: the three new files
+are small and fully covered, and adding 81 covered lines to a bundle that was
+already at 94.5% cannot raise it — what moved the average is that
+`ExpenseRepository` and `PersonRepository` both grew, and the error-mapping arms
+added for the shared-expense triggers are reached only by faults the suite does
+not manufacture.
+
+**Verified by mutation**, §23.5's standard, four times across the pass:
+
+| Mutation | Fails |
+|---|---|
+| `SplitAllocator.even` drops the remainder | 5 of 11 allocator tests |
+| Undo restores the expense but not its shares | `undo_puts_back_the_expense_and_what_people_owed_on_it` |
+| `delete` stops cascading to `expense_share` | both delete tests |
+| The v1→v2 rebuild drops triggers and forgets to recreate them | 2 of 5 migration tests |
+
+### 25.6 Still not done
+
+- **NFR-PERF-05 has not been re-measured**, and this pass put a correlated
+  subquery on the ledger's paging query — the read that requirement is about.
+  The subquery is an index probe per row over `ux_share_expense_person` on a
+  50-row page, so the expected cost is negligible, but "expected" is not
+  "measured" and the reference device (02 §1.3) still does not exist here.
+- **The split has not been driven by hand on a device.** Every layer under it is
+  tested and the three surfaces now render in Compose tests, but nobody has
+  typed ৳1,000, picked two people and looked at the result.
+- **One provider, one ROM** for the backup folder, unchanged since §21.12.

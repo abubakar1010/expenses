@@ -82,17 +82,48 @@ data class QuickAddUiState(
      *
      * All four fields are defaulted, which is what keeps them out of
      * [QuickAddViewModel.reset] — it rebuilds this state from scratch
-     * preserving only the tree, the chips and the method, so a defaulted field
-     * cannot leak into the next entry the way `editingId` once did.
+     * preserving only the tree, the chips, the method and the people, so a
+     * defaulted field cannot leak into the next entry the way `editingId` once
+     * did. Those four are the reference data the sheet is *drawn from*; the
+     * defaulted ones are the entry itself.
      */
     val splitMode: SplitMode = SplitMode.NONE,
-    /** Who it is divided between, for [SplitMode.EVEN]. */
+    /**
+     * Who it is divided between — for [SplitMode.EVEN] **and**
+     * [SplitMode.CUSTOM].
+     *
+     * One list for both, because *who is in the split* and *what each of them
+     * owes* are separate questions and conflating them was a defect: with the
+     * membership living in [customOwed], clearing a hand-typed amount removed
+     * the person from the sheet, and switching between the two styles lost the
+     * selection entirely.
+     */
     val splitWith: List<Long> = emptyList(),
-    /** Hand-typed amounts, for [SplitMode.CUSTOM]. */
+    /**
+     * Hand-typed amounts, for [SplitMode.CUSTOM] — FR-SHR-02's second half.
+     *
+     * A sparse companion to [splitWith], not a replacement for it: a person
+     * who is in the split but whose amount is still blank has no entry here,
+     * and [split] leaves them out until they do.
+     */
     val customOwed: List<Split.Owed> = emptyList(),
-    /** Who paid, for [SplitMode.THEY_PAID]. */
+    /**
+     * Who paid, for [SplitMode.THEY_PAID].
+     *
+     * Null while the mode is chosen but the person is not. That is a real
+     * state and it has to be representable: *somebody else paid* is the first
+     * half of the question and *who* is the second, and the sheet asks them in
+     * that order.
+     */
     val payerId: Long? = null,
-    /** People available to split with — active only (FR-CAT-08's rule, for people). */
+    /**
+     * Everybody on file, archived included — see [splitCandidates].
+     *
+     * Not `observeActive()`, which is what this used to bind to. An archived
+     * person can still be the payer of an expense being edited, and resolving
+     * [payer] against an active-only list turned that row's `Rahim paid` back
+     * into an unqualified `Split` while `state.split` still said otherwise.
+     */
     val people: List<PersonEntity> = emptyList(),
 ) {
     val isEditing: Boolean get() = editingId != null
@@ -118,12 +149,45 @@ data class QuickAddUiState(
         get() = when (splitMode) {
             SplitMode.NONE -> Split.NONE
             SplitMode.EVEN ->
-                amount?.let { Split.evenly(it, splitWith).second } ?: Split.NONE
-            SplitMode.CUSTOM ->
-                if (customOwed.isEmpty()) Split.NONE else Split.YouPaid(customOwed)
+                if (splitWith.isEmpty()) Split.NONE
+                else amount?.let { Split.evenly(it, splitWith).second } ?: Split.NONE
+            // Driven by `splitWith`, so a person whose amount has not been
+            // typed yet is simply absent from the split rather than present
+            // with a zero share that `CHECK (share_minor > 0)` would refuse.
+            SplitMode.CUSTOM -> {
+                val owed = splitWith
+                    .mapNotNull { id -> customOwed.firstOrNull { it.personId == id } }
+                    .filter { it.amount.paisa > 0L }
+                if (owed.isEmpty()) Split.NONE else Split.YouPaid(owed)
+            }
             SplitMode.THEY_PAID ->
                 payerId?.let { Split.TheyPaid(it) } ?: Split.NONE
         }
+
+    /**
+     * Who the sheet may offer — FR-CAT-08's rule, applied to people.
+     *
+     * Active people, plus anybody the split already names. The exception is
+     * what keeps editing honest: archiving somebody does not unpick the
+     * expenses they are in, so reopening one must still show them rather than
+     * quietly dropping a share the save would then rewrite.
+     */
+    val splitCandidates: List<PersonEntity>
+        get() = people.filter { !it.isArchived || it.id in participants }
+
+    /** Everybody this split names, whichever arm it is on. */
+    val participants: Set<Long>
+        get() = buildSet {
+            addAll(splitWith)
+            addAll(customOwed.map { it.personId })
+            payerId?.let(::add)
+        }
+
+    /** What each person in the split currently owes, blank ones included. */
+    fun owedBy(personId: Long): Money? = when (splitMode) {
+        SplitMode.CUSTOM -> customOwed.firstOrNull { it.personId == personId }?.amount
+        else -> split.owed.firstOrNull { it.personId == personId }?.amount
+    }
 
     /**
      * What the expense will actually store — the bill less what others owe.
@@ -148,9 +212,17 @@ data class QuickAddUiState(
      * by other people leaves you nothing, and `CHECK (amount_minor <> 0)`
      * refuses that row — correctly, because paying wholly on somebody's behalf
      * is a loan rather than something you consumed.
+     *
+     * And on [Split.validate] as well, which is the same rule read from the
+     * other side. `yourShare != 0` alone let an *over*-allocated split through
+     * — ৳600 and ৳500 typed against a ৳1,000 bill leaves −৳100, which is
+     * non-zero and which `CHECK (amount_minor <> 0)` accepts as a refund. The
+     * button now goes dead where the write would be refused, which is what
+     * this property claims to mean.
      */
     val canSave: Boolean
-        get() = !saving && selectedCategoryId != null && yourShare?.isZero == false
+        get() = !saving && selectedCategoryId != null &&
+            yourShare?.let { !it.isZero && split.validate(it) == null } == true
 }
 
 /**
@@ -226,8 +298,12 @@ class QuickAddViewModel(
         // Separate collector rather than a third `combine` arm: the people list
         // has nothing to do with which chips are shown, and folding it in would
         // re-derive the chip row every time somebody was renamed.
+        //
+        // `observeAll`, and the archived are filtered out by
+        // `QuickAddUiState.splitCandidates` instead — which keeps the ones this
+        // expense already names. See that property.
         viewModelScope.launch {
-            people.observeActive().collect { rows -> _state.update { it.copy(people = rows) } }
+            people.observeAll().collect { rows -> _state.update { it.copy(people = rows) } }
         }
     }
 
@@ -275,11 +351,18 @@ class QuickAddViewModel(
                         // by guessing: three equal shares might have been
                         // divided evenly or typed by hand, and re-dividing
                         // would silently overwrite the second case.
-                        splitMode = when (val s = loaded?.split) {
+                        splitMode = when (loaded?.split) {
                             is Split.TheyPaid -> SplitMode.THEY_PAID
                             is Split.YouPaid -> SplitMode.CUSTOM
                             else -> SplitMode.NONE
                         },
+                        // Both, not just the amounts. `splitWith` is what the
+                        // sheet reads to know who is *in* the split, so
+                        // seeding only `customOwed` reopened a shared dinner
+                        // with nobody marked and the first tap on a name
+                        // rebuilt the split from that one person.
+                        splitWith = (loaded?.split as? Split.YouPaid)
+                            ?.owed.orEmpty().map { it.personId },
                         customOwed = (loaded?.split as? Split.YouPaid)?.owed.orEmpty(),
                         payerId = (loaded?.split as? Split.TheyPaid)?.personId,
                         seeded = true,
@@ -295,6 +378,18 @@ class QuickAddViewModel(
                         method = saved.get<Int>(KEY_METHOD)
                             ?.let(PaymentMethod::fromCode) ?: lastMethod,
                         note = saved.get<String>(KEY_NOTE),
+                        // The split restores with the rest of the draft, and it
+                        // has to: the amount field holds the **bill**, so a
+                        // background kill that kept ৳1,000 and lost the three
+                        // people it was divided between would file the whole
+                        // dinner as your own — a wrong figure the user has no
+                        // way to notice, because the number they typed is still
+                        // sitting there looking right.
+                        splitMode = saved.get<Int>(KEY_SPLIT_MODE)
+                            ?.let { SplitMode.entries.getOrNull(it) } ?: SplitMode.NONE,
+                        splitWith = saved.get<LongArray>(KEY_SPLIT_WITH)?.toList().orEmpty(),
+                        customOwed = restoredOwed(),
+                        payerId = saved.get<Long>(KEY_PAYER),
                         seeded = true,
                     )
 
@@ -377,17 +472,106 @@ class QuickAddViewModel(
 
     // --- splitting (FR-SHR-02, FR-SHR-03) ------------------------------------
 
-    /** Divides the bill evenly between you and [personIds]. */
-    fun splitEvenly(personIds: List<Long>) = _state.update {
-        if (personIds.isEmpty()) it.copy(splitMode = SplitMode.NONE, error = null)
-        else it.copy(splitMode = SplitMode.EVEN, splitWith = personIds, error = null)
+    /**
+     * Answers *who paid* — FR-SHR-03's one question, not two toggles.
+     *
+     * The sheet used to hold this in a `remember(state.splitMode)` of its own,
+     * which made it unanswerable: choosing *somebody else paid* cleared the
+     * split, clearing the split moved `splitMode` back to `NONE`, and the
+     * changed key rebuilt the local flag as `false` before a finger left the
+     * screen. The answer belongs in the state it changes.
+     *
+     * Switching arms discards the other arm's selection, because
+     * `trg_payer_excludes_shares` makes them mutually exclusive and a stale
+     * list is what put leader dots beside people the split no longer named.
+     * Re-tapping the arm already chosen is a no-op rather than a reset.
+     */
+    fun setPaidByOther(theyPaid: Boolean) = updateAndPersist {
+        val already = it.splitMode == SplitMode.THEY_PAID
+        if (already == theyPaid) it
+        else if (theyPaid) it.copy(
+            splitMode = SplitMode.THEY_PAID,
+            payerId = null,
+            splitWith = emptyList(),
+            customOwed = emptyList(),
+            error = null,
+        )
+        else it.copy(
+            splitMode = SplitMode.NONE,
+            payerId = null,
+            splitWith = emptyList(),
+            customOwed = emptyList(),
+            error = null,
+        )
     }
 
-    /** Hand-typed amounts, one per person — the uneven bill. */
-    fun splitByAmount(owed: List<Split.Owed>) = _state.update {
-        if (owed.isEmpty()) it.copy(splitMode = SplitMode.NONE, error = null)
-        else it.copy(splitMode = SplitMode.CUSTOM, customOwed = owed, error = null)
+    /**
+     * Evenly, or an amount typed per person — FR-SHR-02's two halves.
+     *
+     * Switching to *by amount* seeds each person with the even share they
+     * already had, so the style is a starting point to adjust rather than a
+     * blank form; switching back drops the typed figures, which is what
+     * "evenly" means.
+     */
+    fun setSplitEvenly(evenly: Boolean) = updateAndPersist {
+        if (it.splitMode == SplitMode.THEY_PAID || it.splitWith.isEmpty()) it
+        else if (evenly) it.copy(splitMode = SplitMode.EVEN, customOwed = emptyList(), error = null)
+        else it.copy(
+            splitMode = SplitMode.CUSTOM,
+            customOwed = it.customOwed.ifEmpty { it.split.owed },
+            error = null,
+        )
     }
+
+    /**
+     * Adds or removes one person from the split — the sheet's row tap.
+     *
+     * Membership only. It never changes the style, so a hand-typed split does
+     * not silently become an even one because somebody was added to it late.
+     */
+    fun togglePerson(personId: Long) = updateAndPersist {
+        val next = it.splitWith.toMutableList()
+        val removed = next.remove(personId)
+        if (!removed) next += personId
+        it.copy(
+            splitMode = when {
+                next.isEmpty() -> SplitMode.NONE
+                it.splitMode == SplitMode.CUSTOM -> SplitMode.CUSTOM
+                else -> SplitMode.EVEN
+            },
+            splitWith = next,
+            customOwed = if (removed) it.customOwed.filterNot { o -> o.personId == personId }
+            else it.customOwed,
+            payerId = null,
+            error = null,
+        )
+    }
+
+    /** One person's hand-typed share. Null clears it without unpicking them. */
+    fun setShare(personId: Long, amount: Money?) = updateAndPersist {
+        val rest = it.customOwed.filterNot { o -> o.personId == personId }
+        it.copy(
+            splitMode = SplitMode.CUSTOM,
+            customOwed = if (amount == null) rest else rest + Split.Owed(personId, amount),
+            error = null,
+        )
+    }
+
+    /*
+     * There is deliberately no `splitEvenly(List<Long>)` or
+     * `splitByAmount(List<Owed>)`.
+     *
+     * Both existed, and after the sheet was rewritten around [togglePerson],
+     * [setSplitEvenly] and [setShare] they were second implementations of the
+     * same three transitions, reachable only from tests. §20 removed
+     * `pageAfter` for exactly that, and a coarse intent nothing calls is worse
+     * than merely unused here: it was `splitByAmount` that could put a person
+     * in `customOwed` without putting them in `splitWith`, which is the state
+     * the sheet cannot draw.
+     *
+     * The tests drive the three the sheet drives, which is also what makes
+     * them tests of the feature rather than of the ViewModel's surface.
+     */
 
     /**
      * Somebody else paid.
@@ -395,25 +579,64 @@ class QuickAddViewModel(
      * A mode rather than a flag alongside the shares, because the two cannot
      * coexist: `trg_payer_excludes_shares` refuses the row, so offering both
      * would be offering a state the database has no way to hold.
+     *
+     * Tapping the payer again unpicks them, keeping the arm. Every other row
+     * on this sheet is a toggle, and a single-select that cannot be undone is
+     * a trap on a sheet whose only other exit is losing the whole entry.
      */
-    fun paidBy(personId: Long) =
-        _state.update { it.copy(splitMode = SplitMode.THEY_PAID, payerId = personId, error = null) }
+    fun paidBy(personId: Long) = updateAndPersist {
+        it.copy(
+            splitMode = SplitMode.THEY_PAID,
+            payerId = personId.takeIf { id -> id != it.payerId },
+            splitWith = emptyList(),
+            customOwed = emptyList(),
+            error = null,
+        )
+    }
 
-    fun clearSplit() = _state.update { it.copy(splitMode = SplitMode.NONE, error = null) }
+    /** Back to an ordinary expense — every arm's selection dropped with it. */
+    fun clearSplit() = updateAndPersist {
+        it.copy(
+            splitMode = SplitMode.NONE,
+            splitWith = emptyList(),
+            customOwed = emptyList(),
+            payerId = null,
+            error = null,
+        )
+    }
 
     /**
      * Adds somebody without leaving the sheet — FR-SHR-01, FR-IS-03's shape.
      *
      * Idempotent on the name key, so typing a name that already exists finds
-     * that person rather than opening a second balance beside them. The people
-     * flow re-emits, so the new name appears in the list without anything here
-     * refreshing it.
+     * that person rather than opening a second balance beside them.
+     *
+     * **And selects them**, which is what makes the control finish the job it
+     * started. Without it, adding a name that was already on file wrote no row,
+     * so the people flow never re-emitted and the sheet did not move — the user
+     * typed a name, pressed Add, and watched nothing happen. Selecting is also
+     * simply what was meant: nobody types a name into a split sheet in order
+     * not to split with that person.
      */
     fun addPerson(name: String) {
         viewModelScope.launch {
-            val outcome = withContext(io) { people.findOrCreate(name) }
-            if (outcome is SaveOutcome.Rejected) {
-                _state.update { it.copy(error = outcome.error) }
+            when (val outcome = withContext(io) { people.findOrCreate(name) }) {
+                is SaveOutcome.Saved -> _state.update { s ->
+                    if (s.splitMode == SplitMode.THEY_PAID) {
+                        s.copy(payerId = outcome.id, error = null)
+                    } else if (outcome.id in s.splitWith) {
+                        s.copy(error = null)
+                    } else {
+                        s.copy(
+                            splitMode = if (s.splitMode == SplitMode.CUSTOM) SplitMode.CUSTOM
+                            else SplitMode.EVEN,
+                            splitWith = s.splitWith + outcome.id,
+                            payerId = null,
+                            error = null,
+                        )
+                    }
+                }
+                is SaveOutcome.Rejected -> _state.update { it.copy(error = outcome.error) }
             }
         }
     }
@@ -511,6 +734,17 @@ class QuickAddViewModel(
      * Called on every way out — dismissed, saved, or deleted. Anything that
      * finishes with the sheet must come through here; see the note in `save`
      * for what happens when one path does not.
+     *
+     * **`people` is carried across, exactly as the tree and the chips are, and
+     * for the same reason.** It arrives from a Room flow, and a Room flow
+     * re-emits when the *table* changes — nothing about saving an expense
+     * changes `person`. So dropping the list here emptied it until somebody
+     * was added or renamed, and this ViewModel belongs to the Activity, so the
+     * emptying survived the sheet closing. The user saw the split sheet's
+     * "Nobody to split with yet" over a table with six people in it, on every
+     * open after the first save; typing a name that was already there fixed
+     * nothing, because `findOrCreate` found it, wrote no row, and the flow had
+     * no reason to emit.
      */
     fun reset() {
         started = false
@@ -525,11 +759,25 @@ class QuickAddViewModel(
                 date = today,
                 today = today,
                 method = it.method,
+                people = it.people,
             )
         }
     }
 
     // ------------------------------------------------------------- internals
+
+    /**
+     * Every split intent goes through this rather than `_state.update`.
+     *
+     * Not a stylistic wrapper: the split was the one part of the draft nothing
+     * persisted, because each of these functions was an expression body and
+     * there was no line to hang a `persist()` call on. One helper is harder to
+     * forget than eight call sites.
+     */
+    private fun updateAndPersist(block: (QuickAddUiState) -> QuickAddUiState) {
+        _state.update(block)
+        persist()
+    }
 
     private fun persist() {
         val s = _state.value
@@ -539,11 +787,31 @@ class QuickAddViewModel(
         saved[KEY_DATE] = s.date.toEpochDay()
         saved[KEY_METHOD] = s.method.code
         saved[KEY_NOTE] = s.note
+        saved[KEY_SPLIT_MODE] = s.splitMode.ordinal
+        saved[KEY_SPLIT_WITH] = s.splitWith.toLongArray()
+        // Two parallel arrays rather than a serialised list: `SavedStateHandle`
+        // is a `Bundle` underneath, and paisa are already `Long`. `Money` is an
+        // inline class over exactly this, so nothing is lost in the round trip.
+        saved[KEY_OWED_PEOPLE] = s.customOwed.map { it.personId }.toLongArray()
+        saved[KEY_OWED_PAISA] = s.customOwed.map { it.amount.paisa }.toLongArray()
+        saved[KEY_PAYER] = s.payerId
+    }
+
+    /** The hand-typed shares, back out of the two arrays [persist] wrote. */
+    private fun restoredOwed(): List<Split.Owed> {
+        val ids = saved.get<LongArray>(KEY_OWED_PEOPLE) ?: return emptyList()
+        val paisa = saved.get<LongArray>(KEY_OWED_PAISA) ?: return emptyList()
+        // Guards a truncated bundle: a pair that does not line up is not a
+        // split anybody typed, and half of one is worse than none.
+        if (ids.size != paisa.size) return emptyList()
+        return ids.mapIndexed { i, id -> Split.Owed(id, Money(paisa[i])) }
     }
 
     private fun clearDraft() {
-        listOf(KEY_INPUT, KEY_NEGATIVE, KEY_CATEGORY, KEY_DATE, KEY_METHOD, KEY_NOTE)
-            .forEach { saved.remove<Any>(it) }
+        listOf(
+            KEY_INPUT, KEY_NEGATIVE, KEY_CATEGORY, KEY_DATE, KEY_METHOD, KEY_NOTE,
+            KEY_SPLIT_MODE, KEY_SPLIT_WITH, KEY_OWED_PEOPLE, KEY_OWED_PAISA, KEY_PAYER,
+        ).forEach { saved.remove<Any>(it) }
     }
 
     private fun String.appendDigit(c: Char): String {
@@ -572,6 +840,11 @@ class QuickAddViewModel(
         const val KEY_DATE = "qa_date"
         const val KEY_METHOD = "qa_method"
         const val KEY_NOTE = "qa_note"
+        const val KEY_SPLIT_MODE = "qa_split_mode"
+        const val KEY_SPLIT_WITH = "qa_split_with"
+        const val KEY_OWED_PEOPLE = "qa_owed_people"
+        const val KEY_OWED_PAISA = "qa_owed_paisa"
+        const val KEY_PAYER = "qa_payer"
     }
 }
 

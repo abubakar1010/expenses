@@ -303,12 +303,16 @@ Additional measures:
 | Income Source Editor | Create, rename, set kind, archive | |
 | Budget | Per-period limits, copy-from-last-month | |
 | Category Manager | Two-level tree, create/rename/reorder/archive | |
+| People | Balances per person, settle up | Reached from the Ledger header (FR-SHR-05) |
+| Repeating entries | Rules that post to the ledger on their due day | Reached from Settings (FR-REC-01…05) |
 | Reports | Custom date range, fixed/variable split, top expenses | Ledger-backed rather than rollup-backed |
 | Settings | Export, import, rebuild aggregates, delete all data, theme | |
 | Backup | Folder, schedule, retention, passphrase, back up now, send a copy, restore | Reached from Settings; the bottom bar is fixed at four |
 | Welcome | First launch after an install: restore a backup, or start fresh | Shown above the NavHost, after the lock gate |
 
 Navigation is a single `NavHost` with a bottom bar of four destinations — Dashboard, Ledger, Income, Budget — and a centre FAB for Quick Add. Everything else is a detail route or a bottom sheet.
+
+**Every detail route carries a back control of its own** (05 §6, "Detail header"), and a tab switch leaves the detail route it is on *without* saving it. Both are load-bearing: `popUpTo(saveState = true)` saves everything it pops as one stack keyed by the deepest entry, so a detail route left on the stack comes back under the tab it was opened from — 06 §27.
 
 The FAB placement is a usability requirement, not decoration: NFR-USE-06 requires one-handed operation on a 5-inch display, so the single most frequent action must sit in the thumb arc.
 

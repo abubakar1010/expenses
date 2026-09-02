@@ -22,6 +22,8 @@
     <string name="nav_income">Income</string>
     <string name="nav_budget">Budget</string>
     <string name="add_expense">Add expense</string>
+    <!-- The back arrow on every detail route. Spoken, not shown. -->
+    <string name="back">Back</string>
 
     <!-- Quick Add -->
     <string name="save_expense">Save expense</string>

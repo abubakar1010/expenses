@@ -26,3 +26,7 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+
+# Shippable artifacts, archived out of build/ so `clean` cannot take them.
+# Binaries and the R8 mapping file do not belong in git.
+/dist/

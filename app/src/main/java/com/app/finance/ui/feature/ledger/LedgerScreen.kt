@@ -253,7 +253,7 @@ fun LedgerScreen(
             current = state.filters,
             tree = state.tree,
             present = state.categoriesPresent,
-            people = state.people,
+            people = state.peopleForFilter,
             today = state.today,
             onApply = vm::applyFilters,
             onClear = vm::clearFilters,

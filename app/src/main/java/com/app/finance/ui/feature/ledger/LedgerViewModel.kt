@@ -55,7 +55,7 @@ data class LedgerUiState(
     val filteredCount: Int = 0,
     val filters: LedgerFilters = LedgerFilters.NONE,
     val tree: List<CategoryNode> = emptyList(),
-    /** Active people, for FR-SHR-06's filter chips. */
+    /** Everybody on file, archived included — see [peopleForFilter]. */
     val people: List<PersonEntity> = emptyList(),
     /** The balance with the filtered person, when one is filtered — FR-SHR-06. */
     val personBalance: Money = Money.ZERO,
@@ -109,6 +109,20 @@ data class LedgerUiState(
      */
     val categoriesPresent: Set<Long>
         get() = days.flatMapTo(HashSet()) { day -> day.rows.map { it.expense.categoryId } }
+
+    /**
+     * Who the filter chips offer — FR-SHR-06, with [categoriesPresent]'s
+     * exception applied to people.
+     *
+     * Active people, plus whoever is filtered right now. Archiving hides
+     * somebody from *entry* pickers; it does not delete the expenses they are
+     * in, and this bound to `observeActive()` — so archiving the person a
+     * filter was pointed at took their chip out of the row while the filter
+     * stayed on, leaving a ledger narrowed by a name nothing on screen showed
+     * and no chip to turn off but *Anyone*.
+     */
+    val peopleForFilter: List<PersonEntity>
+        get() = people.filter { !it.isArchived || it.id == filters.personId }
 
     val isEmpty: Boolean get() = !initialLoad && days.isEmpty()
 
@@ -184,7 +198,7 @@ class LedgerViewModel(
             categories.observeTree().collect { tree -> _state.update { it.copy(tree = tree) } }
         }
         viewModelScope.launch {
-            people.observeActive().collect { rows -> _state.update { it.copy(people = rows) } }
+            people.observeAll().collect { rows -> _state.update { it.copy(people = rows) } }
         }
         // FR-REC-02. Two flows rather than one union query: an expense and an
         // income entry are different rows with different confirmations, and a

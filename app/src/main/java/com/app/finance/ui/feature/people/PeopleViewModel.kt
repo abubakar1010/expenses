@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.app.finance.core.money.Money
 import com.app.finance.data.db.dao.PersonBalanceRow
+import com.app.finance.data.db.entity.PersonEntity
 import com.app.finance.data.db.entity.SettlementEntity
 import com.app.finance.data.repo.PersonRepository
 import com.app.finance.data.repo.SettlementRepository
@@ -164,12 +165,29 @@ class PeopleViewModel(
         }
     }
 
-    /** Only ever offered for somebody with no history — the repository re-checks. */
-    fun delete(personId: Long, onRefused: (EntryError) -> Unit = {}) {
+    /**
+     * Only ever offered for somebody with no history — the repository re-checks.
+     *
+     * The row is read *before* the delete rather than reconstructed after,
+     * because after it the person exists nowhere else and NFR-USE-03 wants the
+     * action undoable. `SourceManagerViewModel.delete` is the same shape.
+     */
+    fun delete(
+        personId: Long,
+        onDeleted: (PersonEntity) -> Unit = {},
+        onRefused: (EntryError) -> Unit = {},
+    ) {
         viewModelScope.launch {
-            val outcome = withContext(io) { people.delete(personId) }
-            if (outcome is SaveOutcome.Rejected) onRefused(outcome.error)
+            val row = withContext(io) { people.byId(personId) }
+            when (val outcome = withContext(io) { people.delete(personId) }) {
+                is SaveOutcome.Saved -> row?.let(onDeleted)
+                is SaveOutcome.Rejected -> onRefused(outcome.error)
+            }
         }
+    }
+
+    fun undoDelete(person: PersonEntity) {
+        viewModelScope.launch { withContext(io) { people.restore(person) } }
     }
 
     // --- settling up (FR-SHR-04) ---------------------------------------------

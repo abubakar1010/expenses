@@ -2,7 +2,9 @@ package com.app.finance.ui.feature.people
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -17,8 +19,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -65,10 +70,14 @@ fun PeopleScreen(
     )
     val state by vm.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val locale = rememberJavaLocale()
     val today = java.time.LocalDate.now(container.clock)
 
     // Hoisted: a composable cannot be called inside `scope.launch`.
     val settlementRemoved = stringResource(R.string.settlement_removed)
+    val archivedTemplate = stringResource(R.string.person_archived)
+    val restoredTemplate = stringResource(R.string.person_restored)
+    val deletedTemplate = stringResource(R.string.person_deleted)
     val undoLabel = stringResource(R.string.undo)
 
     BackHandler(onBack = onBack)
@@ -100,7 +109,40 @@ fun PeopleScreen(
                 modifier = Modifier.fillMaxSize(),
             )
         } else {
-            PeopleList(state = state, onSettle = vm::settleUp, onRename = vm::rename)
+            PeopleList(
+                state = state,
+                onSettle = vm::settleUp,
+                onRename = vm::rename,
+                onArchive = { row ->
+                    vm.setArchived(row.personId, archived = true) {
+                        scope.launch {
+                            snackbarHostState.offerUndo(
+                                String.format(locale, archivedTemplate, row.personName),
+                                undoLabel,
+                            ) { vm.setArchived(row.personId, archived = false) }
+                        }
+                    }
+                },
+                onRestore = { row ->
+                    vm.setArchived(row.personId, archived = false) {
+                        scope.launch {
+                            snackbarHostState.showSnackbar(
+                                String.format(locale, restoredTemplate, row.personName),
+                            )
+                        }
+                    }
+                },
+                onDelete = { row ->
+                    vm.delete(row.personId, onDeleted = { person ->
+                        scope.launch {
+                            snackbarHostState.offerUndo(
+                                String.format(locale, deletedTemplate, person.name),
+                                undoLabel,
+                            ) { vm.undoDelete(person) }
+                        }
+                    })
+                },
+            )
         }
     }
 
@@ -129,6 +171,9 @@ private fun PeopleList(
     state: PeopleUiState,
     onSettle: (PersonBalanceRow) -> Unit,
     onRename: (PersonBalanceRow) -> Unit,
+    onArchive: (PersonBalanceRow) -> Unit,
+    onRestore: (PersonBalanceRow) -> Unit,
+    onDelete: (PersonBalanceRow) -> Unit,
 ) {
     LazyColumn(Modifier.fillMaxSize()) {
         if (state.owedToYou.isNotEmpty()) {
@@ -139,7 +184,7 @@ private fun PeopleList(
                 )
             }
             items(state.owedToYou, key = { "owed-${it.personId}" }) { row ->
-                PersonRow(row, onSettle, onRename)
+                PersonRow(row, onSettle, onRename, onArchive, onRestore, onDelete)
             }
         }
 
@@ -151,7 +196,7 @@ private fun PeopleList(
                 )
             }
             items(state.youOwe, key = { "owe-${it.personId}" }) { row ->
-                PersonRow(row, onSettle, onRename)
+                PersonRow(row, onSettle, onRename, onArchive, onRestore, onDelete)
             }
         }
 
@@ -160,7 +205,7 @@ private fun PeopleList(
                 SectionHeader(text = stringResource(R.string.all_settled))
             }
             items(state.settled, key = { "settled-${it.personId}" }) { row ->
-                PersonRow(row, onSettle, onRename)
+                PersonRow(row, onSettle, onRename, onArchive, onRestore, onDelete)
             }
         }
     }
@@ -175,26 +220,112 @@ private fun SectionTotal(money: Money) {
     )
 }
 
+/**
+ * One person, their balance, and what can be done about them — FR-SHR-01.
+ *
+ * The four actions under the row are `SourceManagerScreen`'s, for the reason
+ * that screen's own comment gives and this one's header already claimed: a
+ * person *can* be deleted, just not one who appears in an expense, so hiding
+ * the control would teach a false rule. They were claimed and never drawn —
+ * rename, archive, restore and delete were all implemented in
+ * [PeopleViewModel] and reachable from nothing, and the only thing this screen
+ * could do to a name was open the settle sheet.
+ */
 @Composable
 private fun PersonRow(
     row: PersonBalanceRow,
     onSettle: (PersonBalanceRow) -> Unit,
     onRename: (PersonBalanceRow) -> Unit,
+    onArchive: (PersonBalanceRow) -> Unit,
+    onRestore: (PersonBalanceRow) -> Unit,
+    onDelete: (PersonBalanceRow) -> Unit,
 ) {
-    val locale = rememberJavaLocale()
-    LedgerRow(
-        label = row.personName,
-        // Signed, and `MoneyText` already renders a negative in `vermilion`
-        // with a true minus and speaks it as words — so the direction reads
-        // correctly with no extra work here.
-        amount = Money(row.balanceMinor),
-        // No direction caption. The section header above already says which way
-        // this points, and the sign and colour say it again — a row reading
-        // "You owe" under a heading reading "You owe" is one repetition too
-        // many, and it made "You owe" ambiguous to anything looking for it.
-        secondary = if (row.balanceMinor == 0L) stringResource(R.string.square) else null,
-        trailing = if (row.archived) stringResource(R.string.archived) else null,
-        onClick = { onSettle(row) },
+    Column {
+        LedgerRow(
+            label = row.personName,
+            // Signed, and `MoneyText` already renders a negative in `vermilion`
+            // with a true minus and speaks it as words — so the direction reads
+            // correctly with no extra work here.
+            amount = Money(row.balanceMinor),
+            // No direction caption. The section header above already says which way
+            // this points, and the sign and colour say it again — a row reading
+            // "You owe" under a heading reading "You owe" is one repetition too
+            // many, and it made "You owe" ambiguous to anything looking for it.
+            secondary = if (row.balanceMinor == 0L) stringResource(R.string.square) else null,
+            trailing = if (row.archived) stringResource(R.string.archived) else null,
+            onClick = { onSettle(row) },
+        )
+
+        // `FlowRow` for the reason the source rows use one: four controls do
+        // not fit at 320 dp and 1.3x (NFR-COMP-04).
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Space.s3),
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(horizontal = Space.gutter),
+        ) {
+            RowAction(stringResource(R.string.settle_up)) { onSettle(row) }
+            RowAction(stringResource(R.string.rename_person)) { onRename(row) }
+            if (row.archived) {
+                RowAction(stringResource(R.string.restore_person)) { onRestore(row) }
+            } else {
+                RowAction(
+                    stringResource(R.string.archive_person),
+                    destructive = true,
+                ) { onArchive(row) }
+            }
+
+            // FR-SHR-01's delete. Present either way; live only for somebody
+            // nothing references — the repository re-checks and the foreign
+            // keys are `ON DELETE RESTRICT` behind that, so the disabled state
+            // is a courtesy rather than the enforcement. The reason is spoken
+            // as well as shown: a disabled control with no announced cause is
+            // worse than an absent one.
+            DeleteAction(
+                enabled = !row.hasHistory,
+                reason = stringResource(R.string.error_person_has_history),
+                onClick = { onDelete(row) },
+            )
+        }
+    }
+}
+
+@Composable
+private fun DeleteAction(enabled: Boolean, reason: String, onClick: () -> Unit) {
+    val colors = DayBookTheme.colors
+    val label = stringResource(R.string.delete_person)
+
+    Text(
+        text = label,
+        style = DayBookTheme.type.caption,
+        color = if (enabled) colors.vermilion else colors.rule,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier
+            .defaultMinSize(minHeight = Sizes.minTouchTarget)
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .semantics {
+                role = Role.Button
+                if (!enabled) {
+                    disabled()
+                    contentDescription = "$label. $reason"
+                }
+            }
+            .padding(vertical = Space.s2),
+    )
+}
+
+/** A row-level text control with a 48 dp target — `SourceManagerScreen`'s. */
+@Composable
+private fun RowAction(text: String, destructive: Boolean = false, onClick: () -> Unit) {
+    Text(
+        text = text,
+        style = DayBookTheme.type.caption,
+        color = if (destructive) DayBookTheme.colors.vermilion else DayBookTheme.colors.indigo,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier
+            .defaultMinSize(minHeight = Sizes.minTouchTarget)
+            .clickable(onClick = onClick)
+            .semantics { role = Role.Button }
+            .padding(vertical = Space.s2),
     )
 }
 

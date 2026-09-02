@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DayBook — an offline-only, single-user personal finance ledger for Android (Bangladeshi taka). Single Gradle module `:app`, plus `:benchmark` for Macrobenchmark/Baseline Profile.
 
-**`docs/` is normative.** `01-PRD.md` (requirements, `FR-*`), `02-SRS.md` (`NFR-*`), `03-database-design.md` (schema, triggers), `04-system-architecture.md` (layering, startup, testing), `05-ui-ux-guide.md` (design tokens, copy). Where code and a document disagree, one of them is a bug — do not silently pick the code. `06-implementation-log.md` records every audit and defect found so far; check it before re-litigating a decision. Comments in this codebase routinely cite requirement ids (`FR-EXP-05`, `NFR-PERF-01`) and doc sections (`03 §4.1`) — keep that convention when adding code.
+**`docs/` is normative.** `01-PRD.md` (requirements, `FR-*`), `02-SRS.md` (`NFR-*`), `03-database-design.md` (schema, triggers), `04-system-architecture.md` (layering, startup, testing), `05-ui-ux-guide.md` (design tokens, copy). Where code and a document disagree, one of them is a bug — do not silently pick the code. `06-implementation-log.md` records every audit and defect found so far; check it before re-litigating a decision. `07-building-and-running.md` is the human-facing procedure for the commands below — variants and application ids, signing, driving a USB-connected device, and how to verify a build; the traps section here is the crib sheet for the same ground, so fix both when one changes. Comments in this codebase routinely cite requirement ids (`FR-EXP-05`, `NFR-PERF-01`) and doc sections (`03 §4.1`) — keep that convention when adding code.
 
 ## Commands
 

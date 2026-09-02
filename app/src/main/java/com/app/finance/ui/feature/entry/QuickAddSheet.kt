@@ -260,8 +260,11 @@ fun QuickAddSheet(
 
         EntrySheet.SPLIT -> SplitSheet(
             state = state,
-            onEvenly = vm::splitEvenly,
+            onTogglePerson = vm::togglePerson,
             onPaidBy = vm::paidBy,
+            onPaidByOther = vm::setPaidByOther,
+            onSplitEvenly = vm::setSplitEvenly,
+            onShare = vm::setShare,
             onClear = vm::clearSplit,
             onAddPerson = vm::addPerson,
             onDismiss = vm::dismissSheet,

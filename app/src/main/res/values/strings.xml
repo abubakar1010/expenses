@@ -61,7 +61,17 @@
     <string name="split_who_owes">Who owes you</string>
     <string name="split_who_paid">Who paid</string>
     <string name="split_owes_you">Owes you</string>
-    <string name="split_paid_this">Paid this</string>
+    <!-- On the payer arm the figure beside a name is the user's own share, so
+         the caption has to say whose money it is. "Paid this" sat next to a
+         figure that was never what that person paid. -->
+    <string name="split_you_owe_them">You owe them</string>
+    <!-- FR-SHR-02, second half: "either evenly or by an amount typed per
+         person". -->
+    <string name="split_evenly">Evenly</string>
+    <string name="split_by_amount">By amount</string>
+    <string name="split_share_hint">0</string>
+    <!-- The Clear half of `LedgerFilterSheet`'s Clear/Done pair. -->
+    <string name="split_not_shared">Not shared</string>
     <string name="split_no_people">Nobody to split with yet. Add a person below.</string>
     <string name="add_person_hint">Name</string>
     <string name="add">Add</string>
@@ -74,6 +84,15 @@
     <string name="manage_people">People</string>
     <string name="add_person">Add person</string>
     <string name="rename_person">Rename</string>
+    <!-- FR-SHR-01's three row actions. Every one of them was implemented in
+         `PeopleViewModel` and reachable from nothing. -->
+    <string name="archive_person">Archive</string>
+    <string name="restore_person">Restore</string>
+    <string name="delete_person">Delete</string>
+    <string name="person_archived">%1$s archived</string>
+    <string name="person_restored">%1$s restored</string>
+    <string name="person_deleted">%1$s deleted</string>
+    <string name="settle_up">Settle up</string>
     <string name="owed_to_you">They owe you</string>
     <string name="you_owe">You owe</string>
     <string name="all_settled">Settled up</string>

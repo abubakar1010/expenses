@@ -1,5 +1,6 @@
 package com.app.finance.ui.feature.entry
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.ViewModelStore
@@ -78,6 +79,21 @@ class QuickAddViewModelTest {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T =
                 QuickAddViewModel(fx.expenses, fx.categories, fx.meta, fx.people, fx.clock) as T
+        },
+    )["vm${seq++}", QuickAddViewModel::class.java]
+
+    /**
+     * A ViewModel over a [SavedStateHandle] the test owns, so a second one can
+     * be built over the same handle — which is what surviving process death
+     * amounts to from in here.
+     */
+    private fun savedStateVm(saved: SavedStateHandle): QuickAddViewModel = ViewModelProvider(
+        store,
+        object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = QuickAddViewModel(
+                fx.expenses, fx.categories, fx.meta, fx.people, fx.clock, saved,
+            ) as T
         },
     )["vm${seq++}", QuickAddViewModel::class.java]
 
@@ -375,7 +391,8 @@ class QuickAddViewModelTest {
         vm.state.awaitState { it.people.size == 2 }
 
         vm.type("1000")
-        vm.splitEvenly(listOf(rahim, karim))
+        vm.togglePerson(rahim)
+        vm.togglePerson(karim)
 
         val state = vm.state.awaitState { it.split.owed.size == 2 }
         assertEquals("the field should still show the bill", Money.ofTaka(1_000), state.amount)
@@ -399,7 +416,7 @@ class QuickAddViewModelTest {
         vm.state.awaitState { it.people.isNotEmpty() }
 
         vm.type("10")
-        vm.splitEvenly(listOf(rahim))
+        vm.togglePerson(rahim)
         assertEquals(Money.ofTaka(5), vm.state.awaitState { it.split.owed.size == 1 }.yourShare)
 
         vm.type("00") // now ৳1,000
@@ -419,7 +436,7 @@ class QuickAddViewModelTest {
         vm.state.awaitState { it.people.isNotEmpty() }
 
         vm.type("1000")
-        vm.splitEvenly(listOf(rahim))
+        vm.togglePerson(rahim)
         assertTrue(vm.state.awaitState { it.split.owed.isNotEmpty() }.split is Split.YouPaid)
 
         vm.paidBy(rahim)
@@ -439,7 +456,9 @@ class QuickAddViewModelTest {
         vm.state.awaitState { it.people.isNotEmpty() }
 
         vm.type("500")
-        vm.splitByAmount(listOf(Split.Owed(rahim, Money.ofTaka(500))))
+        vm.togglePerson(rahim)
+        vm.setSplitEvenly(evenly = false)
+        vm.setShare(rahim, Money.ofTaka(500))
 
         val state = vm.state.awaitState { it.split.owed.size == 1 }
         assertEquals(Money.ZERO, state.yourShare)
@@ -453,7 +472,7 @@ class QuickAddViewModelTest {
         vm.state.awaitState { it.people.isNotEmpty() }
 
         vm.type("1000")
-        vm.splitEvenly(listOf(rahim))
+        vm.togglePerson(rahim)
         vm.state.awaitState { it.split.owed.size == 1 }
         vm.saveAndWait()
 
@@ -472,7 +491,7 @@ class QuickAddViewModelTest {
         vm.state.awaitState { it.people.isNotEmpty() }
 
         vm.type("1000")
-        vm.splitEvenly(listOf(rahim))
+        vm.togglePerson(rahim)
         vm.state.awaitState { it.split.owed.size == 1 }
         vm.saveAndWait()
 
@@ -511,9 +530,305 @@ class QuickAddViewModelTest {
         val rahim = person("Rahim")
 
         vm.addPerson("  rahim ")
-        val state = vm.state.awaitState { it.people.isNotEmpty() }
+        // On `splitWith`, not on `people`: the list was already populated
+        // before this call, so the old predicate matched the state from
+        // *before* the add and asserted nothing (§22.8's stale match).
+        val state = vm.state.awaitState { rahim in it.splitWith }
 
         assertEquals(1, state.people.size)
         assertEquals(rahim, state.people.single().id)
+    }
+
+    @Test
+    fun adding_a_person_selects_them() = runBlocking {
+        // The reported defect, and the one that made the control look broken.
+        // `findOrCreate` on a name already on file writes no row, so the people
+        // flow had no reason to emit and nothing on the sheet moved: the user
+        // typed a name, pressed Add, and watched nothing happen. It is also
+        // simply what was meant — nobody types a name into a split sheet in
+        // order not to split with that person.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.type("1000")
+        vm.addPerson("RAHIM")
+
+        val state = vm.state.awaitState { it.split.owed.isNotEmpty() }
+        assertEquals(listOf(rahim), state.splitWith)
+        assertEquals(Money.ofTaka(500), state.yourShare)
+    }
+
+    @Test
+    fun adding_a_person_on_the_payer_arm_makes_them_the_payer() = runBlocking {
+        val vm = startedVm()
+        vm.setPaidByOther(true)
+
+        vm.addPerson("Rahim")
+
+        val state = vm.state.awaitState { it.payerId != null }
+        assertEquals(SplitMode.THEY_PAID, state.splitMode)
+        assertTrue(state.splitWith.isEmpty())
+    }
+
+    @Test
+    fun adding_somebody_archived_says_so_rather_than_reviving_them() = runBlocking {
+        // SOURCE_ARCHIVED's answer to the same question. The name key is unique
+        // across archived and active rows alike, so there is no second person to
+        // create under that name — the honest answer is that this one is
+        // retired, and the copy sends the user to restore them.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        fx.people.setArchived(rahim, archived = true)
+
+        vm.addPerson("rahim")
+
+        val state = vm.state.awaitState { it.error != null }
+        assertEquals(EntryError.PERSON_ARCHIVED, state.error)
+        assertTrue(state.splitWith.isEmpty())
+    }
+
+    @Test
+    fun the_people_list_survives_a_save() = runBlocking {
+        // The reported defect: `reset` rebuilt the state without `people`, and
+        // a Room flow only re-emits when its *table* changes — nothing about
+        // saving an expense changes `person`. This ViewModel belongs to the
+        // Activity, so the emptied list survived the sheet closing and every
+        // later open showed "Nobody to split with yet" over a full table.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.type("500")
+        vm.selectCategory(fx.leafId("Grocery"))
+        vm.saveAndWait()
+
+        val next = vm.state.awaitState { it.splitMode == SplitMode.NONE }
+        assertEquals(listOf(rahim), next.people.map { it.id })
+        assertEquals(listOf(rahim), next.splitCandidates.map { it.id })
+    }
+
+    @Test
+    fun somebody_else_paying_replaces_the_shares_rather_than_reverting() = runBlocking {
+        // The arm used to live in the sheet as a `remember(state.splitMode)`,
+        // and choosing it cleared the split, which moved `splitMode` and
+        // rebuilt the local as `false` within the frame. Here it is state, so
+        // it holds — and it takes the other arm's selection with it, because
+        // `trg_payer_excludes_shares` will not store both.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.type("1000")
+        vm.togglePerson(rahim)
+        vm.state.awaitState { it.splitMode == SplitMode.EVEN }
+
+        vm.setPaidByOther(true)
+
+        val state = vm.state.awaitState { it.splitMode == SplitMode.THEY_PAID }
+        assertTrue("the even split survived the switch", state.splitWith.isEmpty())
+        assertNull(state.payerId)
+        assertEquals(Split.NONE, state.split)
+    }
+
+    @Test
+    fun re_tapping_the_arm_already_chosen_keeps_the_payer() = runBlocking {
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.paidBy(rahim)
+        vm.state.awaitState { it.payerId == rahim }
+        vm.setPaidByOther(true)
+
+        assertEquals(rahim, vm.state.value.payerId)
+    }
+
+    @Test
+    fun clearing_a_split_forgets_who_was_in_it() = runBlocking {
+        // `clearSplit` used to move the mode only, leaving `splitWith`
+        // populated — so the sheet kept drawing leader dots beside people the
+        // split no longer named, and the next tap rebuilt the split from that
+        // stale list plus one.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        val karim = person("Karim")
+        vm.state.awaitState { it.people.size == 2 }
+
+        vm.type("1000")
+        vm.togglePerson(rahim)
+        vm.togglePerson(karim)
+        vm.state.awaitState { it.split.owed.size == 2 }
+
+        vm.clearSplit()
+
+        val state = vm.state.awaitState { it.splitMode == SplitMode.NONE }
+        assertTrue(state.splitWith.isEmpty())
+        assertTrue(state.customOwed.isEmpty())
+        assertNull(state.payerId)
+    }
+
+    @Test
+    fun a_person_toggles_out_of_the_split_as_well_as_in() = runBlocking {
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.type("1000")
+        vm.togglePerson(rahim)
+        vm.state.awaitState { it.splitMode == SplitMode.EVEN }
+        vm.togglePerson(rahim)
+
+        val state = vm.state.awaitState { it.splitMode == SplitMode.NONE }
+        assertTrue(state.splitWith.isEmpty())
+        assertEquals(Money.ofTaka(1_000), state.yourShare)
+    }
+
+    @Test
+    fun a_hand_typed_share_leaves_the_rest_to_you() = runBlocking {
+        // FR-SHR-02's second half, driven the way the sheet drives it: pick
+        // people, switch style, type the figures. Nothing in the app could
+        // reach the CUSTOM mode before — the requirement was half built.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        val karim = person("Karim")
+        vm.state.awaitState { it.people.size == 2 }
+
+        vm.type("1000")
+        vm.togglePerson(rahim)
+        vm.togglePerson(karim)
+        vm.setSplitEvenly(false)
+
+        // Seeded from the even division rather than blanked, so the style is a
+        // starting point to adjust.
+        val seeded = vm.state.awaitState { it.splitMode == SplitMode.CUSTOM }
+        assertEquals(2, seeded.customOwed.size)
+
+        vm.setShare(rahim, Money.ofTaka(600))
+        vm.setShare(karim, Money.ofTaka(100))
+
+        val state = vm.state.awaitState { it.yourShare == Money.ofTaka(300) }
+        assertEquals(70_000L, state.split.owed.sumOf { it.amount.paisa })
+        assertTrue(state.canSave)
+    }
+
+    @Test
+    fun a_person_in_the_split_with_no_amount_yet_is_simply_left_out() = runBlocking {
+        // `CHECK (share_minor > 0)` refuses a zero share, so a half-filled form
+        // must not carry one — and the person has to stay on the sheet so the
+        // amount can be typed. Membership lives in `splitWith` for exactly this.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        vm.state.awaitState { it.people.isNotEmpty() }
+
+        vm.type("1000")
+        vm.togglePerson(rahim)
+        vm.setSplitEvenly(false)
+        vm.setShare(rahim, null)
+
+        val state = vm.state.awaitState { it.customOwed.isEmpty() }
+        assertEquals(listOf(rahim), state.splitWith)
+        assertEquals(Split.NONE, state.split)
+    }
+
+    @Test
+    fun a_split_that_swallows_the_bill_cannot_be_saved() = runBlocking {
+        // ৳600 and ৳500 against a ৳1,000 dinner leaves −৳100, which
+        // `CHECK (amount_minor <> 0)` accepts as a refund — so the row saved
+        // and the month took a ৳100 credit for a meal that was eaten.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        val karim = person("Karim")
+        vm.state.awaitState { it.people.size == 2 }
+
+        vm.type("1000")
+        vm.togglePerson(rahim)
+        vm.togglePerson(karim)
+        vm.setSplitEvenly(evenly = false)
+        vm.setShare(rahim, Money.ofTaka(600))
+        vm.setShare(karim, Money.ofTaka(500))
+
+        val state = vm.state.awaitState { it.split.owed.size == 2 }
+        assertEquals(Money.ofTaka(-100), state.yourShare)
+        assertFalse("Save must be dead where the write would be refused", state.canSave)
+
+        vm.save {}
+        assertEquals(
+            EntryError.SPLIT_DOES_NOT_BALANCE,
+            vm.state.awaitState { it.error != null }.error,
+        )
+        assertTrue(fx.expenses.filteredPage(LedgerFilters.NONE).isEmpty())
+    }
+
+    @Test
+    fun reopening_a_shared_expense_marks_the_people_it_names() = runBlocking {
+        // Only `customOwed` was seeded, and the sheet reads `splitWith` to know
+        // who is *in* the split — so a reopened dinner showed nobody marked,
+        // and the first tap on a name rebuilt the split from that one person.
+        val rahim = person("Rahim")
+        val karim = person("Karim")
+        val (yours, split) = Split.evenly(Money.ofTaka(900), listOf(rahim, karim))
+        val id = (
+            fx.expenses.insert(
+                yours, fx.leafId("Grocery"), fx.today, split = split,
+            ) as SaveOutcome.Saved
+            ).id
+
+        val vm = startedVm(editingId = id)
+        val state = vm.state.awaitState { it.editingId == id && it.split.owed.size == 2 }
+
+        assertEquals(setOf(rahim, karim), state.splitWith.toSet())
+        assertEquals(Money.ofTaka(300), state.yourShare)
+    }
+
+    @Test
+    fun somebody_archived_is_offered_only_where_this_split_already_names_them() = runBlocking {
+        // FR-CAT-08's rule applied to people, and its exception. Archiving does
+        // not unpick the expenses somebody is in, so an expense that names them
+        // must still show them — and `payer` must still resolve, or the entry
+        // sheet reads "Split" over a state that says otherwise.
+        val vm = startedVm()
+        val rahim = person("Rahim")
+        val karim = person("Karim")
+        fx.people.setArchived(karim, archived = true)
+        // On the flag, not on the size. `people.size == 2` is satisfied by the
+        // emission from *before* the archive, and the assertion below reads a
+        // field that predicate never mentioned — §21.9 J's race, exactly.
+        val hidden = vm.state.awaitState { s ->
+            s.people.any { it.id == karim && it.isArchived }
+        }
+
+        assertEquals(listOf(rahim), hidden.splitCandidates.map { it.id })
+
+        vm.paidBy(karim)
+
+        val state = vm.state.awaitState { it.payerId == karim }
+        assertEquals(setOf(rahim, karim), state.splitCandidates.map { it.id }.toSet())
+        assertEquals(karim, state.payer?.id)
+    }
+
+    @Test
+    fun a_split_survives_process_death() = runBlocking {
+        // FR-APP-03. The amount field holds the **bill**, so a kill that kept
+        // ৳1,000 and lost the two people it was divided between would file the
+        // whole dinner as your own — a wrong figure with nothing on screen to
+        // give it away.
+        val saved = SavedStateHandle()
+        val first = savedStateVm(saved)
+        first.start(null)
+        val rahim = person("Rahim")
+        first.state.awaitState { it.seeded && it.people.isNotEmpty() }
+
+        first.type("1000")
+        first.togglePerson(rahim)
+        first.state.awaitState { it.split.owed.size == 1 }
+
+        val revived = savedStateVm(saved)
+        revived.start(null)
+        val state = revived.state.awaitState { it.seeded && it.splitMode != SplitMode.NONE }
+
+        assertEquals(SplitMode.EVEN, state.splitMode)
+        assertEquals(listOf(rahim), state.splitWith)
+        assertEquals(Money.ofTaka(500), state.yourShare)
     }
 }

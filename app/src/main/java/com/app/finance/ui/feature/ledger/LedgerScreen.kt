@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarHostState
@@ -35,6 +36,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -278,6 +280,7 @@ private fun SearchBar(
     val colors = DayBookTheme.colors
     var text by rememberSaveable(query) { mutableStateOf(query) }
     val hint = stringResource(R.string.search_ledger)
+    val focusManager = LocalFocusManager.current
 
     Row(
         Modifier
@@ -293,6 +296,13 @@ private fun SearchBar(
             textStyle = DayBookTheme.type.body.copy(color = colors.ink),
             cursorBrush = SolidColor(colors.indigo),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            // `ImeAction.Search` has no default action — `KeyboardActionRunner`
+            // falls through to `else -> false` for it — so without this the
+            // magnifier key on the IME did nothing at all, on the one field in
+            // the app most likely to be typed into and then left. The query is
+            // already applied on every keystroke, so "search" here means only
+            // "I am done typing".
+            keyboardActions = KeyboardActions(onSearch = { focusManager.clearFocus() }),
             modifier = Modifier
                 .weight(1f)
                 .defaultMinSize(minHeight = Sizes.minTouchTarget)

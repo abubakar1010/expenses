@@ -33,6 +33,7 @@ import androidx.compose.ui.text.input.ImeAction
 import com.app.finance.R
 import com.app.finance.domain.model.Nature
 import com.app.finance.ui.common.DayBookChip
+import com.app.finance.ui.common.dismissKeyboardOnOutsideGesture
 import com.app.finance.ui.feature.entry.messageRes
 import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
@@ -82,6 +83,9 @@ fun CategoryEditorSheet(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                // A sheet is its own window, so the app root's dismissal does not
+                // reach in here.
+                .dismissKeyboardOnOutsideGesture()
                 .padding(horizontal = Space.gutter)
                 .padding(bottom = Space.s3),
             verticalArrangement = Arrangement.spacedBy(Space.s3),

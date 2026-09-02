@@ -5450,3 +5450,141 @@ test for that requirement should do.
   (§26.6). Its assertions are over a harvested label set rather than any one
   node, so there is nothing single to await; it is the last timing-based wait in
   the Compose suites.
+
+---
+
+## 28. The keyboard that would not go away
+
+Reported from the device, not from the suite: *tap a typeable field and the
+keyboard comes up; tap somewhere else, or scroll, and it stays.*
+
+It was true of **every field in the app**, and it had never been anything else.
+
+### 28.1 What was actually wrong
+
+Compose has no equivalent of the View system's touch-outside dismissal. A
+`BasicTextField` holds focus until something else takes it, the IME follows
+focus, and neither a tap on empty space nor a drag of a list is "something
+else". So the only ways out of a raised keyboard were the system back gesture,
+navigating away, or closing the sheet — and `grep` across `ui/` found the shape
+of it plainly: **not one `clearFocus()`, not one `SoftwareKeyboardController`,
+in the whole tree.**
+
+The ledger's search field was the worst case, and the one the report is almost
+certainly about. It is the only full-screen field in the app, it sits above a
+`LazyColumn` the user immediately wants to scroll, and it is declared
+`ImeAction.Search` with no `keyboardActions`. `KeyboardActionRunner` has no
+default for `Search`:
+
+```
+Next     -> focusManager.moveFocus(Next)
+Previous -> focusManager.moveFocus(Previous)
+Done     -> keyboardController.hide()
+else     -> false
+```
+
+So the magnifier key on the keyboard did **nothing**. Search was the one field
+with no dismissal path at all, not even the accidental one the others got from
+`Done`.
+
+The other nine `BasicTextField`s are all in bottom sheets and all
+`ImeAction.Done`, so their action key worked by accident of the default. Tapping
+elsewhere in the sheet still did nothing.
+
+### 28.2 What was not wrong
+
+Worth recording, because both were checked before anything was changed:
+
+- **Sheets are not clipped by the IME.** Material3 1.4.0's `ModalBottomSheet`
+  applies `.imePadding()` to its own root `Box`, so a sheet rides above the
+  keyboard without help. The `navigationBarsPadding()` on each sheet's content
+  is doing a different job and is not a workaround for a missing one.
+- **The main window does not need `imePadding` either.** `enableEdgeToEdge()`
+  means the window is not resized when the IME opens, but the only full-screen
+  field is the ledger's search bar, at the top of the screen. Pushing the whole
+  app up to keep a bottom bar visible would be worse than letting the keyboard
+  cover it.
+
+### 28.3 The fix: one modifier, at two kinds of root
+
+`ui/common/KeyboardDismiss.kt` — `Modifier.dismissKeyboardOnOutsideGesture()`.
+It is applied to the root `Box` of `DayBookApp` (which every NavHost screen
+inherits) and to the content of the nine bottom sheets that can raise an IME.
+**Sheets need their own copy**: a `ModalBottomSheet` is a separate window with
+its own composition, so the app root is not above it.
+
+Two gestures, and the narrowing on each is the whole design:
+
+**A tap that nothing else claimed** — main pass, `requireUnconsumed = true`.
+`CoreTextField`'s `detectTapAndPress` consumes the down, so tapping *into* a
+field cannot dismiss the keyboard it is about to raise. `clickable` consumes it
+too, so buttons and ledger rows are excluded as well. What is left is the empty
+space between them, which is what "somewhere else" means. The controls where
+this reads as a miss all open a sheet, and a sheet takes window focus and the
+IME with it.
+
+**A vertical drag with a finger on the glass** — a `NestedScrollConnection` that
+consumes nothing. Both halves of that condition are load-bearing, and the first
+one is the trap:
+
+- `ContentInViewNode` — the bring-into-view scroll that keeps a newly focused
+  field on screen — dispatches with `NestedScrollSource.UserInput`, exactly like
+  a drag. Source alone cannot tell them apart. A connection that trusted it
+  would have blurred every field inside a scrolling screen (Backup's passphrase,
+  Settings' typed confirmation) in the same frame it was focused. So a second
+  `pointerInput`, on the **initial** pass so a child's consumption cannot hide
+  it, tracks whether a finger is actually down.
+- Vertical only, because a single-line `BasicTextField` is itself wrapped in a
+  horizontal `Modifier.scrollable`; dragging inside a field to move the cursor
+  dispatches nested scroll of its own. Every field in the app is `singleLine`
+  and every scroll container a user drags past one is vertical. **A multi-line
+  field added later needs this reconsidered.**
+
+The gesture state is a plain object rather than Compose state on purpose: it is
+written from a pointer coroutine and read inside `onPreScroll`, and a snapshot
+read there would be recorded by whatever observer happens to be open.
+
+Separately, the ledger's search field gets
+`KeyboardActions(onSearch = { focusManager.clearFocus() })`. The query is
+applied on every keystroke, so "search" there means only "I am done typing" —
+and it must not clear the field, which would throw the filter away at the moment
+the user finished expressing it.
+
+`05-ui-ux-guide.md` §8 now states the rule; it was unstated, which is why
+nothing was measuring code against it.
+
+### 28.4 Tests
+
+`KeyboardDismissTest` drives the modifier away from any screen. **Focus is the
+assertion, not the keyboard** — there is no supported way to interrogate the IME
+from an instrumented test, and none is needed: the IME follows the focused
+field, and the defect was that nothing took focus away.
+
+Five cases, and two of them guard behaviour that must *not* change:
+
+| case | guards |
+| --- | --- |
+| a tap on empty space clears the field | the reported defect |
+| a tap into the field does not clear it | `requireUnconsumed = true` |
+| a tap on a control runs it and leaves the field focused | the documented boundary |
+| a drag clears the field | the reported defect, scroll half |
+| a field scrolled into view by its own focus keeps it | the `ContentInViewNode` trap |
+
+`LedgerSearchKeyboardTest` covers the field half on the real screen: the search
+key lets go of the field, and it leaves the query alone.
+
+### 28.5 Not done
+
+- **Nothing renders `DayBookApp`.** The modifier is verified on its own and the
+  wiring at the app root is not — no test in the suite composes the NavHost root,
+  which is also why `AppNav.kt` went untested until the bottom-bar work. A test
+  that renders it would cover this and more.
+- **Neither new suite has been run.** Both compile; there was no emulator or
+  device attached to this session, and Compose tests need API 35 or below
+  regardless. The five cases in `KeyboardDismissTest` are unverified against a
+  running framework, and `a_field_scrolled_into_view_by_its_own_focus_keeps_it`
+  is the one most likely to need adjusting — it depends on `requestFocus()` on an
+  off-screen field actually provoking the scroll it is written to survive.
+- **A sheet opened while a field behind it is focused** hides the keyboard by
+  taking window focus, and the field behind keeps focus. Whether the IME returns
+  when the sheet closes was not chased down.

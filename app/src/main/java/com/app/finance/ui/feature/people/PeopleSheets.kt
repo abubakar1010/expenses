@@ -34,6 +34,7 @@ import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.KeypadKey
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.NumericKeypad
+import com.app.finance.ui.common.dismissKeyboardOnOutsideGesture
 import com.app.finance.ui.feature.entry.messageRes
 import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
@@ -63,6 +64,9 @@ fun PersonEditorSheet(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                // A sheet is its own window, so the app root's dismissal does not
+                // reach in here.
+                .dismissKeyboardOnOutsideGesture()
                 .padding(horizontal = Space.gutter),
         ) {
             Text(

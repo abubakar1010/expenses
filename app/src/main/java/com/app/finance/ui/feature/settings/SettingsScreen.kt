@@ -55,6 +55,7 @@ import com.app.finance.ui.common.ActionRow
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.ToggleRow
 import com.app.finance.ui.common.SectionHeader
+import com.app.finance.ui.common.dismissKeyboardOnOutsideGesture
 import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
@@ -363,6 +364,9 @@ private fun DeleteAllSheet(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                // A sheet is its own window, so the app root's dismissal does not
+                // reach in here.
+                .dismissKeyboardOnOutsideGesture()
                 .padding(Space.gutter),
             verticalArrangement = Arrangement.spacedBy(Space.s3),
         ) {

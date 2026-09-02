@@ -37,6 +37,7 @@ import com.app.finance.ui.common.EmptyState
 import com.app.finance.ui.common.LedgerRow
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.SectionHeader
+import com.app.finance.ui.common.dismissKeyboardOnOutsideGesture
 import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
@@ -84,6 +85,9 @@ fun SplitSheet(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                // A sheet is its own window, so the app root's dismissal does not
+                // reach in here.
+                .dismissKeyboardOnOutsideGesture()
                 .padding(bottom = Space.s3),
         ) {
             Text(

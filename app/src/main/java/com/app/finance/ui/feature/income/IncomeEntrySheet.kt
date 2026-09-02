@@ -59,6 +59,7 @@ import com.app.finance.ui.common.KeypadKey
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.NumericKeypad
+import com.app.finance.ui.common.dismissKeyboardOnOutsideGesture
 import com.app.finance.ui.common.rememberJavaLocale
 import com.app.finance.ui.feature.entry.messageRes
 import com.app.finance.ui.theme.DayBookTheme
@@ -116,6 +117,9 @@ fun IncomeEntrySheet(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                // A sheet is its own window, so the app root's dismissal does not
+                // reach in here.
+                .dismissKeyboardOnOutsideGesture()
                 .padding(bottom = Space.s3),
         ) {
             Text(
@@ -426,6 +430,9 @@ private fun NoteSheet(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                // A sheet is its own window, so the app root's dismissal does not
+                // reach in here.
+                .dismissKeyboardOnOutsideGesture()
                 .padding(Space.gutter),
             verticalArrangement = Arrangement.spacedBy(Space.s3),
         ) {

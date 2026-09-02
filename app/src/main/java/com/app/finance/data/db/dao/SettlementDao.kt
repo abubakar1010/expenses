@@ -66,6 +66,9 @@ interface SettlementDao {
         SELECT p.id AS personId,
                p.name AS personName,
                p.is_archived AS archived,
+               (EXISTS (SELECT 1 FROM expense_share WHERE person_id = p.id)
+                 OR EXISTS (SELECT 1 FROM expense    WHERE payer_person_id = p.id)
+                 OR EXISTS (SELECT 1 FROM settlement WHERE person_id = p.id)) AS hasHistory,
                IFNULL((SELECT SUM(s.share_minor)
                          FROM expense_share s
                          JOIN expense e ON e.id = s.expense_id
@@ -104,5 +107,16 @@ data class PersonBalanceRow(
     val personId: Long,
     val personName: String,
     val archived: Boolean,
+    /**
+     * Whether any expense, share or settlement names them — FR-SHR-01.
+     *
+     * Carried on the balance row rather than fetched per person, because the
+     * People screen shows the delete control for every row at once and
+     * `PersonDao.hasHistory` one row at a time would be a query per name. It
+     * is the same three `EXISTS` clauses; a balance of zero is *not* the same
+     * question, since somebody who borrowed ৳500 and repaid it is square and
+     * still has history.
+     */
+    val hasHistory: Boolean,
     val balanceMinor: Long,
 )

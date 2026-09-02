@@ -46,11 +46,22 @@ class PersonRepository(
      * "rahim" when "Rahim" exists must reach the same balance, not open a
      * second one beside it. The unique index is the backstop; this is the path
      * that keeps the user from ever meeting it.
+     *
+     * An **archived** match is refused rather than handed back, which is
+     * `IncomeRepository`'s answer to the same question ([EntryError
+     * .SOURCE_ARCHIVED]). The name key is unique across archived and active
+     * rows alike, so there is no "create a new one under the same name" to
+     * fall back on, and silently reviving somebody into a picker they were
+     * deliberately removed from is worse than saying so: the copy sends the
+     * user to restore them.
      */
     suspend fun findOrCreate(name: String): SaveOutcome {
         if (NameKey.isBlank(name)) return SaveOutcome.Rejected(EntryError.BLANK_NAME)
         val key = NameKey.of(name)
-        dao.byNameKey(key)?.let { return SaveOutcome.Saved(it.id) }
+        dao.byNameKey(key)?.let {
+            return if (it.isArchived) SaveOutcome.Rejected(EntryError.PERSON_ARCHIVED)
+            else SaveOutcome.Saved(it.id)
+        }
 
         val now = clock.millis()
         return runCatchingWrite {
@@ -124,6 +135,16 @@ class PersonRepository(
             onFailure = { SaveOutcome.Rejected(it.toPersonError()) },
         )
     }
+
+    /**
+     * Re-inserts somebody [delete] removed, for Undo — NFR-USE-03.
+     *
+     * Verbatim, uuid included, so a backup written before the deletion still
+     * merges onto the same person rather than opening a second one. The id is
+     * dropped because SQLite assigns a new one and nothing referenced the old
+     * one — [delete] only ever runs on somebody with no history at all.
+     */
+    suspend fun restore(person: PersonEntity): Long = dao.insert(person.copy(id = 0))
 
     /*
      * There is deliberately no `move`.

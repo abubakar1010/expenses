@@ -55,17 +55,33 @@ sealed interface Split {
      * Whether this split can stand beside [yourShare], the amount the expense
      * will store.
      *
-     * The bill is `yourShare + owed`, so there is nothing to cross-check
-     * against — what can still be wrong is a share of zero or less, which
-     * `CHECK (share_minor > 0)` would refuse and which describes somebody who
-     * should not be on the list at all; or the same person listed twice, which
-     * `ux_share_expense_person` refuses and which is a mistake rather than a
-     * second debt.
+     * Three ways it can be wrong, and they are different mistakes:
+     *
+     *  - the same person listed twice, which `ux_share_expense_person` refuses
+     *    and which is a mistake rather than a second debt
+     *  - a share of zero or less, which `CHECK (share_minor > 0)` would refuse
+     *    and which describes somebody who should not be on the list at all
+     *  - the shares already accounting for the whole bill, leaving [yourShare]
+     *    zero or negative
+     *
+     * The last one used to be unchecked, and the bill is `yourShare + owed`
+     * with no stored total, so nothing downstream could catch it: typing
+     * ৳600 and ৳500 against a ৳1,000 dinner stored `amount_minor = -10000`
+     * and the rollups took a ৳100 *credit* for a meal that was eaten.
+     * `CHECK (amount_minor <> 0)` lets a negative through on purpose —
+     * FR-EXP-06's refund is one — so this is the only layer that can refuse
+     * it. [SplitAllocator.isBalanced] is where the rule already lived,
+     * tested and unused.
      */
-    fun validate(yourShare: Money): EntryError? = when {
-        owed.any { it.amount.paisa <= 0L } -> EntryError.SPLIT_DOES_NOT_BALANCE
-        owed.map { it.personId }.toSet().size != owed.size -> EntryError.SPLIT_DOES_NOT_BALANCE
-        else -> null
+    fun validate(yourShare: Money): EntryError? {
+        if (owed.map { it.personId }.toSet().size != owed.size) {
+            return EntryError.SPLIT_DOES_NOT_BALANCE
+        }
+        if (owed.isEmpty()) return null
+        val amounts = owed.map { it.amount }
+        val bill = Money(yourShare.paisa + amounts.sumOf { it.paisa })
+        return if (SplitAllocator.isBalanced(bill, amounts)) null
+        else EntryError.SPLIT_DOES_NOT_BALANCE
     }
 
     /** One person's part of a bill you paid. */

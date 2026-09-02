@@ -61,6 +61,7 @@ import com.app.finance.data.repo.BackupOutcome
 import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.BackupInterval
+import com.app.finance.ui.common.DetailHeader
 import com.app.finance.ui.common.ActionRow
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.SectionHeader
@@ -149,11 +150,9 @@ fun BackupScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        Text(
-            text = stringResource(R.string.backup_title),
-            style = DayBookTheme.type.screenTitle,
-            color = DayBookTheme.colors.ink,
-            modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s3),
+        DetailHeader(
+            title = stringResource(R.string.backup_title),
+            onBack = onBack,
         )
 
         // 04 §5.3 — "foreground with progress". Writing five years of ledger and

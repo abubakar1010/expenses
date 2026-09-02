@@ -2,12 +2,9 @@ package com.app.finance.ui.feature.people
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -17,7 +14,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -31,6 +27,7 @@ import com.app.finance.core.money.Money
 import com.app.finance.data.db.dao.PersonBalanceRow
 import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
+import com.app.finance.ui.common.DetailHeader
 import com.app.finance.ui.common.EmptyState
 import com.app.finance.ui.common.LedgerRow
 import com.app.finance.ui.common.MoneyText
@@ -91,20 +88,11 @@ fun PeopleScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Space.gutter, vertical = Space.s2),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.people_title),
-                style = DayBookTheme.type.screenTitle,
-                color = DayBookTheme.colors.ink,
-            )
-            TextAction(stringResource(R.string.add_person), vm::addPerson)
-        }
+        DetailHeader(
+            title = stringResource(R.string.people_title),
+            onBack = onBack,
+            trailing = { TextAction(stringResource(R.string.add_person), vm::addPerson) },
+        )
 
         if (state.isEmpty) {
             EmptyState(

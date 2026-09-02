@@ -88,6 +88,27 @@ object DayBookIcons {
         }
     }
 
+    /**
+     * The back control on every detail route.
+     *
+     * An arrow rather than [ChevronLeft], which is already spoken for: the bare
+     * chevrons are the period switcher, and three of the screens that carry a
+     * back control also carry a period. A shaft is what separates "the month
+     * before this one" from "the screen before this one" at a glance.
+     */
+    val ArrowLeft: ImageVector by lazy {
+        icon("arrowLeft") {
+            // The shaft, on the same 2-unit rule as every other mark here.
+            bar(5f, 11f, 15f, 2f)
+            // The head — ChevronLeft's geometry, moved left so the shaft can
+            // run out from behind it.
+            path(fill = SolidColor(Color.Black)) {
+                moveTo(12f, 4f); lineTo(13.5f, 5.5f); lineTo(7f, 12f)
+                lineTo(13.5f, 18.5f); lineTo(12f, 20f); lineTo(4f, 12f); close()
+            }
+        }
+    }
+
     private fun icon(name: String, content: ImageVector.Builder.() -> Unit): ImageVector =
         ImageVector.Builder(
             name = name,

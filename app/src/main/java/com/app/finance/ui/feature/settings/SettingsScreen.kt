@@ -51,6 +51,7 @@ import com.app.finance.data.export.ImportOutcome
 import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.ThemeChoice
+import com.app.finance.ui.common.DetailHeader
 import com.app.finance.ui.common.ActionRow
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.ToggleRow
@@ -153,11 +154,9 @@ fun SettingsScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState()),
     ) {
-        Text(
-            text = stringResource(R.string.settings_title),
-            style = DayBookTheme.type.screenTitle,
-            color = DayBookTheme.colors.ink,
-            modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s3),
+        DetailHeader(
+            title = stringResource(R.string.settings_title),
+            onBack = onBack,
         )
 
         // 05 §8 — a skeleton or a bar, never a spinner over a frozen screen.

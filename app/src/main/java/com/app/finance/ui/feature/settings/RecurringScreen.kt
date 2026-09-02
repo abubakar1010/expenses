@@ -48,6 +48,7 @@ import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.Frequency
 import com.app.finance.domain.model.RuleTarget
+import com.app.finance.ui.common.DetailHeader
 import com.app.finance.ui.common.EmptyState
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.MoneyText
@@ -97,20 +98,11 @@ fun RecurringScreen(
     BackHandler(onBack = onBack)
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Space.gutter, vertical = Space.s2),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = stringResource(R.string.recurring_title),
-                style = DayBookTheme.type.screenTitle,
-                color = DayBookTheme.colors.ink,
-            )
-            TextAction(stringResource(R.string.add_rule), onClick = vm::add)
-        }
+        DetailHeader(
+            title = stringResource(R.string.recurring_title),
+            onBack = onBack,
+            trailing = { TextAction(stringResource(R.string.add_rule), onClick = vm::add) },
+        )
 
         if (state.isEmpty) {
             EmptyState(

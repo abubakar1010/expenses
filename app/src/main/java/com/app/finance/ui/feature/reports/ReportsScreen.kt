@@ -42,6 +42,7 @@ import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.Nature
 import com.app.finance.domain.usecase.SpendSlice
+import com.app.finance.ui.common.DetailHeader
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.LedgerRow
 import com.app.finance.ui.common.MoneyText
@@ -85,16 +86,9 @@ fun ReportsScreen(container: AppContainer, onBack: () -> Unit) {
 
     LazyColumn(Modifier.fillMaxSize()) {
         item(key = "title") {
-            Text(
-                text = stringResource(R.string.reports_title),
-                style = DayBookTheme.type.screenTitle,
-                color = DayBookTheme.colors.ink,
-                modifier = Modifier.padding(
-                    start = Space.gutter,
-                    end = Space.gutter,
-                    top = Space.s4,
-                    bottom = Space.s2,
-                ),
+            DetailHeader(
+                title = stringResource(R.string.reports_title),
+                onBack = onBack,
             )
         }
 

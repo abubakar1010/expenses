@@ -56,7 +56,10 @@ import com.app.finance.ui.theme.Space
  */
 @Composable
 fun DayBookBottomBar(
-    current: Route,
+    // `null` on a detail route, where none of the four is where the user is.
+    // Lighting one anyway is a false statement about the app's own state, and
+    // on Settings it was a false statement about where the tap would go.
+    current: Route?,
     onSelect: (Route) -> Unit,
     onQuickAdd: () -> Unit,
     modifier: Modifier = Modifier,
@@ -109,7 +112,7 @@ fun DayBookBottomBar(
 private fun NavItem(
     route: Route,
     @StringRes label: Int,
-    current: Route,
+    current: Route?,
     onSelect: (Route) -> Unit,
     modifier: Modifier = Modifier,
 ) {

@@ -197,6 +197,34 @@ class AccessibilityTest {
     }
 
     @Test
+    fun the_detail_header_keeps_its_back_target_at_the_narrowest_screen_and_largest_type() {
+        // The worst case in the app: "Repeating entries" is the longest detail
+        // title and it is one of the four that also carries a trailing action.
+        // At 320 dp and 1.3x there is not room for both on one line, which is
+        // why the title takes a `weight` and wraps — but the thing that must not
+        // give is the back control, since it is now the only visible way off the
+        // screen (§27).
+        renderAt(width = 320.dp, fontScale = 1.3f) {
+            com.app.finance.ui.common.DetailHeader(
+                title = "Repeating entries",
+                onBack = {},
+                trailing = { androidx.compose.material3.Text("Add rule") },
+            )
+        }
+
+        compose.onNodeWithContentDescription("Back")
+            .assertIsDisplayed()
+            .assertHeightIsAtLeast(48.dp)
+            .assertWidthIsAtLeast(48.dp)
+        compose.onNodeWithContentDescription("Back").assertFitsWithin(320.dp)
+        // The action is what a wrapping title pushes off, and it is the reason
+        // the title is weighted rather than left to take what it likes.
+        compose.onNodeWithText("Add rule").assertFitsWithin(320.dp)
+        // Proves the override took effect rather than measuring the emulator.
+        compose.onRoot().assertWidthIsEqualTo(320.dp)
+    }
+
+    @Test
     fun the_entry_sheet_survives_the_largest_supported_font_scale() {
         // Save is the control the whole flow exists for, and it is the first
         // thing a taller type scale pushes out of the layout.

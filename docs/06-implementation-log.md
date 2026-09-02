@@ -5453,6 +5453,230 @@ test for that requirement should do.
 
 ---
 
+## 27. Getting back: the seven detail routes, and the tab that reopened one
+
+Reported from use, not found by an audit: *"there is some page exist that
+hasn't any button to get back, even switching tab still pointing the same
+page."* Both halves are real, and they are the same absence seen twice — the
+app had no way out of a detail route that the app itself owned.
+
+`ui/AppNav.kt` had no test of any kind at the time. It does not appear in
+§21.10, §22.8, §23.5, §24.4 or §26.7's inventories, which is how a seven-screen
+dead end survived four audits: every one of them tested screens, and this was
+never about a screen.
+
+### 27.1 The inventory
+
+| Page | Reached from | Way back before | Way back now |
+| --- | --- | --- | --- |
+| Dashboard, Ledger, Income, Budget | bottom bar | tab — it is the root | unchanged |
+| Categories | Budget header | system back only | **back control** |
+| Income sources | Income header | system back only | **back control** |
+| People | Ledger search bar | system back only | **back control** |
+| Settings | Dashboard header | system back only | **back control** |
+| Repeating entries | Settings | system back only | **back control** |
+| Reports | Settings | system back only | **back control** |
+| Backup | Settings | system back only | **back control** |
+| Welcome, Lock, Recovery | launch gates | terminal by design | unchanged |
+| every bottom sheet | its own screen | scrim, swipe, back | unchanged |
+
+The launch gates are the deliberate exceptions and stay that way: `RecoveryScreen`
+is what the app shows when there is nothing to go back *to* (04 §8), the lock has
+one exit and it is the credential, and `WelcomeScreen` is a decision FR-DAT-10
+requires an answer to. Sheets keep the `ModalBottomSheet` contract, which is
+three affordances already.
+
+### 27.2 A `BackHandler` is not a control
+
+All seven called `BackHandler(onBack = onBack)` and rendered a bare title. That
+covers the gesture and nothing else: it is invisible, it belongs to the OS rather
+than to the app, and it is the one affordance a user cannot be shown. 05 §9's "a
+control says what happens" has nothing to say about a control that is not there.
+
+`ui/common/DetailHeader.kt` is now the header all seven use — one component for
+the reason `ActionRow` was extracted into `SettingsRows.kt`: 05 §6 makes the
+component list the design. It is a 48 dp target around a 24 dp glyph with the
+description on the target rather than on the icon, which is exactly how
+`PeriodSwitcher`'s arrows are built; with no start gutter on the row, the centred
+glyph lands on the same 16 dp the titles used to.
+
+`DayBookIcons.ArrowLeft` is the eighth icon in the set. An arrow rather than the
+existing `ChevronLeft`, which is spoken for: bare chevrons are the period
+switcher, and three of the screens carrying a back control also carry a period.
+
+### 27.3 The tab that reopened the page you were leaving
+
+The second half of the report, and the more interesting defect. `navigateTop`
+was the textbook bottom-bar navigation:
+
+```kotlin
+navigate(route.path) {
+    popUpTo(graph.startDestinationId) { saveState = true }
+    launchSingleTop = true
+    restoreState = true
+}
+```
+
+That pair is written expecting the back stack to hold **tab roots only**. It did
+not. `NavControllerImpl.executePopOperations` (navigation 2.9.8) collects
+everything a `saveState` pop removed into *one* saved stack, keyed by the
+**deepest entry popped** — not one saved stack per destination.
+
+So from Ledger → People, tapping Ledger popped `[ledger, people]`, saved the pair
+under `ledger`, and `restoreState` handed both straight back:
+
+> **the Ledger tab landed on People.**
+
+And it stayed there. Leaving by a different tab saved the pair again, so every
+later visit to Ledger reopened People. That is the reported "switching tab still
+pointing the same page", exactly.
+
+The same function has a second door. On an `!inclusive` pop it also maps the
+popUpTo *target* to that saved stack when the target has no mapping yet:
+
+```kotlin
+if (!inclusive) {
+    generateSequence(foundDestination) { ... }
+        .takeWhile { !backStackMap.containsKey(it.id) }
+        .forEach { backStackMap[it.id] = savedState.firstOrNull()?.id }
+}
+```
+
+`foundDestination` is Dashboard, the start destination. So on a **fresh launch** —
+Dashboard → Settings → Ledger → Dashboard — the Dashboard tab opened Settings.
+First run, four taps, and nothing on screen to explain it.
+
+The fix is one loop, and it states the invariant the library was written
+expecting:
+
+```kotlin
+while (currentDestination?.route?.let { Route.fromPath(it) == null } == true) {
+    if (!popBackStack()) break
+}
+```
+
+Leave the detail route first, and leave it *unsaved*; only tab roots are ever
+handed to `saveState`. It costs nothing and makes the common case cheaper than it
+was — tapping the tab you are already under now unwinds to it, with its list
+state never having been torn down rather than saved and rebuilt.
+
+### 27.4 `fromPath` answered Dashboard for questions it did not understand
+
+```kotlin
+fun fromPath(path: String?): Route = entries.firstOrNull { it.path == path } ?: Dashboard
+```
+
+Which lit the Dashboard tab on all seven detail routes. NFR-USE-05 forbids
+conveying state by colour alone; a *wrong* state conveyed by colour is worse, and
+on Settings — reached from the Dashboard's own header — it told the user they
+were already where the tab would take them. It returns `Route?` now, and
+`DayBookBottomBar` takes a nullable `current`: on a detail route none of the four
+is lit, because none of them is where the user is.
+
+### 27.5 Test inventory
+
+Two new instrumented classes and one case added to `AccessibilityTest` — **18
+tests**, on an API 35 emulator (`Khata_API35`, headless, `-gpu
+swiftshader_indirect`).
+
+**The whole suite is 711 and was run in three segments**, because the emulator
+process was killed twice from outside this session, both times mid-run. The
+segments cover every class between them: 455 on a cold boot (through
+`DashboardScaleTest`), 173 (dashboard, entry, income), 95 (ledger, people,
+reports, settings, lock). Zero failures except the one in §27.6, which passed on
+an isolated re-run. A single uninterrupted run is still worth having, and this
+was not it.
+
+The accessibility case is the 320 dp / 1.3x corner (NFR-COMP-03 and NFR-USE-04
+together) on the worst header in the app: "Repeating entries" is the longest
+title and one of the four that also carries a trailing action, so it is where a
+back target would be squeezed below 48 dp or pushed off the screen.
+
+`TabNavigationTest` (10) drives the real `navigateTop` against a graph carrying
+the real `Route` paths and two stand-in detail routes. No database: none of this
+is about what a screen shows.
+
+| test | what it pins |
+| --- | --- |
+| `tapping_the_tab_a_detail_route_hangs_off_returns_to_that_tab` | the reported defect |
+| `a_tab_left_through_a_detail_route_does_not_reopen_it_later` | the sticky half |
+| `a_detail_route_off_the_start_destination_does_not_come_back_under_a_tab` | the popUpTo-target door, on a first launch |
+| `a_detail_route_is_gone_from_the_back_stack_after_a_tab_switch` | not merely off-screen — system back cannot walk into it |
+| `two_stacked_detail_routes_are_both_left` | Settings → Backup, the only two-deep chain |
+| `a_tab_switch_still_replaces_rather_than_stacks` | what the fix must not cost |
+| `re_tapping_the_current_tab_does_nothing` | ditto |
+| `system_back_from_a_detail_route_still_returns_to_the_tab_it_was_opened_from` | ditto |
+| `a_detail_route_lights_no_tab`, `each_tab_path_still_resolves_to_its_own_tab` | §27.4 |
+
+`DetailBackControlTest` (7) renders each detail screen against `TestFixture` and
+asserts the control is displayed, clears 48 dp both ways, and calls `onBack`
+exactly once. One test per screen rather than one over `DetailHeader`: the
+component being right is not the claim, and *every screen using it* is precisely
+what a component test cannot make.
+
+**Verified by mutation** (§23.5's standard). The pop loop was deleted, the app
+rebuilt and reinstalled, and the suite re-run:
+
+| mutation | killed by | reported as |
+| --- | --- | --- |
+| the pop loop removed from `navigateTop` | `tapping_the_tab_a_detail_route_hangs_off_returns_to_that_tab` | `expected:<ledger> but was:<people>` |
+| " | `a_tab_left_through_a_detail_route_does_not_reopen_it_later` | `expected:<ledger> but was:<people>` |
+| " | `a_detail_route_off_the_start_destination_does_not_come_back_under_a_tab` | `expected:<dashboard> but was:<settings>` |
+
+Three of the ten, and those three messages *are* the bug report: tapping Ledger
+puts you on People, tapping Dashboard puts you on Settings. The other seven pass
+under the mutation by construction — four pin what the fix must not cost, two
+pin §27.4, and `a_detail_route_is_gone_from_the_back_stack_after_a_tab_switch`
+happens to sit on the one ordering where the poisoned entry is written but not
+yet read. They are kept: each would catch a different regression.
+
+### 27.6 Two flakes the run turned up, in code this section did not touch
+
+Running the suite around this work surfaced two failures that had nothing to do
+with navigation. Both passed in isolation and failed under load, which is the
+signature this log has recorded three times already.
+
+**`SourceManagerViewModelTest.a_delete_is_undoable_and_restores_the_same_row`**
+— `NullPointerException` on `restored!!`, inside a 173-test run; 3 s and green
+when run alone. It is §21.9 J exactly: the entity comes back through the
+ViewModel's own coroutine and the row's disappearance comes from Room's flow,
+the test awaited the *flow* and then read a field no predicate mentioned. Fixed
+by awaiting the callback through a `CompletableDeferred` — a wider `awaitState`
+predicate would not do, because `restored` is not part of the state and the
+predicate would only be re-evaluated on an emission that may never come.
+
+**`LedgerViewModelTest.scrolling_does_not_move_the_filtered_total`** — a 5 s
+`awaitState` timeout after ~700 tests on the same AVD; 22 tests in 7.6 s when
+run alone. That one seeds 120 rows through the triggers before it awaits
+anything, and `awaitState`'s default is 5 s. **Left alone**: it belongs to
+§24's work rather than this one, the diagnosis is the AVD ageing CLAUDE.md
+already documents, and widening a timeout is the change most likely to hide the
+next real failure.
+
+### 27.7 Two documents that had gone stale
+
+04 §7's screen inventory listed eleven screens and the app has thirteen: People
+(FR-SHR-05) and Repeating entries (FR-REC-01…05) were built after it was written
+and never added. Both are in the table now, and §7's paragraph names the two
+invariants this section is about — a back control per detail route, and a tab
+switch that does not save one.
+
+05 §6's component list gains **Detail header**, and its **Bottom nav** row now
+says what "active" means when the answer is *none of them*.
+
+### 27.8 Still not done
+
+- **The 711 has not been taken in one run** (§27.5). The emulator was killed
+  from outside the session twice, so the number is a union of three segments
+  rather than one tally. Every class is in it, and nothing was skipped, but a
+  clean single run is the thing that would let the next section carry the figure
+  forward without a footnote.
+- **The FAB is still offered on detail routes.** Quick Add from the Backup screen
+  mid-restore is odd rather than wrong, and 04 §7 asks for it to be one tap from
+  every *primary* screen without saying anything about the others.
+
+---
+
 ## 28. The keyboard that would not go away
 
 Reported from the device, not from the suite: *tap a typeable field and the

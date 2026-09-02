@@ -63,7 +63,16 @@ enum class Route(val path: String, val icon: ImageVector) {
     ;
 
     companion object {
-        fun fromPath(path: String?): Route = entries.firstOrNull { it.path == path } ?: Dashboard
+        /**
+         * `null` for a detail route, and that is the answer — not a fallback.
+         *
+         * This returned `?: Dashboard`, which lit the Dashboard tab on all seven
+         * detail routes. NFR-USE-05 forbids conveying state by colour alone; a
+         * *wrong* state conveyed by colour is worse, and on Settings — reached
+         * from the Dashboard's own header — it told the user they were already
+         * where the tab would take them.
+         */
+        fun fromPath(path: String?): Route? = entries.firstOrNull { it.path == path }
     }
 }
 
@@ -328,8 +337,32 @@ private const val SHEET_NEW = 0L
  * Switching tabs replaces rather than stacks, and restores the state of the tab
  * being returned to — so scrolling deep into the ledger, glancing at the
  * dashboard and coming back does not drop the user at the top again.
+ *
+ * **A detail route is left first, and left unsaved.** That loop is the whole
+ * fix for §27, and the reason is in `NavControllerImpl.executePopOperations`:
+ * `popUpTo(saveState = true)` saves everything it pops as *one* stack, keyed by
+ * the deepest entry popped — not one saved stack per destination. So from
+ * Ledger → People, tapping Ledger saved `[ledger, people]` under `ledger`, and
+ * `restoreState` handed the pair straight back: the tab landed on People, and
+ * every later visit to that tab landed there again, because leaving re-saved
+ * it. Tapping a *different* tab first did not help; it only deferred it.
+ *
+ * The same code has a second door. On an `!inclusive` pop it also maps the
+ * popUpTo *target* to that saved stack when the target has no mapping yet — so
+ * on a fresh launch, Dashboard → Settings → Ledger → Dashboard restored
+ * `[settings]` and the **Dashboard** tab opened Settings.
+ *
+ * Popping first means only tab roots are ever saved, which is the invariant the
+ * `saveState`/`restoreState` pair was written expecting. It also makes the
+ * common case cheaper than it was: tapping the tab you are already under just
+ * unwinds to it, with its list state never having been torn down.
  */
-private fun NavHostController.navigateTop(route: Route) {
+internal fun NavHostController.navigateTop(route: Route) {
+    // `route == null` is a detail route; `null` for the whole expression is a
+    // destination mid-transition, which is not one to pop.
+    while (currentDestination?.route?.let { Route.fromPath(it) == null } == true) {
+        if (!popBackStack()) break
+    }
     if (currentDestination?.route == route.path) return
     navigate(route.path) {
         popUpTo(graph.startDestinationId) { saveState = true }

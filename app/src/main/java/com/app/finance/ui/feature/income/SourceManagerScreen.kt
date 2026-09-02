@@ -38,6 +38,7 @@ import com.app.finance.data.db.dao.SourceWithCount
 import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
 import com.app.finance.domain.model.IncomeKind
+import com.app.finance.ui.common.DetailHeader
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.MoveActions
 import com.app.finance.ui.common.Reorder
@@ -84,20 +85,11 @@ fun SourceManagerScreen(
     BackHandler(onBack = onBack)
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = Space.gutter, vertical = Space.s2),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(
-                text = stringResource(R.string.sources_title),
-                style = DayBookTheme.type.screenTitle,
-                color = DayBookTheme.colors.ink,
-            )
-            TextAction(stringResource(R.string.add_source), onClick = vm::add)
-        }
+        DetailHeader(
+            title = stringResource(R.string.sources_title),
+            onBack = onBack,
+            trailing = { TextAction(stringResource(R.string.add_source), onClick = vm::add) },
+        )
 
         LazyColumn(Modifier.fillMaxSize()) {
             itemsIndexed(

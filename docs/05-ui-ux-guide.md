@@ -395,7 +395,8 @@ action.
 | **Month ribbon** | 32 dp tall; bar per day; `indigo` past, `vermilion` today marker, dotted future |
 | **Chip** | 32 dp, 16 dp radius, `card` background, 1 dp `rule` border; selected = `indigo` fill, `card` text |
 | **FAB** | 56 dp, centre-docked in nav bar, `indigo`, plus glyph. Only FAB in the app |
-| **Bottom nav** | 4 items + centre FAB slot; icon 24 dp + 11sp label; active = `indigo` + filled icon |
+| **Bottom nav** | 4 items + centre FAB slot; icon 24 dp + 11sp label; active = `indigo` + filled icon. On a detail route no item is active — none of the four is where the user is |
+| **Detail header** | Every route that is not one of the four tabs: a 48 dp back target around a 24 dp left arrow, the screen's name, and at most one trailing text action. No start gutter — the centred glyph supplies it. The system back gesture is not a substitute; it cannot be seen |
 | **Bottom sheet** | 16 dp top radius, `card`, drag handle, primary button full-width at base |
 | **Snackbar** | `ink` surface, `paper` text, 5 s, Undo in `moss`. Every delete gets one |
 | **Empty state** | One line stating the situation, one button starting the fix. No illustration — illustrations cost APK size and say nothing |

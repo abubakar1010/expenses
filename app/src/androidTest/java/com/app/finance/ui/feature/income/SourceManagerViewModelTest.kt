@@ -9,10 +9,12 @@ import com.app.finance.awaitState
 import com.app.finance.core.money.Money
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.IncomeKind
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -194,11 +196,24 @@ class SourceManagerViewModelTest {
         val state = vm.state.awaitState { it.row("Consulting") != null }
         val uuid = state.row("Consulting")!!.source.uuid
 
-        var restored: com.app.finance.data.db.entity.IncomeSourceEntity? = null
-        vm.delete(state.row("Consulting")!!) { _, source -> restored = source }
+        // **Await the callback, not the flow.** The row vanishing is Room's
+        // emission; the entity comes back through the ViewModel's own coroutine,
+        // and neither ordering is guaranteed (§21.9 J). Awaiting the state and
+        // then reading a field the predicate never mentioned is exactly the
+        // shape that keeps costing this suite: this passed alone in 3 s and
+        // threw `NullPointerException` on `restored!!` inside a 173-test run,
+        // where the slower machine let Room's emission land first.
+        //
+        // A `CompletableDeferred` rather than a wider `awaitState` predicate,
+        // because `restored` is not part of the state — a predicate mentioning
+        // it would only be re-evaluated on the *next* emission, and there may
+        // not be one.
+        val deleted = CompletableDeferred<com.app.finance.data.db.entity.IncomeSourceEntity>()
+        vm.delete(state.row("Consulting")!!) { _, source -> deleted.complete(source) }
+        val restored = withTimeout(5_000) { deleted.await() }
         vm.state.awaitState { it.row("Consulting") == null }
 
-        vm.undoDelete(restored!!)
+        vm.undoDelete(restored)
         val after = vm.state.awaitState { it.row("Consulting") != null }
         assertEquals(uuid, after.row("Consulting")!!.source.uuid)
         assertEquals(IncomeKind.STABLE.code, after.row("Consulting")!!.source.kind)

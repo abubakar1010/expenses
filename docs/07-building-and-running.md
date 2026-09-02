@@ -248,10 +248,27 @@ Confirm what is actually in the foreground:
 adb shell dumpsys activity activities | grep topResumedActivity
 ```
 
-**Screenshots come back black.** The app sets `FLAG_SECURE` for NFR-SEC-04, so
-`adb exec-out screencap` and every screen-recording tool produce a black frame.
-That is the privacy requirement working, not a broken tool. To inspect the UI,
-read the view hierarchy instead:
+**`FLAG_SECURE` is an opt-in setting, not the default.** NFR-SEC-04 says it is
+"applied *optionally*", and `SettingsRepository` stores it off — *Settings →
+Privacy → Hide from screenshots*. A fresh install screenshots normally.
+
+**Even with it on, `adb screencap` may still capture.** The flag blocks the
+system screenshot and other apps; `adb exec-out screencap` runs as the shell
+user, which on some ROMs is permitted to capture secure layers. Measured on the
+Galaxy A54 (Android 16): with the setting on, `screencap` returned a normal
+image. So a black frame proves the flag is on, but a captured one **does not
+prove it is off**. Read the window flag instead — `0x2000` is `FLAG_SECURE`:
+
+```bash
+adb shell dumpsys window windows | grep -A6 'com.app.finance/.*MainActivity' | grep 'fl='
+```
+
+```
+fl=81812100    # setting on  -> 0x2000 present
+fl=81810100    # setting off -> 0x2000 absent
+```
+
+To read the UI as text, which works regardless of the flag:
 
 ```bash
 adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml

@@ -5812,3 +5812,279 @@ key lets go of the field, and it leaves the query alone.
 - **A sheet opened while a field behind it is focused** hides the keyboard by
   taking window focus, and the field behind keeps focus. Whether the IME returns
   when the sheet closes was not chased down.
+## 29. Shared expenses, driven a second time
+
+**Date:** 2 September 2026
+
+Reported from use: *"the person adding feature isn't working properly, the UX is
+broken, and previously added people are not shown properly; I should be able to
+add for the same person, and the name should be case-insensitive, with no two
+people under the same name."*
+
+§25.7 walked this feature once and found one dead end — a sheet that told the
+user to add a person and offered no control to. This is the rest of that class,
+and the class is worth naming: **every defect below is in a seam between two
+things that were each tested and each correct.** The repositories were right,
+the allocator was right, `Split` was right; what was wrong was the state
+handed between them and the sheet, and no test of existing behaviour reaches
+that.
+
+### 29.1 Case-insensitivity was never the problem
+
+Taking the report's last two items first, because they turned out to be
+already true and it matters that the audit says so rather than changing
+something.
+
+`NameKey.of` NFC-normalises, collapses whitespace and folds with `Locale.ROOT`;
+`ux_person_name_key` is unique on the result; `PersonRepository.findOrCreate`
+looks the key up before inserting; `PersonDto.naturalKey` mirrors the index so a
+merge import lands on the existing person.
+`three_spellings_of_one_name_resolve_to_a_single_person` and
+`renaming_onto_an_existing_name_is_refused_rather_than_merging` have covered
+this since §25.
+
+What the user was seeing was **the fourth item wearing the third's clothes**.
+Typing a name that already existed did nothing visible, so it looked like a
+second person had failed to be created — when in fact the lookup had found the
+first one and the sheet simply never said so. See §29.3.
+
+### 29.2 The people list emptied itself after the first save
+
+`QuickAddViewModel.reset()` rebuilds the state from scratch, carrying only the
+category tree, the chips and the payment method. It did not carry `people`.
+
+That is fatal in a way a dropped field usually is not, because the list comes
+from a **Room flow**, and a Room flow re-emits when its *table* changes. Saving
+an expense does not touch `person`. So after the first save the list was empty
+and stayed empty — and this ViewModel belongs to the Activity (see `start`), so
+the emptying outlived the sheet. Every subsequent open of the split sheet showed
+*"Nobody to split with yet"* over a table with six people in it.
+
+It compounded with §29.3 exactly: the obvious response is to type the name
+again, `findOrCreate` finds the existing row, **no row is written**, the flow
+has no reason to emit, and the screen does not move. Two independent defects
+that each hid the other's symptom.
+
+`people` is now carried across `reset` alongside the tree and the chips. The
+line the four of them draw is worth stating: those are the reference data the
+sheet is *drawn from*, and everything defaulted is the entry itself.
+
+### 29.3 Adding a person did not select them
+
+`addPerson` called `findOrCreate` and used the result only to report an error.
+On success it did nothing at all, and relied on the people flow re-emitting to
+show the new name — which happens for a genuinely new person and never for one
+already on file.
+
+It now selects whoever came back, on whichever arm is open: into the split for
+*I paid*, as the payer for *somebody else paid*. That is both the fix and what
+was always meant — nobody types a name into a split sheet in order not to split
+with that person.
+
+**And an archived match is now refused** rather than handed back, which is
+`IncomeRepository`'s answer to the identical question (`SOURCE_ARCHIVED`). The
+name key is unique across archived and active rows alike, so there is no second
+person to create under that name; silently reviving somebody into a picker they
+were deliberately taken out of is worse than saying so. `EntryError
+.PERSON_ARCHIVED` and its copy already existed and nothing raised them.
+
+### 29.4 *Someone else paid* could not be chosen
+
+The sheet held the who-paid answer as its own local state:
+
+```kotlin
+var theyPaid by remember(state.splitMode) {
+    mutableStateOf(state.splitMode == SplitMode.THEY_PAID)
+}
+...
+DayBookChip(..., onClick = { theyPaid = true; onClear() })
+```
+
+Choosing the arm called `onClear()`, clearing moved `splitMode` to `NONE`, the
+changed `remember` key rebuilt the local as `false` — all within the frame. From
+an empty sheet it happened to work, because `splitMode` was already `NONE` and
+`MutableStateFlow` does not emit an equal value. From any split that already had
+people in it, the chip flashed and snapped straight back to *I paid*.
+
+**A control whose own state is destroyed by its own effect cannot be operated.**
+The answer is state now, on `QuickAddUiState`, where the thing it changes lives.
+`SplitMode.THEY_PAID` with a null `payerId` is the honest representation of the
+half-answered question, and the sheet is left with no local state but text being
+typed.
+
+`SplitSheetTest` could not have caught this: it rendered a constant
+`QuickAddUiState`, so the `remember` key never changed and the local held.
+
+### 29.5 Clearing a split remembered who was in it
+
+`clearSplit` moved `splitMode` and left `splitWith`, `customOwed` and `payerId`
+exactly as they were. The sheet reads `splitWith` to draw the selection, so
+after a clear it kept the leader dots beside people the split no longer named —
+and the next tap rebuilt the split from that stale list plus one.
+
+Every arm-changing intent now drops the other arms' selections, which is not
+tidiness: `trg_payer_excludes_shares` refuses a row that carries both, so a
+state holding both is one the database has no way to store.
+
+### 29.6 FR-SHR-02 was half built
+
+> "either evenly **or by an amount typed per person**"
+
+`splitByAmount` existed on the ViewModel, `SplitMode.CUSTOM` existed, and
+**nothing in the app could reach either**. The mode's only role was to hold a
+loaded split open while an expense was edited.
+
+Worse, the two halves were tangled: membership lived in `splitWith` for an even
+split and in `customOwed` for a typed one, so reopening a shared expense seeded
+`customOwed` and left `splitWith` empty — the sheet showed the amounts and
+marked nobody, and the first tap on a name rebuilt the split from that one
+person. Clearing a typed amount removed the person from the sheet entirely.
+
+Split in two, which is what they always were:
+
+- **`splitWith` is who is in the split**, for both styles.
+- **`customOwed` is what they owe**, a sparse companion — a person with no
+  amount typed yet is in the split and simply absent from `Split.YouPaid`, so
+  `CHECK (share_minor > 0)` is never offered a zero.
+
+The sheet gains an *Evenly · By amount* pair, offered once somebody is in the
+split, and a per-person field. Switching to *by amount* seeds each person with
+the even share they already had, so the style is a starting point to adjust
+rather than a blank form.
+
+### 29.7 An over-allocated split stored a negative expense
+
+`Split.validate(yourShare)` took `yourShare` and never read it. The doc said
+there was nothing to cross-check against; there was.
+
+Type ৳600 and ৳500 against a ৳1,000 dinner. Your share is −৳100.
+`CHECK (amount_minor <> 0)` accepts it — that is how FR-EXP-06's refund is
+stored — so the row saved cleanly and the month took a **৳100 credit for a meal
+that was eaten**. `canSave` was `yourShare?.isZero == false`, which is true of
+−৳100, so the button was live all the way.
+
+The rule already existed, tested, and was called from nowhere:
+`SplitAllocator.isBalanced`. `validate` uses it now, and `canSave` tests
+`validate` — which is what that property's own comment has always claimed it
+means. The sheet shows your share in `vermilion` as it crosses zero, so the dead
+Save button has a visible cause.
+
+### 29.8 Four controls that were built and never drawn
+
+`PeopleScreen`'s own header comment described a delete "present and disabled
+with a spoken reason rather than absent", modelled on `SourceManagerScreen`.
+It drew no such thing. `onRename` was threaded into `PersonRow` and never
+called; `setArchived` and `delete` were implemented on the ViewModel and
+reachable from nothing. The only thing the screen could do to a name was open
+the settle sheet — the same shape as §25.7's finding, in the screen next door.
+
+The row now carries *Settle up · Rename · Archive/Restore · Delete*, and the
+delete needs to know whether anybody has history, so `PersonBalanceRow` carries
+`hasHistory` — the three `EXISTS` clauses `PersonDao.hasHistory` already ran,
+folded into the balance query so the screen does not run one per name. A balance
+of zero is **not** the same question: somebody who borrowed ৳500 and repaid it
+is square and still has history.
+
+Delete is undoable (NFR-USE-03), so `PersonRepository` gains `restore` —
+verbatim, uuid included, following the settlement precedent.
+
+### 29.9 Two smaller ones in the same seam
+
+**The split was the one part of the draft that did not survive process death.**
+`persist()` wrote six keys and none of them was a split field, because every
+split intent was an expression body with no line to hang the call on. The amount
+field holds the **bill**, so a background kill that kept ৳1,000 and lost the
+three people it was divided between would have filed the whole dinner as the
+user's own — a wrong figure with nothing on screen to give it away. The intents
+go through `updateAndPersist` now; one helper is harder to forget than eight
+call sites.
+
+**Archiving somebody hid them from expenses they were already in.** The sheet
+bound to `observeActive()`, so reopening an expense an archived person had paid
+resolved `payer` to null and the inline sentence read an unqualified *Split*
+while `state.split` said `TheyPaid`. `QuickAddUiState.splitCandidates` is active
+people **plus anybody this split names** — `categoriesPresent`'s exception,
+applied to people. The ledger's filter chips take the same treatment for the
+person currently filtered, which otherwise lost its chip while the filter stayed
+on.
+
+### 29.10 The dead `Done`, and the missing `Clear`
+
+It was a `Text` with a colour, a width and a touch-target height, and no
+`clickable`. It looked exactly like the button every other sheet in the app
+closes with, and did nothing. It is a `Button` now.
+
+Errors moved onto this sheet too. `state.error` is rendered by the *entry*
+sheet, which is behind a modal scrim while this one is open — so a blank name,
+and the archived-person refusal added in §29.3, were both being explained on a
+screen the user could not see.
+
+Beside it is a **Not shared** action, `LedgerFilterSheet`'s Clear to the Done
+already there, shown only while there is something to clear. The argument is
+that sheet's: undoing a choice made across several taps has to cost one. It is
+also what gave `clearSplit` a caller — see §29.12.
+
+### 29.11 Three intents that only tests could reach
+
+Rewriting the sheet around `togglePerson`, `setSplitEvenly` and `setShare` left
+`splitEvenly(List<Long>)` and `splitByAmount(List<Owed>)` as second
+implementations of the same transitions, called from nowhere but the suite —
+§20's `pageAfter`, again. Worse than merely unused: it was `splitByAmount` that
+could put somebody in `customOwed` without putting them in `splitWith`, which
+after §29.6 is a state the sheet cannot draw. Both are gone, and the tests drive
+the three controls the sheet drives, which is what makes them tests of the
+feature rather than of the ViewModel's surface.
+
+`clearSplit` was the third, and it earned a caller instead of a deletion,
+because there was a real gap where it belonged: nothing on the sheet undid a
+split in one tap. See §29.10.
+
+### 29.12 Measured
+
+| | before (§28) | after |
+|---|---|---|
+| JVM tests | 311 | **320** |
+| Instrumented tests | 712 | **735** |
+| `SplitSheetTest` | 5 | **14** |
+| `QuickAddViewModelTest` | 25 | **39** |
+| Lint (`lintRelease`, `abortOnError`) | clean | **clean** |
+
+`SplitTest` is new and JVM — `Split.validate` is pure, and the rule it now
+enforces is arithmetic rather than anything Android needs to be present for.
+
+**Zero failures on the JVM suite. Two on the instrumented one, both the
+emulator rather than the app**, and worth writing down because the run that
+produced them was the AVD's third full pass of the session:
+
+| | aged AVD | after a cold boot |
+|---|---|---|
+| `PerformanceProbeTest.a_full_restore_finishes_inside_ten_seconds` | 20,304 ms | **pass** |
+| `LedgerViewModelTest.scrolling_does_not_move_the_filtered_total` | 5 s `awaitState` timeout | **pass** |
+
+The restore figure is within four hundred milliseconds of the 20,905 ms
+`CLAUDE.md` already records for the identical probe on an AVD that had run the
+suite once — which is what makes it a measurement of the emulator rather than of
+NFR-PERF-10. The `awaitState` timeout is the same cause: 5 s is a generous
+budget until everything under it is running five times slow. Both were
+re-measured on a cold-booted AVD, in isolation, and both pass — `PerformanceProbeTest`
+7 of 7, `LedgerViewModelTest` 22 of 22.
+
+The full suite's own earlier pass on this branch, before the last round of
+changes, was **734 of 734 with no failures** on the same AVD cold.
+
+### 29.13 Still not done
+
+- **Nothing renders the split sheet against a real ViewModel.** `SplitSheetTest`
+  drives a hoisted state and `QuickAddViewModelTest` drives the ViewModel; the
+  wiring between them is covered only by the fact that both compile. That is the
+  same gap §28.5 records for `DayBookApp`.
+- **A person archived while an expense they share in is open** is offered by
+  `splitCandidates` and will be written back on save. That is deliberate — the
+  alternative silently drops a share — but nothing raises `PERSON_ARCHIVED` on
+  that path, so the user is not told.
+- **The ledger's person filter still lists only active people plus the one
+  filtered (§29.9).** Somebody archived and square whose expenses are in history cannot
+  be filtered *to* from a standing start. Fixing it properly means a balance or
+  history flow on the app's most performance-sensitive screen, and §25.6 already
+  records the person filter as the expensive path there — that is a change to
+  make when a measurement asks for it.

@@ -36,6 +36,7 @@ import com.app.finance.R
 import com.app.finance.core.time.Period
 import com.app.finance.di.AppContainer
 import com.app.finance.ui.common.DayBookIcons
+import com.app.finance.ui.common.dismissKeyboardOnOutsideGesture
 import com.app.finance.ui.feature.backup.BackupScreen
 import com.app.finance.ui.feature.budget.BudgetScreen
 import com.app.finance.ui.feature.category.CategoryManagerScreen
@@ -142,7 +143,12 @@ fun DayBookApp(container: AppContainer) {
             Modifier
                 .fillMaxSize()
                 .background(DayBookTheme.colors.paper)
-                .padding(padding),
+                .padding(padding)
+                // Every screen in the NavHost inherits it, because the tap or
+                // the scroll that dismisses a keyboard lands on the screen and
+                // not on the field. Sheets are separate windows and carry their
+                // own.
+                .dismissKeyboardOnOutsideGesture(),
         ) {
             // 04 §5.3 puts export at "Dispatchers.IO, foreground with progress",
             // and FR-DAT-08's run belongs to no screen -- it starts beside the

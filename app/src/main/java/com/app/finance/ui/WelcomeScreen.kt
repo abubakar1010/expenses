@@ -41,6 +41,7 @@ import com.app.finance.data.export.BackupCodec
 import com.app.finance.data.export.ImportMode
 import com.app.finance.di.AppContainer
 import com.app.finance.di.viewModelFactory
+import com.app.finance.ui.common.dismissKeyboardOnOutsideGesture
 import com.app.finance.ui.feature.backup.BackupMessage
 import com.app.finance.ui.feature.backup.BackupViewModel
 import com.app.finance.ui.feature.backup.SecretField
@@ -262,6 +263,9 @@ fun WelcomeScreen(container: AppContainer, onDone: () -> Unit) {
                 Modifier
                     .fillMaxWidth()
                     .navigationBarsPadding()
+                    // A sheet is its own window, so the app root's dismissal does not
+                    // reach in here.
+                    .dismissKeyboardOnOutsideGesture()
                     .padding(Space.gutter),
                 verticalArrangement = Arrangement.spacedBy(Space.s3),
             ) {

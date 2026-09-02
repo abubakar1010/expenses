@@ -64,6 +64,7 @@ import com.app.finance.domain.model.BackupInterval
 import com.app.finance.ui.common.ActionRow
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.SectionHeader
+import com.app.finance.ui.common.dismissKeyboardOnOutsideGesture
 import com.app.finance.ui.openBackup
 import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
@@ -373,6 +374,9 @@ private fun PassphraseSheet(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                // A sheet is its own window, so the app root's dismissal does not
+                // reach in here.
+                .dismissKeyboardOnOutsideGesture()
                 .padding(Space.gutter),
             verticalArrangement = Arrangement.spacedBy(Space.s3),
         ) {
@@ -453,6 +457,9 @@ private fun RestoreSheet(
             Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                // A sheet is its own window, so the app root's dismissal does not
+                // reach in here.
+                .dismissKeyboardOnOutsideGesture()
                 .padding(Space.gutter),
             verticalArrangement = Arrangement.spacedBy(Space.s3),
         ) {

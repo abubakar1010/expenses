@@ -437,6 +437,8 @@ The reason is measurable rather than aesthetic. Spring animations run until they
 
 **The app never nags.** Budget warnings appear on the dashboard when the user looks. No push notifications in v1 — there is no background service, and an app that scolds you about spending gets uninstalled.
 
+**The keyboard leaves when you do.** A tap anywhere that is not a control, and any drag of a list, dismisses the software keyboard. Compose does not do this for free — a field keeps focus, and the IME follows focus, until something takes it away — so it is a property of the surface rather than of the field: applied once at the root of the app, and once per bottom sheet, since a sheet is its own window. A tap that a *control* handled is not "somewhere else" and leaves the field alone; the controls where that matters open a sheet, and the sheet takes the keyboard with it. Every IME action key means at least "I am done typing" — including `Search`, which the platform gives no default behaviour at all.
+
 **Defaults do the work.** Today's date, last-used payment method, most-used categories, current period. The user should be able to log a typical expense without changing a single default.
 
 ---

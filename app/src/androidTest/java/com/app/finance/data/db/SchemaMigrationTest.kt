@@ -340,4 +340,99 @@ class SchemaMigrationTest {
             generateSequence { if (c.moveToNext()) c.getString(n) to c.getInt(nn) else null }
                 .any { (name, notNull) -> name == "id" && notNull == 1 }
         }
+
+    // ------------------------------------------------------------------------
+
+    /**
+     * The upgrade a shipped install actually performs — v3 to v4.
+     *
+     * Every other test here starts at v1, and that is what let a defect reach a
+     * signed build: [Migrations.MIGRATION_1_2] rebuilds `category`, which drops
+     * `ux_category_parent_key` with the table and never puts it back, so by the
+     * time the later migrations run the index Room cannot describe is already
+     * gone. On a real v3 install it is very much there — restored by the
+     * previous launch's `onOpen` — and Room, which compares indices only after
+     * a migration, rejected `category` and sent the app to `RecoveryScreen`.
+     *
+     * So this fixture is built the way `CanonicalSchema.onCreate` builds one,
+     * invisible index included, with only version 4's column taken back out.
+     */
+    @Test
+    fun a_v3_install_upgrades_to_v4_with_its_ledger_intact() {
+        withV3Database { db ->
+            db.execSQL(
+                "INSERT INTO category (id, uuid, parent_id, name, name_key, nature, " +
+                    "is_system, is_archived, sort_order, created_at, updated_at) " +
+                    "VALUES (1, 'cat-root', NULL, 'Variable', 'variable', 1, 1, 0, 0, 100, 100)",
+            )
+            db.execSQL(
+                "INSERT INTO category (id, uuid, parent_id, name, name_key, nature, " +
+                    "is_system, is_archived, sort_order, created_at, updated_at) " +
+                    "VALUES (2, 'cat-leaf', 1, 'Grocery', 'grocery', 1, 1, 0, 0, 100, 100)",
+            )
+            db.execSQL(
+                "INSERT INTO budget (id, uuid, category_id, period_ym, limit_minor, " +
+                    "created_at, updated_at) " +
+                    "VALUES (5, 'bud-v3', 2, 202609, 800000, 100, 100)",
+            )
+            db.execSQL(
+                "INSERT INTO expense (id, uuid, category_id, amount_minor, spent_on, " +
+                    "period_ym, payment_method, note, status, created_at, updated_at) " +
+                    "VALUES (9, 'exp-v3', 2, 125000, 20700, 202609, 0, 'rice', 0, 100, 100)",
+            )
+        }
+
+        val migrated = AppDatabase.named(context, name)
+        try {
+            val db = migrated.openHelper.writableDatabase
+
+            db.query("SELECT limit_minor, note FROM budget WHERE id = 5").use { c ->
+                assertTrue("the v3 budget did not survive", c.moveToFirst())
+                assertEquals(800_000L, c.getLong(0))
+                assertTrue("an existing budget must have no note", c.isNull(1))
+            }
+            db.query("SELECT amount_minor FROM expense WHERE id = 9").use { c ->
+                assertTrue("the v3 expense did not survive", c.moveToFirst())
+                assertEquals(125_000L, c.getLong(0))
+            }
+
+            // Dropped so Room could validate, and put straight back by
+            // `onOpen`. Both halves matter: without the drop the upgrade fails,
+            // and without the restore two sibling categories could share a name.
+            assertTrue(
+                "the functional unique index was not restored after validation",
+                db.has("index", "ux_category_parent_key"),
+            )
+        } finally {
+            migrated.close()
+        }
+    }
+
+    /**
+     * A version-3 file exactly as `CanonicalSchema` would have left it, minus
+     * version 4's `budget.note`.
+     */
+    private fun withV3Database(populate: (SupportSQLiteDatabase) -> Unit) {
+        val helper = rawHelper()
+        try {
+            val db = helper.writableDatabase
+            v3Ddl().forEach(db::execSQL)
+            Schema.INDICES.forEach(db::execSQL)
+            // The whole point of this fixture.
+            Schema.ROOM_INVISIBLE_INDICES.forEach(db::execSQL)
+            Schema.TRIGGERS.forEach(db::execSQL)
+            populate(db)
+            db.version = 3
+        } finally {
+            helper.close()
+        }
+    }
+
+    private fun v3Ddl(): List<String> =
+        Schema.TABLES.map { ddl ->
+            val isBudget = ddl.contains("CREATE TABLE IF NOT EXISTS budget")
+            ddl.lines()
+                .filterNot { isBudget && it.trim().startsWith("note ") }
+                .joinToString("\n")
+        }
 }

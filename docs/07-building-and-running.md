@@ -348,6 +348,45 @@ Espresso call removed in API 37 — so whether API 36 is affected is *untested*
 either way. Run the Compose suites on the API 35 emulator until somebody
 establishes it.
 
+### 6.4 The upgrade rehearsal — required whenever the schema changes
+
+The test suite cannot be trusted to cover this, and once has already failed to:
+`SchemaMigrationTest` builds its fixture from the current `Schema`, while a real
+install was built by a *previous* release and then reopened many times. They
+differ in exactly the places migrations exist to handle. A defect that made
+every existing install fail to open survived 744 instrumented tests, 320 JVM
+tests, lint and a clean release build, and surfaced within ninety seconds of
+this procedure (06 §32).
+
+So before shipping any build whose `Schema.VERSION` differs from the last one:
+
+```bash
+# 1. the version currently in the field, from dist/
+adb install -r dist/daybook-<the shipped one>.apk
+
+# 2. put data in it — through the UI, so the rows are the app's own.
+#    A budget and an expense is enough; the point is that the file is
+#    non-empty and was written by the old schema.
+
+# 3. the new build, over the top. Never uninstall — that is the whole test.
+./gradlew :app:assembleRelease
+adb install -r app/build/outputs/apk/release/app-release.apk
+
+# 4. open it and look
+adb shell am start -W -n com.app.finance/.MainActivity
+adb logcat -d | grep -iE "Migration didn't|IllegalStateException"
+```
+
+What you are looking for is the app opening on the **dashboard with the data
+still there**. `Your data needs attention` — the recovery screen — means the
+migration was rejected; the ledger is intact but the release is not shippable.
+
+`adb install -r` also verifies the half that has nothing to do with the schema:
+the new APK must be signed with the same key as the installed one, or Android
+refuses the update outright. If it does, the fix is to build with the right
+`keystore.properties`. **It is never to uninstall first** — that deletes the
+ledger, and on a real user's phone there is no second copy.
+
 ---
 
 ## 7. Two things that will cost an afternoon

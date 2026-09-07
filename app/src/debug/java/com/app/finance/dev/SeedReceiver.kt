@@ -11,7 +11,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * `adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug`
+ * ```
+ * adb shell run-as com.app.finance.debug am broadcast --user 0 \
+ *   -a com.app.finance.SEED -p com.app.finance.debug
+ * ```
  *
  * The only way to put five years of data on a device without typing it. M4's
  * exit criterion is a measurement — "dashboard renders in ≤ 300 ms with 5 years
@@ -24,8 +27,11 @@ import kotlinx.coroutines.launch
  * between a build-time guarantee and a runtime one, and it is why this lives
  * here rather than behind a flag in `main`.
  *
- * `exported=false` regardless: `am broadcast` from the shell reaches an
- * unexported receiver in a debuggable package, and nothing else needs to.
+ * `exported=false`, which is why the command above goes through `run-as`: the
+ * shell uid cannot deliver to a non-exported receiver in another package, and
+ * it fails *silently* — enqueued, never delivered, no error. Sending from the
+ * app's own uid is the whole point of the `run-as` prefix, and `--user 0` is
+ * required with it.
  */
 class SeedReceiver : BroadcastReceiver() {
 

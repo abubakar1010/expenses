@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.TestFixture
 import com.app.finance.awaitState
 import com.app.finance.core.money.Money
+import com.app.finance.data.repo.StoredLimit
 import com.app.finance.core.time.Period
 import com.app.finance.domain.model.BudgetState
 import com.app.finance.domain.model.EntryError
@@ -107,15 +108,15 @@ class BudgetViewModelTest {
         vm.editLimit(fx.leafId("Grocery"), "Grocery")
         vm.state.awaitState { it.editor != null }
 
-        var cleared: Triple<Long, Money, Period>? = null
-        vm.clearLimit { id, limit, period -> cleared = Triple(id, limit, period) }
+        var cleared: Triple<Long, StoredLimit, Period>? = null
+        vm.clearLimit { id, removed, period -> cleared = Triple(id, removed, period) }
         vm.state.awaitState { it.editor == null }
-        val (id, limit, period) = requireNotNull(cleared)
+        val (id, removed, period) = requireNotNull(cleared)
 
         // The user steps back a month while the snackbar is still up.
         vm.setPeriod(jul)
         vm.state.awaitState { it.period == jul }
-        vm.undoClear(id, limit, period)
+        vm.undoClear(id, removed, period)
 
         withTimeout(5_000) {
             while (fx.budgets.limitFor(id, aug) == null) delay(25)
@@ -482,12 +483,12 @@ class BudgetViewModelTest {
         vm.editLimit(fx.leafId("Grocery"), "Grocery")
         vm.state.awaitState { it.editor != null }
 
-        var removed: Money? = null
+        var removed: StoredLimit? = null
         var removedFrom: Long? = null
-        vm.clearLimit { categoryId, limit, _ -> removedFrom = categoryId; removed = limit }
+        vm.clearLimit { categoryId, stored, _ -> removedFrom = categoryId; removed = stored }
 
         vm.state.awaitState { it.hasLimit("Grocery") == false }
-        assertEquals(Money.ofTaka(8_000), removed)
+        assertEquals(Money.ofTaka(8_000), removed?.limit)
         assertEquals(fx.leafId("Grocery"), removedFrom)
     }
 
@@ -499,9 +500,9 @@ class BudgetViewModelTest {
         vm.editLimit(fx.leafId("Grocery"), "Grocery")
         vm.state.awaitState { it.editor != null }
 
-        var removed: Money? = null
+        var removed: StoredLimit? = null
         var removedFrom: Long? = null
-        vm.clearLimit { categoryId, limit, _ -> removedFrom = categoryId; removed = limit }
+        vm.clearLimit { categoryId, stored, _ -> removedFrom = categoryId; removed = stored }
         vm.state.awaitState { it.hasLimit("Grocery") == false }
 
         vm.undoClear(removedFrom!!, removed!!, aug)
@@ -522,5 +523,77 @@ class BudgetViewModelTest {
 
         vm.state.awaitState { it.editor == null }
         assertFalse("no snackbar for a limit that was never there", called)
+    }
+
+    // --- FR-BUD-09 ----------------------------------------------------------
+
+    @Test
+    fun the_editor_opens_onto_the_note_already_stored() = runBlocking {
+        // Reopening the editor to adjust a figure must not be a way to lose the
+        // reason written beside it: the sheet writes back whatever it holds, so
+        // an editor that opened empty would blank the note on the next save.
+        fx.budgets.setLimit(fx.leafId("Grocery"), aug, Money.ofTaka(8_000), "Eid clothes")
+        val vm = vm()
+        vm.state.awaitState { it.hasLimit("Grocery") == true }
+
+        vm.editLimit(fx.leafId("Grocery"), "Grocery")
+        val state = vm.state.awaitState { it.editor?.note != null }
+
+        assertEquals("Eid clothes", state.editor!!.note)
+        assertEquals(Money.ofTaka(8_000), state.editor!!.existing)
+    }
+
+    @Test
+    fun a_note_typed_in_the_editor_reaches_the_stored_budget() = runBlocking {
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad }
+        vm.editLimit(fx.leafId("Grocery"), "Grocery")
+        vm.state.awaitState { it.editor != null }
+
+        vm.openNote()
+        vm.state.awaitState { it.editor?.noteOpen == true }
+        vm.setNote("rice is up")
+        vm.state.awaitState { it.editor?.noteOpen == false && it.editor?.note == "rice is up" }
+
+        // 9, 00, 0 -> "9000". The pad appends, so two DoubleZeros would be
+        // ten times this.
+        vm.onKey(KeypadKey.Digit('9'))
+        vm.onKey(KeypadKey.DoubleZero)
+        vm.onKey(KeypadKey.Digit('0'))
+        vm.saveLimit {}
+        vm.state.awaitState { it.editor == null }
+
+        withTimeout(5_000) {
+            while (fx.budgets.storedLimitFor(fx.leafId("Grocery"), aug)?.note == null) delay(25)
+        }
+        val stored = fx.budgets.storedLimitFor(fx.leafId("Grocery"), aug)!!
+        assertEquals("rice is up", stored.note)
+        assertEquals(Money.ofTaka(9_000), stored.limit)
+    }
+
+    @Test
+    fun undoing_a_clear_restores_the_note_as_well_as_the_figure() = runBlocking {
+        // NFR-USE-03's five seconds are meant to make a destructive action
+        // reversible. Restoring the limit and dropping the note would leave the
+        // undo itself destructive.
+        fx.budgets.setLimit(fx.leafId("Grocery"), aug, Money.ofTaka(8_000), "Eid clothes")
+        val vm = vm()
+        vm.state.awaitState { it.hasLimit("Grocery") == true }
+        vm.editLimit(fx.leafId("Grocery"), "Grocery")
+        vm.state.awaitState { it.editor != null }
+
+        var removed: StoredLimit? = null
+        var removedFrom: Long? = null
+        vm.clearLimit { categoryId, stored, _ -> removedFrom = categoryId; removed = stored }
+        vm.state.awaitState { it.hasLimit("Grocery") == false }
+        assertEquals("Eid clothes", removed?.note)
+
+        vm.undoClear(removedFrom!!, removed!!, aug)
+        vm.state.awaitState { it.hasLimit("Grocery") == true }
+
+        withTimeout(5_000) {
+            while (fx.budgets.storedLimitFor(removedFrom!!, aug)?.note == null) delay(25)
+        }
+        assertEquals("Eid clothes", fx.budgets.storedLimitFor(removedFrom!!, aug)!!.note)
     }
 }

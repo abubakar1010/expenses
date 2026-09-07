@@ -146,6 +146,14 @@ data class BudgetEntity(
     @ColumnInfo(name = "category_id") val categoryId: Long,
     @ColumnInfo(name = "period_ym") val periodYm: Int,
     @ColumnInfo(name = "limit_minor") val limitMinor: Long,
+    /**
+     * FR-BUD-09's optional note — why this limit is what it is.
+     *
+     * Nullable and unconstrained, exactly as `expense.note` and
+     * `income_entry.note` are. A budget with no note is the ordinary case and
+     * must stay indistinguishable from one written before the column existed.
+     */
+    val note: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )

@@ -31,10 +31,15 @@ import org.junit.runner.RunWith
  * repairs survived from M1 to here without anything noticing.
  *
  * **The v1 fixture.** [Schema.TABLES] minus what version 3 added, with
- * `payer_person_id` stripped and `NOT NULL` taken back off the keys — the two
- * shapes this pair of migrations actually turns on are stated explicitly, while
- * the untouched tables come from the schema so the fixture cannot rot into
- * something Room rejects for unrelated reasons.
+ * `payer_person_id` and `budget.note` stripped and `NOT NULL` taken back off
+ * the keys — the shapes these migrations actually turn on are stated
+ * explicitly, while the untouched tables come from the schema so the fixture
+ * cannot rot into something Room rejects for unrelated reasons.
+ *
+ * That stripping is load-bearing, and it grows with the schema: every
+ * migration here is guarded against re-running, so a column left in the
+ * fixture because the current schema happens to have it turns its migration
+ * into a no-op that still passes.
  */
 @RunWith(AndroidJUnit4::class)
 class SchemaMigrationTest {
@@ -61,6 +66,13 @@ class SchemaMigrationTest {
                     "period_ym, payment_method, note, status, created_at, updated_at) " +
                     "VALUES (7, 'exp-uuid', 1, 125000, 20680, 202608, 0, 'dinner', 0, 100, 100)",
             )
+            // A v1 budget, so v4's added column is exercised against a row
+            // that predates it rather than against an empty table.
+            db.execSQL(
+                "INSERT INTO budget (id, uuid, category_id, period_ym, limit_minor, " +
+                    "created_at, updated_at) " +
+                    "VALUES (3, 'bud-uuid', 1, 202608, 700000, 100, 100)",
+            )
         }
 
         val migrated = AppDatabase.named(context, name)
@@ -77,6 +89,16 @@ class SchemaMigrationTest {
                     assertTrue("payer should be null", c.isNull(2))
                 }
             assertEquals("the category was lost", 1, db.count("SELECT COUNT(*) FROM category"))
+
+            // v4's addition. The limit is untouched and the note reads null,
+            // which is the same thing this budget said before the column
+            // existed — FR-BUD-09's second acceptance criterion, checked
+            // where it actually matters: on somebody's existing ledger.
+            db.query("SELECT limit_minor, note FROM budget WHERE id = 3").use { c ->
+                assertTrue("the v1 budget did not survive", c.moveToFirst())
+                assertEquals(700_000L, c.getLong(0))
+                assertTrue("an existing budget must have no note", c.isNull(1))
+            }
 
             // v2's repair.
             assertTrue("the key is still nullable", db.idIsNotNull("expense"))
@@ -279,8 +301,16 @@ class SchemaMigrationTest {
 
     private fun v1Ddl(): List<String> =
         (Schema.TABLES - Schema.SHARED_TABLES.toSet()).map { ddl ->
+            val isBudget = ddl.contains("CREATE TABLE IF NOT EXISTS budget")
             ddl.lines()
                 .filterNot { it.contains("payer_person_id") }
+                // `budget.note` is version 4's, and this fixture is derived
+                // from the *current* schema — so every column added since v1
+                // has to be taken back out, or the migration under test finds
+                // its own work already done and silently does nothing.
+                // Scoped to `budget`: `expense` and `income_entry` have
+                // carried a note since v1.
+                .filterNot { isBudget && it.trim().startsWith("note ") }
                 .joinToString("\n")
                 .replace("AUTOINCREMENT NOT NULL", "AUTOINCREMENT")
         }

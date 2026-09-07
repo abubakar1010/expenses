@@ -1,4 +1,4 @@
--- DayBook — canonical SQLite schema, version 3.
+-- DayBook — canonical SQLite schema, version 4.
 --
 -- Generated from app/src/main/java/com/app/finance/data/db/Schema.kt, which is
 -- what actually creates the database at runtime. Regenerate both together.
@@ -133,6 +133,7 @@ CREATE TABLE budget (
     category_id  INTEGER NOT NULL REFERENCES category(id) ON DELETE RESTRICT,
     period_ym    INTEGER NOT NULL,
     limit_minor  INTEGER NOT NULL CHECK (limit_minor >= 0),
+    note         TEXT,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL
 );
@@ -516,7 +517,7 @@ INSERT INTO category (uuid, parent_id, name, name_key, nature, is_system, sort_o
 INSERT INTO income_source (uuid, name, name_key, kind, sort_order, created_at, updated_at) VALUES
     ('<uuid>', 'Salary', 'salary', 0, 0, <now>, <now>);
 
-INSERT INTO app_meta (key, value, updated_at) VALUES ('schema_version', '3', <now>);
+INSERT INTO app_meta (key, value, updated_at) VALUES ('schema_version', '4', <now>);
 
 -- ============================================ integrity and repair (§6)
 -- The user-invocable "rebuild aggregates" action in Settings, and the recovery

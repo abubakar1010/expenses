@@ -172,6 +172,13 @@ data class BudgetDto(
     @SerialName("category_id") val categoryId: Long,
     @SerialName("period_ym") val periodYm: Int,
     @SerialName("limit_minor") val limitMinor: Long,
+    /**
+     * FR-BUD-09, and defaulted so that a backup written before the field
+     * existed still parses. Every other optional column in this file is
+     * declared the same way, and NFR-DATA-* turns on old exports staying
+     * readable.
+     */
+    val note: String? = null,
     @SerialName("created_at") val createdAt: Long,
     @SerialName("updated_at") val updatedAt: Long,
 ) : ExportRow {
@@ -322,7 +329,7 @@ fun IncomeSourceEntity.toDto() = SourceDto(
 )
 
 fun BudgetEntity.toDto() =
-    BudgetDto(id, uuid, categoryId, periodYm, limitMinor, createdAt, updatedAt)
+    BudgetDto(id, uuid, categoryId, periodYm, limitMinor, note, createdAt, updatedAt)
 
 // Named, for the same reason `toEntity` below is: `payer_person_id` sits
 // between `status` and `created_at`, and a positional call silently re-binds
@@ -403,7 +410,7 @@ fun SourceDto.toEntity() = IncomeSourceEntity(
 )
 
 fun BudgetDto.toEntity() =
-    BudgetEntity(id, uuid, categoryId, periodYm, limitMinor, createdAt, updatedAt)
+    BudgetEntity(id, uuid, categoryId, periodYm, limitMinor, note, createdAt, updatedAt)
 
 // Named rather than positional from here on: `expense` gained
 // `payer_person_id` between `status` and `created_at`, and a positional call

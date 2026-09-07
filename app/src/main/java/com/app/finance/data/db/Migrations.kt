@@ -93,7 +93,34 @@ internal object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3)
+    /**
+     * `budget.note` — FR-BUD-09.
+     *
+     * One nullable column and nothing else. No row is rewritten, no index or
+     * trigger is touched, and every existing budget reads back with a null
+     * note, which is the same thing it would have said before the column
+     * existed. That is deliberately the smallest migration in this file: the
+     * app was in daily use with real data by the time it was written, and an
+     * additive column is the only shape of schema change that cannot lose a
+     * row it does not understand.
+     *
+     * Guarded by `PRAGMA table_info` for [MIGRATION_2_3]'s reason — SQLite has
+     * no `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, and a migration
+     * interrupted part-way is retried on the next launch and must not fail
+     * differently the second time.
+     *
+     * The column lands at the end of the table here and before `created_at` in
+     * [Schema], so an upgraded database and a fresh one differ in column
+     * *order*. That is fine and already true of `expense.payer_person_id`:
+     * Room's `TableInfo` compares columns by name.
+     */
+    val MIGRATION_3_4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            if (!db.hasColumn("budget", "note")) db.execSQL(V4_ALTER_BUDGET)
+        }
+    }
+
+    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
 
     // ------------------------------------------------------------------------
 
@@ -533,4 +560,8 @@ internal object Migrations {
         END
         """,
     ).map { it.trimIndent() }
+
+    // ------------------------------------------------- version 4, frozen DDL
+
+    private const val V4_ALTER_BUDGET = "ALTER TABLE budget ADD COLUMN note TEXT"
 }

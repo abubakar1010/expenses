@@ -6,6 +6,7 @@ import com.app.finance.core.money.Money
 import com.app.finance.core.time.Period
 import com.app.finance.data.repo.BudgetRepository
 import com.app.finance.data.repo.CategoryRepository
+import com.app.finance.data.repo.StoredLimit
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.SaveOutcome
 import com.app.finance.domain.usecase.BudgetAlert
@@ -32,6 +33,18 @@ data class LimitEditor(
     val categoryName: String,
     val input: String = "",
     val existing: Money? = null,
+    /** FR-BUD-09. Null and blank both mean "no note". */
+    val note: String? = null,
+    /**
+     * Whether the note editor is open over the sheet.
+     *
+     * Sheet state rather than a route, and held here rather than in the
+     * composable, for the reason every other editor field is: the screen is
+     * stateless and renders from [BudgetUiState], so a note half-typed
+     * survives a recomposition and a configuration change the same way the
+     * amount does.
+     */
+    val noteOpen: Boolean = false,
     val error: EntryError? = null,
 ) {
     val amount: Money? get() = Money.parseOrNull(input)
@@ -163,20 +176,41 @@ class BudgetViewModel(
 
     fun editLimit(categoryId: Long, categoryName: String) {
         viewModelScope.launch {
-            val existing = withContext(io) { budgets.limitFor(categoryId, _state.value.period) }
+            val stored = withContext(io) {
+                budgets.storedLimitFor(categoryId, _state.value.period)
+            }
             _state.update {
                 it.copy(
                     editor = LimitEditor(
                         categoryId = categoryId,
                         categoryName = categoryName,
                         // Pre-filled with what is already set, so adjusting a
-                        // limit does not mean retyping it.
-                        input = existing?.let(::editableText).orEmpty(),
-                        existing = existing,
+                        // limit does not mean retyping it. The note the same:
+                        // reopening the editor to change a figure must not be
+                        // a way to lose the reason written beside it.
+                        input = stored?.limit?.let(::editableText).orEmpty(),
+                        existing = stored?.limit,
+                        note = stored?.note,
                     ),
                 )
             }
         }
+    }
+
+    // --- FR-BUD-09's note ---------------------------------------------------
+
+    fun openNote() = _state.update { s ->
+        s.copy(editor = s.editor?.copy(noteOpen = true) ?: return@update s)
+    }
+
+    fun dismissNote() = _state.update { s ->
+        s.copy(editor = s.editor?.copy(noteOpen = false) ?: return@update s)
+    }
+
+    /** Blank is stored as no note; the repository trims and agrees. */
+    fun setNote(note: String?) = _state.update { s ->
+        val editor = s.editor ?: return@update s
+        s.copy(editor = editor.copy(note = note?.takeIf { it.isNotBlank() }, noteOpen = false))
     }
 
     fun onKey(key: KeypadKey) = _state.update { s ->
@@ -205,7 +239,9 @@ class BudgetViewModel(
         }
         val period = _state.value.period
         viewModelScope.launch {
-            val outcome = withContext(io) { budgets.setLimit(editor.categoryId, period, amount) }
+            val outcome = withContext(io) {
+                budgets.setLimit(editor.categoryId, period, amount, editor.note)
+            }
             when (outcome) {
                 is SaveOutcome.Saved -> {
                     _state.update { it.copy(editor = null) }
@@ -223,7 +259,7 @@ class BudgetViewModel(
      * [onCleared] carries the removed limit back so the screen can offer the
      * five seconds NFR-USE-03 requires of every destructive action.
      */
-    fun clearLimit(onCleared: (Long, Money, Period) -> Unit) {
+    fun clearLimit(onCleared: (Long, StoredLimit, Period) -> Unit) {
         val editor = _state.value.editor ?: return
         // Read once, here, rather than inside the coroutine. The period is part
         // of *which* limit this is, exactly as the category id is, and the user
@@ -244,9 +280,11 @@ class BudgetViewModel(
      * the user had stepped to — leaving the one they cleared still cleared, and
      * writing a limit into a month they never touched.
      */
-    fun undoClear(categoryId: Long, limit: Money, period: Period) {
+    fun undoClear(categoryId: Long, removed: StoredLimit, period: Period) {
         viewModelScope.launch {
-            withContext(io) { budgets.setLimit(categoryId, period, limit) }
+            withContext(io) {
+                budgets.setLimit(categoryId, period, removed.limit, removed.note)
+            }
         }
     }
 

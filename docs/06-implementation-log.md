@@ -6326,3 +6326,92 @@ focus normally on the phone via `am start`, so it is instrumentation-launched
 activities specifically. §23's foreground note describes the symptom; this is a
 second cause of it that a HOME press does not fix, and it was not chased down.
 The suite is 744 tests now, against 596 in §23.
+
+
+## 32. The upgrade that could not happen, and why every test said it could
+
+§31 shipped `budget.note` with a migration described as "the smallest in this
+file" and a test walking a v1 database all the way to v4. Then a question —
+*is installing the new version enough, it will update the existing app right?* —
+was answered by rehearsing it rather than asserting it: install the shipped
+release, put a budget and an expense in it, install the new release over the
+top.
+
+The app did not open.
+
+```
+java.lang.IllegalStateException: Migration didn't properly handle:
+    category(com.app.finance.data.db.entity.CategoryEntity).
+  Expected: indices = { ix_category_parent }
+  Found:    indices = { ix_category_parent, ux_category_parent_key }
+```
+
+It failed safely — 03 §8's `RecoveryScreen`, data untouched, an offer to save a
+copy — which is the difference between a bad afternoon and a lost ledger. But
+every install in the field would have hit it, and it had nothing to do with the
+note.
+
+### 32.1 The cause
+
+`ux_category_parent_key` is functional — `IFNULL(parent_id, -1), name_key` — so
+no Room entity can declare it. [Schema.ROOM_INVISIBLE_INDICES] already knows
+this is dangerous and says so at length: Room compares indices **only after a
+migration**, and rejects one it did not expect as firmly as one that is
+missing. Its stated resolution is that the index is created by
+`CanonicalSchema.onCreate` and re-created by `onOpen` *after* validation, never
+by a migration, so "at the moment Room validates, `category` carries only the
+indices its entity declares".
+
+That is true of a database being **created**. It is false of one being
+**upgraded**. On an installed app the index is already in the file, put back by
+the previous launch's `onOpen`. The first migration that database ever runs
+therefore hands Room a `category` table carrying an index it cannot describe —
+whatever the migration was for.
+
+The note migration was simply the first one a shipped install ever reached.
+`MIGRATION_2_3` had the identical hole and was never exposed, because the first
+release was already at v3: no device in the world has ever run it.
+
+### 32.2 Why the suite was green
+
+`SchemaMigrationTest` starts every walk at v1, and [Migrations.MIGRATION_1_2]
+rebuilds `category` — create new, copy, drop old, rename. Dropping the old table
+drops its indices, and `V1_INDICES` does not list the functional one, so it is
+simply gone by the time `MIGRATION_2_3` and `MIGRATION_3_4` run. The fixture
+erased the very object the defect is about, one migration before the defect.
+
+This is the second time in two sections that a fixture derived from `Schema`
+hid something (§31.2 was the first, and was caught only because the guard made
+the migration a no-op rather than a failure). The lesson is narrower than "test
+more": **a migration fixture must be built the way the shipping app builds a
+database, not the way the current schema describes one.** The two differ
+precisely in the places migrations exist to handle.
+
+### 32.3 The fix
+
+Every migration now ends by dropping the Room-invisible indices, from a frozen
+literal in `Migrations` rather than a read of `Schema`. The index is absent
+while Room looks and restored a few statements later by `onOpen`, before any
+write can reach the table — the window the original design intended, now open on
+the upgrade path too.
+
+`a_v3_install_upgrades_to_v4_with_its_ledger_intact` builds a version-3 file the
+way `CanonicalSchema.onCreate` would, functional index included, with only
+version 4's column taken back out, and opens it through Room. It was confirmed
+to fail without the fix — the same `Migration didn't properly handle: category`
+— and to pass with it. It also asserts the index is back afterwards, because
+dropping it and forgetting to restore it would let two sibling categories share
+a name, which is a quieter bug than the one it replaces.
+
+### 32.4 What the rehearsal is worth
+
+The whole defect was invisible to 744 instrumented tests, 320 JVM tests, lint
+and a clean release build, and visible within ninety seconds of installing one
+APK over another. The upgrade path is not a thing the test suite can be trusted
+to cover by construction, because the fixture and the field disagree about what
+a database looks like.
+
+**Before any release that changes the schema: install the previous signed APK,
+put data in it, install the new one over the top, and open it.** Recorded here
+rather than in a checklist nobody reads, and added to `07-building-and-running.md`
+where the build commands are.

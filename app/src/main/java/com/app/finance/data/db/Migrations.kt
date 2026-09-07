@@ -90,6 +90,7 @@ internal object Migrations {
             if (!db.hasColumn("expense", "payer_person_id")) db.execSQL(V3_ALTER_EXPENSE)
             V3_INDICES.forEach(db::execSQL)
             V3_TRIGGERS.forEach(db::execSQL)
+            DROP_ROOM_INVISIBLE_INDICES.forEach(db::execSQL)
         }
     }
 
@@ -117,6 +118,7 @@ internal object Migrations {
     val MIGRATION_3_4 = object : Migration(3, 4) {
         override fun migrate(db: SupportSQLiteDatabase) {
             if (!db.hasColumn("budget", "note")) db.execSQL(V4_ALTER_BUDGET)
+            DROP_ROOM_INVISIBLE_INDICES.forEach(db::execSQL)
         }
     }
 
@@ -564,4 +566,39 @@ internal object Migrations {
     // ------------------------------------------------- version 4, frozen DDL
 
     private const val V4_ALTER_BUDGET = "ALTER TABLE budget ADD COLUMN note TEXT"
+
+    // ------------------------------------------- the index Room must not see
+
+    /**
+     * Dropped by **every** migration, immediately before Room validates.
+     *
+     * `ux_category_parent_key` is functional — `IFNULL(parent_id, -1)` — so no
+     * Room entity can declare it, and Room rejects an index it did not expect
+     * exactly as firmly as one that is missing. [Schema.ROOM_INVISIBLE_INDICES]
+     * describes the arrangement that keeps it invisible: created by
+     * `CanonicalSchema.onCreate`, re-created by `onOpen` after validation,
+     * never by a migration.
+     *
+     * That is sufficient for a database being *created* and insufficient for
+     * one being *upgraded*, which is the case it was never tested against. On
+     * an installed app the index is already there, put back by the previous
+     * launch's `onOpen`; the first migration that database ever runs then hands
+     * Room a `category` table carrying an index its entity does not describe,
+     * and the upgrade fails on `category` whatever the migration was for. It
+     * fails safe — 03 §8 sends the user to `RecoveryScreen` rather than wiping
+     * — but the app does not open.
+     *
+     * Dropping it here closes the window: absent while Room looks, restored a
+     * few statements later by `onOpen`, before any write can reach the table.
+     * [MIGRATION_1_2] escaped this only because rebuilding `category` drops the
+     * index with the table and `V1_INDICES` never puts it back — which is also
+     * why every test starting from a v1 fixture passed while a real v3 install
+     * could not upgrade at all (06 §32).
+     *
+     * A frozen literal, not a read of [Schema]: this drops what the schema
+     * declared *then*, and must go on saying so if that list ever changes.
+     */
+    private val DROP_ROOM_INVISIBLE_INDICES = listOf(
+        "DROP INDEX IF EXISTS ux_category_parent_key",
+    )
 }

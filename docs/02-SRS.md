@@ -132,6 +132,11 @@ Each requirement has an ID, a statement, and verifiable acceptance criteria. `MU
 
 **FR-BUD-08** Budget limits MUST be greater than or equal to zero.
 
+**FR-BUD-09** The system MUST allow an optional free-text note on a budget, recorded against the (category, period) pair the limit belongs to.
+- *Accept:* A limit saved with the note "Eid clothes for the family" shows that note when the limit is reopened for editing; a limit saved without one is indistinguishable from a limit set before notes existed.
+- *Accept:* The note survives export and re-import, and survives the copy of FR-BUD-04 alongside the figure it explains.
+- *Accept:* Clearing a limit and undoing that clear restores the note as well as the figure.
+
 ### 2.5 Expenses — FR-EXP
 
 **FR-EXP-01** The system MUST provide an entry flow completing in no more than three interactions: amount, category, save.

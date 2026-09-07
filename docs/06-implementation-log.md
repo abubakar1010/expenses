@@ -6088,3 +6088,129 @@ changes, was **734 of 734 with no failures** on the same AVD cold.
   history flow on the app's most performance-sensitive screen, and §25.6 already
   records the person filter as the expensive path there — that is a change to
   make when a measurement asks for it.
+
+
+## 30. A dedicated emulator, and the broadcast that was never delivered
+
+The app went into real use on 7 September 2026 — a release build, application id
+`com.app.finance`, installed from `dist/daybook-1.0-1-2063056.apk`, holding a
+ledger with no second copy. That changes what a test device is for. Until now
+the phone was both the development target and the only hardware; from here the
+phone holds data that must not be touched, and everything exploratory needs
+somewhere else to happen.
+
+### 30.1 The AVD, and why 720 px
+
+`DayBook` — API 35 `google_apis` x86_64, **720x1600 at density 320**, 2 GB RAM,
+hardware keyboard on, Play Store off.
+
+The panel is the part worth writing down. `avdmanager`'s Pixel-2 default is
+1080x1920 at density 420, and the older `Khata_API35` AVD is a Pixel 5 at
+1080x2340 — both wrong for this project, because the density sweep this codebase
+relies on is defined in pixels. NFR-COMP-03's two ends are reached with
+`wm density 360` and `wm density 240`, and those give 320 dp and 480 dp **only
+on a 720 px panel**. On 1080 px the same two commands give 480 dp and 720 dp:
+the narrow end is never tested and the wide end lands somewhere no phone is.
+720x1600 at 320 also happens to be the Redmi 13C exactly, so the emulator and
+the one physical device now describe the same window.
+
+### 30.2 `am broadcast` from the shell never reaches `SeedReceiver`
+
+CLAUDE.md has carried this since 22 August, unresolved:
+
+> The debug `SEED` broadcast did not fire on an API 35 emulator. `am broadcast`
+> reported `result=0`, ActivityManager logged the broadcast as enqueued, and
+> `SeedReceiver` never logged anything. [...] one of the two is stale; the cause
+> was not chased down.
+
+It reproduced immediately on the new AVD, and the cause is the sender's uid.
+`SeedReceiver` is `exported=false`; the shell uid cannot deliver to a
+non-exported manifest receiver in another package. What makes it expensive is
+that nothing says so — `am broadcast` prints `Broadcast completed: result=0`,
+ActivityManager logs `Enqueued broadcast [...]: 0`, and the receiver simply
+never runs. There is no `SecurityException`, no dropped-intent warning, no
+failure of any kind to notice. `result=0` is what a *successful* unordered
+broadcast prints too, which is why the original attempt read as a seeder bug
+rather than a delivery one.
+
+Three things were tried and eliminated before the uid was the obvious suspect:
+
+- `-f 0x00000020` (`FLAG_INCLUDE_STOPPED_PACKAGES`), on the theory that a
+  freshly-installed package is in the stopped state — enqueued, not delivered.
+- An explicit `-n com.app.finance.debug/com.app.finance.dev.SeedReceiver`,
+  bypassing intent resolution entirely — enqueued, not delivered.
+- Confirming the receiver was actually installed and enabled, since a manifest
+  merger failure would look identical from the outside. It was:
+  `cmd package query-receivers -a com.app.finance.SEED` returns it with
+  `enabled=true exported=false`, and it appears in the package's Receiver
+  Resolver Table. The registration was never the problem.
+
+What works is `run-as`, which puts the sender inside the package:
+
+```bash
+adb shell run-as com.app.finance.debug am broadcast --user 0 \
+  -a com.app.finance.SEED -p com.app.finance.debug --es scale benchmark
+```
+
+`--user 0` is not optional. Without it `am` defaults to user `-2`
+(`USER_CURRENT_OR_SELF`), which the app's own uid may not resolve:
+
+```
+java.lang.SecurityException: Permission Denial: broadcast asks to run as user -2
+but is calling from uid u0a210; this requires INTERACT_ACROSS_USERS_FULL
+```
+
+That one at least fails loudly. The `exported=false` drop does not, and that
+asymmetry is the whole lesson.
+
+**The receiver stays unexported.** The manifest comment claiming the shell form
+works was the stale half and has been corrected in place; `run-as` is not a
+workaround for `exported=false` but the consequence of it. Opening the receiver
+up to make a convenience command shorter would put a ledger-wiping intent
+(`SeedFiveYears.into` deletes everything before it generates) behind an
+IPC surface any installed app could reach, in the one variant that is also the
+easiest to have lying around on a device.
+
+### 30.3 What the seed produced, and checking it landed
+
+At `--es scale benchmark`, 02 §3.1's corpus:
+
+| | Seeded | 02 §3.1 |
+|---|---|---|
+| Expenses | 22,160 | 20,000 |
+| Income entries | 421 | 400 |
+| Categories | 60 | 60 |
+| Periods | 60 (202110–202609) | 5 years |
+
+Verified by query rather than by the receiver's own log line, which is exactly
+the mistake the August note warned about — a seeder that logs a count it did not
+write is the failure mode being guarded against. `budget` holds 3,420 rows and
+`expense.status=1` holds none, so nothing is excluded from a rollup for the
+wrong reason.
+
+The rollups reconcile with zero drift in both directions — every
+`(period_ym, category_id)` group in `expense` matches `rollup_expense_month`
+and vice versa, over 22,160 rows inserted through the triggers. And two figures
+the dashboard actually rendered for September 2026 match a direct `SUM` over
+the ledger to the paisa: spent `৳318,548.11` = 31,854,811, earned
+`৳108,167.61` = 10,816,761. That is the §16 reconciliation convention applied
+to a corpus five years deep rather than a fixture.
+
+### 30.4 An ANR that was not the app's
+
+Between the seed and a working screenshot, `MainActivity` ANR'd with
+`Input dispatching timed out [...] Waited 5015ms for FocusEvent(hasFocus=true)`,
+on a dashboard reading 22,160 expenses. That is precisely the shape a real
+NFR-PERF-04 regression would take, and it was not one: the emulator process
+itself segfaulted moments later (exit 139, in the host GL translator), the guest
+load average was 10-16, `com.android.systemui` and Google Messages ANR'd on the
+same boot, and the host had 1.29 GB of RAM free with a `-Xmx4096m` Gradle daemon
+still resident from the build. Stopping the daemon and cold-booting produced a
+dashboard that rendered its full content — safe-to-spend, sparkline, six
+over-budget categories — with no ANR and nothing in `logcat -b crash`.
+
+Recorded because the misreading was one step away and the correction is
+mechanical: **before believing an ANR or a probe failure on this hardware, look
+at the host.** §21's note about aged emulators is the same lesson from the
+other side. No performance claim is made here either way — a software-rendered
+x86_64 emulator on a loaded 16 GB laptop is not evidence about an A53.

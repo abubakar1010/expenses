@@ -93,7 +93,7 @@ class Exporter(private val db: AppDatabase) {
             counts[BUDGETS] = zip.csv(BUDGETS, BUDGET_HEADER, dao.allBudgets()) {
                 listOf(
                     it.id.s(), it.uuid, it.categoryId.s(), it.periodYm.s(),
-                    it.limitMinor.s(), it.createdAt.s(), it.updatedAt.s(),
+                    it.limitMinor.s(), it.note.orEmpty(), it.createdAt.s(), it.updatedAt.s(),
                 )
             }
             counts[EXPENSES] = zip.csv(EXPENSES, EXPENSE_HEADER, dao.allExpenses()) {
@@ -225,7 +225,7 @@ class Exporter(private val db: AppDatabase) {
         const val SOURCE_HEADER =
             "id,uuid,name,name_key,kind,color,sort_order,is_archived,created_at,updated_at"
         const val BUDGET_HEADER =
-            "id,uuid,category_id,period_ym,limit_minor,created_at,updated_at"
+            "id,uuid,category_id,period_ym,limit_minor,note,created_at,updated_at"
         const val EXPENSE_HEADER =
             "id,uuid,category_id,amount_minor,spent_on,period_ym,payment_method,note,status," +
                 "payer_person_id," +

@@ -89,7 +89,14 @@ class ExportImportRoundTripTest {
     private fun fingerprint(): Map<String, String> = mapOf(
         "category" to row("SELECT COUNT(*), IFNULL(SUM(id + nature + is_archived), 0) FROM category"),
         "income_source" to row("SELECT COUNT(*), IFNULL(SUM(id + kind + is_archived), 0) FROM income_source"),
-        "budget" to row("SELECT COUNT(*), IFNULL(SUM(id + category_id + period_ym + limit_minor), 0) FROM budget"),
+        // FR-BUD-09. `LENGTH(note)` rather than the note itself, because the
+        // fingerprint is a sum — but a dropped note changes it, which is
+        // the whole job. Without this term a restore could return every
+        // limit with its reason stripped off and still pass.
+        "budget" to row(
+            "SELECT COUNT(*), IFNULL(SUM(id + category_id + period_ym + limit_minor" +
+                " + LENGTH(IFNULL(note, ''))), 0) FROM budget",
+        ),
         "expense" to row(
             "SELECT COUNT(*), IFNULL(SUM(id + category_id + amount_minor + spent_on + period_ym + status), 0) FROM expense",
         ),
@@ -220,6 +227,15 @@ class ExportImportRoundTripTest {
             amount = com.app.finance.core.money.Money.ofTaka(15_000),
             frequency = com.app.finance.domain.model.Frequency.MONTHLY,
             anchorDay = 31,
+        )
+        // And a budget note, for the same reason: the seeder writes none, so
+        // the note column would otherwise be null in every row and a restore
+        // that dropped it would look identical (FR-BUD-09).
+        fx.budgets.setLimit(
+            fx.leafId("Grocery"),
+            aug,
+            com.app.finance.core.money.Money.ofTaka(9_000),
+            "Eid clothes for the family",
         )
 
         val before = fingerprint()

@@ -198,6 +198,9 @@ fun BudgetScreen(
                     }
                 }
             },
+            onOpenNote = vm::openNote,
+            onNoteDone = vm::setNote,
+            onNoteDismiss = vm::dismissNote,
             onDismiss = vm::dismissEditor,
         )
     }

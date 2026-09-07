@@ -303,4 +303,83 @@ class BudgetRepositoryTest {
         assertTrue(fx.budgets.copyableFromPreviousPeriod(aug).none { it == bus })
         assertNull(fx.budgets.limitFor(bus, aug))
     }
+
+    // --- FR-BUD-09 ----------------------------------------------------------
+
+    @Test
+    fun a_limit_keeps_the_note_it_was_saved_with() = runBlocking {
+        val grocery = fx.leafId("Grocery")
+        fx.budgets.setLimit(grocery, aug, Money.ofTaka(8_000), "Eid clothes for the family")
+
+        assertEquals("Eid clothes for the family", row(grocery, aug)!!.note)
+        assertEquals(
+            "Eid clothes for the family",
+            fx.budgets.storedLimitFor(grocery, aug)!!.note,
+        )
+    }
+
+    @Test
+    fun a_limit_saved_without_a_note_stores_null_rather_than_empty() = runBlocking {
+        // Indistinguishable from a budget written before the column existed,
+        // which is FR-BUD-09's second acceptance criterion and the reason the
+        // migration can be purely additive.
+        val grocery = fx.leafId("Grocery")
+        fx.budgets.setLimit(grocery, aug, Money.ofTaka(8_000))
+        assertNull(row(grocery, aug)!!.note)
+
+        fx.budgets.setLimit(fx.leafId("Transport"), aug, Money.ofTaka(2_000), "   ")
+        assertNull(
+            "whitespace is not a note",
+            row(fx.leafId("Transport"), aug)!!.note,
+        )
+    }
+
+    @Test
+    fun a_note_is_trimmed_before_it_is_stored() = runBlocking {
+        val grocery = fx.leafId("Grocery")
+        fx.budgets.setLimit(grocery, aug, Money.ofTaka(8_000), "  rice is up  ")
+        assertEquals("rice is up", row(grocery, aug)!!.note)
+    }
+
+    @Test
+    fun revising_a_limit_replaces_its_note_and_can_remove_it() = runBlocking {
+        val grocery = fx.leafId("Grocery")
+        fx.budgets.setLimit(grocery, aug, Money.ofTaka(8_000), "rice is up")
+        fx.budgets.setLimit(grocery, aug, Money.ofTaka(9_500), "rice is up again")
+        assertEquals("rice is up again", row(grocery, aug)!!.note)
+
+        fx.budgets.setLimit(grocery, aug, Money.ofTaka(9_500), null)
+        assertNull("a note must be removable", row(grocery, aug)!!.note)
+    }
+
+    @Test
+    fun clearing_a_limit_reports_the_note_so_undo_can_restore_it() = runBlocking {
+        // The undo path is the reason `clearLimit` returns more than a figure.
+        // Restoring the limit and dropping the note would destroy something the
+        // user typed, under an action whose whole purpose is not to.
+        val grocery = fx.leafId("Grocery")
+        fx.budgets.setLimit(grocery, aug, Money.ofTaka(8_000), "Eid clothes")
+
+        val removed = fx.budgets.clearLimit(grocery, aug)
+        assertEquals(Money.ofTaka(8_000), removed!!.limit)
+        assertEquals("Eid clothes", removed.note)
+        assertNull(fx.budgets.limitFor(grocery, aug))
+
+        fx.budgets.setLimit(grocery, aug, removed.limit, removed.note)
+        assertEquals("Eid clothes", row(grocery, aug)!!.note)
+    }
+
+    @Test
+    fun the_copy_carries_the_note_with_the_figure() = runBlocking {
+        // FR-BUD-09's third criterion. A limit copied forward without its
+        // reason is the half worth less of the two.
+        val grocery = fx.leafId("Grocery")
+        fx.budgets.setLimit(grocery, jul, Money.ofTaka(9_000), "rice is up")
+
+        assertEquals(1, fx.budgets.copyFromPreviousPeriod(aug))
+        assertEquals("rice is up", row(grocery, aug)!!.note)
+        // A new uuid, as the copy has always minted — the note travels, the
+        // identity does not.
+        assertTrue(row(grocery, aug)!!.uuid != row(grocery, jul)!!.uuid)
+    }
 }

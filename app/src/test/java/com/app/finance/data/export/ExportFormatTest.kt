@@ -27,7 +27,7 @@ class ExportFormatTest {
             CategoryDto(2, "cat-2", 1, "Grocery", "grocery", 1, createdAt = 1, updatedAt = 1),
         ),
         sources = listOf(SourceDto(1, "src-1", "Salary", "salary", 0, createdAt = 1, updatedAt = 1)),
-        budgets = listOf(BudgetDto(1, "bud-1", 2, 202608, 1_800_000, 1, 1)),
+        budgets = listOf(BudgetDto(1, "bud-1", 2, 202608, 1_800_000, "Eid clothes", 1, 1)),
         expenses = listOf(
             ExpenseDto(
                 id = 1, uuid = "exp-1", categoryId = 2, amountMinor = 34_000,
@@ -133,9 +133,14 @@ class ExportFormatTest {
     fun `defaults and nulls are left out`() {
         // On nine thousand expenses this is most of the file: `status`,
         // `payment_method` and an absent note are the common case.
+        //
+        // The budget is overridden too, because FR-BUD-09 gave `budget` a note
+        // of its own and the sample carries one. A budget without a note is
+        // every budget written before that requirement existed.
         val text = codec.encodeToString(
             DayBookExport.serializer(),
             sample().copy(
+                budgets = listOf(BudgetDto(1, "bud-1", 2, 202608, 1_800_000, null, 1, 1)),
                 expenses = listOf(
                     ExpenseDto(
                         id = 1, uuid = "e", categoryId = 2, amountMinor = 100,

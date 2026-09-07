@@ -48,7 +48,7 @@ import com.app.finance.core.text.NameKey
  */
 internal object Schema {
 
-    const val VERSION = 3
+    const val VERSION = 4
 
     /**
      * Applied on every connection open, before any query (03 §4.1).
@@ -280,6 +280,7 @@ internal object Schema {
             category_id  INTEGER NOT NULL REFERENCES category(id) ON DELETE RESTRICT,
             period_ym    INTEGER NOT NULL,
             limit_minor  INTEGER NOT NULL CHECK (limit_minor >= 0),
+            note         TEXT,
             created_at   INTEGER NOT NULL,
             updated_at   INTEGER NOT NULL
         )

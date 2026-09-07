@@ -34,6 +34,16 @@ import java.util.UUID
  * from their parts." That is FR-BUD-03, and the reason there is no `setLimit`
  * overload taking a root.
  */
+/**
+ * A stored budget as the editor and its undo need it: the figure, and
+ * FR-BUD-09's note.
+ *
+ * [BudgetRepository.limitFor] returning a bare [Money] is what made
+ * `clearLimit`'s undo lossy — it restored the limit and dropped the note,
+ * because the note was never carried out of the repository in the first place.
+ */
+data class StoredLimit(val limit: Money, val note: String?)
+
 class BudgetRepository(
     private val db: AppDatabase,
     private val clock: Clock,
@@ -56,6 +66,11 @@ class BudgetRepository(
     suspend fun limitFor(categoryId: Long, period: Period): Money? =
         budgetDao.forCategory(categoryId, period.ym)?.let { Money(it.limitMinor) }
 
+    /** [limitFor] plus FR-BUD-09's note — what the editor opens onto. */
+    suspend fun storedLimitFor(categoryId: Long, period: Period): StoredLimit? =
+        budgetDao.forCategory(categoryId, period.ym)
+            ?.let { StoredLimit(Money(it.limitMinor), it.note) }
+
     /**
      * Sets or replaces a leaf's limit for one period (FR-BUD-01, FR-BUD-02).
      *
@@ -64,7 +79,12 @@ class BudgetRepository(
      * is explicit that "setting a second limit for the same pair updates the
      * existing row rather than inserting".
      */
-    suspend fun setLimit(categoryId: Long, period: Period, limit: Money): SaveOutcome {
+    suspend fun setLimit(
+        categoryId: Long,
+        period: Period,
+        limit: Money,
+        note: String? = null,
+    ): SaveOutcome {
         // FR-BUD-08 says limits are >= 0, and the column's CHECK agrees. Zero is
         // refused here anyway: the dashboard query reads a missing row as
         // IFNULL(limit_minor, 0), so a stored zero and no budget at all are
@@ -79,6 +99,11 @@ class BudgetRepository(
             return SaveOutcome.Rejected(EntryError.BUDGET_ON_NON_LEAF)
         }
 
+        // Blank is not a note. The sheet hands back whatever is in the field,
+        // and "  " round-tripping through an export as a note is noise the
+        // ledger's own note fields have never carried.
+        val cleaned = note?.trim()?.takeIf { it.isNotEmpty() }
+
         val now = clock.millis()
         return runCatchingWrite {
             db.withTransaction {
@@ -90,6 +115,7 @@ class BudgetRepository(
                             categoryId = categoryId,
                             periodYm = period.ym,
                             limitMinor = limit.paisa,
+                            note = cleaned,
                             createdAt = now,
                             updatedAt = now,
                         ),
@@ -99,7 +125,11 @@ class BudgetRepository(
                     // budget revised, not a new one. Export dedup depends on
                     // the uuid surviving an edit (03 §1).
                     budgetDao.update(
-                        existing.copy(limitMinor = limit.paisa, updatedAt = now),
+                        existing.copy(
+                            limitMinor = limit.paisa,
+                            note = cleaned,
+                            updatedAt = now,
+                        ),
                     )
                     existing.id
                 }
@@ -118,8 +148,10 @@ class BudgetRepository(
      * typed. Archiving a category — which is less destructive than this — has
      * had an undo since M2.
      */
-    suspend fun clearLimit(categoryId: Long, period: Period): Money? {
-        val existing = limitFor(categoryId, period)
+    suspend fun clearLimit(categoryId: Long, period: Period): StoredLimit? {
+        // The note comes back with the figure, because the undo has to restore
+        // the row the user had and a note they typed is part of it.
+        val existing = storedLimitFor(categoryId, period)
         budgetDao.clear(categoryId, period.ym)
         return existing
     }
@@ -180,6 +212,10 @@ class BudgetRepository(
                         categoryId = previous.categoryId,
                         periodYm = period.ym,
                         limitMinor = previous.limitMinor,
+                        // Carried with the figure. The note says why the limit
+                        // is what it is, and a copied limit with the reason
+                        // stripped off is the half worth less.
+                        note = previous.note,
                         createdAt = now,
                         updatedAt = now,
                     ),

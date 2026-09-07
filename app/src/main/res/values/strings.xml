@@ -202,6 +202,9 @@
     <string name="no_limit_set">No limit set</string>
     <string name="save_limit">Save limit</string>
     <string name="clear_limit">Clear limit</string>
+    <!-- FR-BUD-09. Not note_hint ("What was it for?"): a budget note is a
+         reason for a figure, not a description of a purchase. -->
+    <string name="budget_note_hint">Why this limit?</string>
     <string name="limit_cleared">Limit cleared</string>
     <string name="limit_saved">Limit saved</string>
     <!-- The text half of the three-signal state (05 §3.3). -->

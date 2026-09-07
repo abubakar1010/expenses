@@ -6214,3 +6214,115 @@ mechanical: **before believing an ANR or a probe failure on this hardware, look
 at the host.** §21's note about aged emulators is the same lesson from the
 other side. No performance claim is made here either way — a software-rendered
 x86_64 emulator on a loaded 16 GB laptop is not evidence about an A53.
+
+
+## 31. A note on a budget — FR-BUD-09, and the first migration onto live data
+
+The request was one line: *while adding budget there should be an option to add
+note*. `expense` and `income_entry` have carried an optional note since v1;
+`budget` never did, so a limit could record what the ceiling is and nothing
+about why. FR-BUD-09 is that note, and it is written against the (category,
+period) pair rather than the category, because that pair is what a budget *is*
+in this schema — a limit for Grocery in September is a different row from the
+one for Grocery in October, and the reasons for them are usually different too.
+
+### 31.1 What made this different from every schema change before it
+
+The app was in daily use by the time this was written — a release build,
+`com.app.finance`, holding a ledger with no second copy. Every earlier
+migration in this file ran against databases the author could afford to lose.
+
+That changed the shape of the work more than the size of it. The column is
+`note TEXT` — nullable, unconstrained, no index, no trigger, no `CHECK` — and
+`MIGRATION_3_4` is one guarded `ALTER TABLE`. An additive column is the only
+schema change that cannot lose a row it does not understand: every existing
+budget reads back afterwards with a null note, which is exactly what it would
+have said before the column existed. Nothing is rewritten, so there is no
+half-migrated state to recover from and nothing for 03 §8's missing destructive
+fallback to have to catch.
+
+The column sits before `created_at` in [Schema] and lands at the end of the
+table for anyone upgrading, because `ALTER TABLE` appends. That divergence in
+column *order* is already true of `expense.payer_person_id` from §24, and it is
+harmless for the same reason: Room's `TableInfo` compares columns by name.
+
+### 31.2 The fixture that would have hidden the migration
+
+`SchemaMigrationTest` builds its v1 database from `Schema.TABLES` and strips
+back out what later versions added — until now, just `payer_person_id` and the
+`NOT NULL` on the keys. Deriving the fixture from the current schema is what
+keeps it from rotting, but it has a failure mode that only appears the second
+time somebody adds a column: the fixture would have created `budget` *with*
+`note`, `MIGRATION_3_4`'s `PRAGMA table_info` guard would have found its own
+work already done, and the test would have passed while exercising nothing.
+
+So the strip list grows with the schema, scoped to `budget` because `expense`
+and `income_entry` have legitimately had a note since v1. The test now also
+inserts a v1 budget row and asserts, after the walk to v4, that its limit is
+untouched and its note is null — the acceptance criterion checked where it
+actually matters, on a row that predates the feature.
+
+### 31.3 Two places the note could have been silently dropped
+
+Neither is the write path, which is the one everybody looks at.
+
+**`clearLimit` returned a `Money`.** The undo it feeds is NFR-USE-03's five
+seconds, and restoring a limit without the note it carried would make the undo
+itself destructive — the user's own words, deleted by the action whose entire
+purpose is to put things back. `clearLimit` now returns a `StoredLimit`
+(figure and note), and `undoClear` takes one.
+
+**The copy of FR-BUD-04 built a fresh entity from `limitMinor` alone.** A limit
+copied into next month without the reason beside it is the half worth less of
+the two, so `copyFromPreviousPeriod` carries the note across. The uuid still
+does not travel — a copy is a distinct budget for a distinct period, as §13
+established.
+
+The export was the third candidate and was the easy one: `BudgetDto` gains a
+defaulted `note`, which keeps every backup written before this parseable, and
+the CSV header grows a column. `ExportImportRoundTripTest`'s budget fingerprint
+now sums `LENGTH(IFNULL(note, ''))` alongside the figures — without that term a
+restore could return every limit with its reason stripped and still pass, which
+is the shape of gate that is not one.
+
+### 31.4 The sheet
+
+One tappable line reading *Add note*, or the note itself once there is one,
+between the amount and Save. Not a labelled field: a limit with no note is the
+ordinary case, and an empty form row above the keypad would make the common
+path look unfinished. It opens a second sheet over the first, which is how
+Quick Add reaches its own note editor — the system IME belongs to words and
+must not displace the numeric pad underneath.
+
+`BudgetNoteSheet` is a near-twin of Quick Add's `NoteSheet` and stays one. The
+two differ in hint (*Why this limit?* against *What was it for?*) and in bound
+(80 against 120), and an abstraction over them would take both as parameters,
+which is the whole of the sharing for what is otherwise a themed
+`BasicTextField`.
+
+The draft is local to the sheet and published on Done, so a note abandoned by
+swiping away leaves the budget as it was. Everything else — the note itself and
+whether the editor is open — lives in `LimitEditor`, because 04 §3.1 makes the
+screen stateless and a half-typed note has to survive a recomposition the same
+way a half-typed amount does.
+
+### 31.5 What was run
+
+- JVM: **320 tests**, green. That includes `SchemaDocumentTest`, which is what
+  forced `docs/schema_v1.sql` to be regenerated in the same commit rather than
+  eventually.
+- On the Redmi 13C: **70 tests** across `BudgetRepositoryTest`,
+  `BudgetViewModelTest`, `SchemaMigrationTest`, `SchemaValidationTest` and
+  `ExportImportRoundTripTest`, green in 55 s.
+- On the `DayBook` emulator: `BudgetScreenTest`, **21 tests**, green.
+
+**The full suite did not run on the phone.** Every test that launches an
+activity under instrumentation hangs there — `MainActivityTest` stalls on its
+first test (`the_hide_from_screenshots_setting_reaches_the_window`, which
+touches nothing this change went near) and `BudgetScreenTest` behaves the same
+way, while the launcher holds focus and the test activity never appears. The
+same `BudgetScreenTest` passes on the emulator, and the app starts and takes
+focus normally on the phone via `am start`, so it is instrumentation-launched
+activities specifically. §23's foreground note describes the symptom; this is a
+second cause of it that a HOME press does not fix, and it was not chased down.
+The suite is 744 tests now, against 596 in §23.

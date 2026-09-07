@@ -39,10 +39,12 @@ Benchmarks (need a rootable `google_apis` image, not `google_apis_playstore`):
 ./gradlew :benchmark:connectedBenchmarkAndroidTest
 ```
 
-Seed five years of data (debug/benchmark variants only — the receiver lives in `src/debug/`):
+Seed five years of data (debug/benchmark variants only — the receiver lives in `src/debug/`). **Send it from the app's own uid, not the shell's** — the traps below say why:
 
 ```bash
-adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug
+adb shell run-as com.app.finance.debug am broadcast --user 0 \
+  -a com.app.finance.SEED -p com.app.finance.debug
+# add --es scale benchmark for 02 §3.1's 20,000-expense corpus
 ```
 
 ### Environment traps that cost real time
@@ -62,7 +64,7 @@ adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug
 
   With both running, an `assembleDebug` took **58 minutes and produced nothing**; alone it takes under four. Add `-e class <fqcn>` to `am instrument` for a single suite.
 - **`am instrument` produces no JaCoCo `.ec`, so `coverageVerify` will fail at ~0.34** — it only sees the JVM half and reports the repositories as uncovered. For the NFR-MAIN-02 gate you do need Gradle's `connectedDebugAndroidTest`; run it once everything is already compiled, with `-Dorg.gradle.jvmargs="-Xmx1536m -XX:MaxMetaspaceSize=512m" --no-parallel` so the daemon leaves the emulator room.
-- **The debug `SEED` broadcast did not fire on an API 35 emulator (22 Aug 2026).** `am broadcast` reported `result=0`, ActivityManager logged the broadcast as enqueued, and `SeedReceiver` never logged anything — no rows were written. `src/debug/AndroidManifest.xml` states the opposite ("`am broadcast` from the shell reaches an unexported receiver in a debuggable package"), so one of the two is stale; the cause was not chased down. If seeding matters for what you are doing, verify it landed rather than assuming, or drive `SeedFiveYears.into` from an instrumented test.
+- **The debug `SEED` broadcast is dropped when sent from the shell. Send it from the app's own uid.** `SeedReceiver` is `exported=false`, and the shell uid cannot deliver to a non-exported manifest receiver in another package. The failure is silent in the worst way: `am broadcast` prints `Broadcast completed: result=0`, ActivityManager logs the intent as *enqueued*, and the receiver never runs. Nothing reports an error. Neither `-f 0x00000020` (`FLAG_INCLUDE_STOPPED_PACKAGES`) nor an explicit `-n com.app.finance.debug/com.app.finance.dev.SeedReceiver` changes it — the sender's uid is what is being rejected, not the intent's shape. `run-as` fixes it by putting the sender inside the package, and **`--user 0` is required** or `am` defaults to user `-2` and is refused for want of `INTERACT_ACROSS_USERS`. This is the cause of the 22 Aug 2026 failure this note used to record as unexplained; the claim in `src/debug/AndroidManifest.xml` was the stale half and has been corrected. Diagnosed 7 Sep 2026 on the `DayBook` API 35 emulator, where the `run-as` form seeded 22,160 expenses at `--es scale benchmark`. **Verify rows landed** regardless — `run-as <pkg> sqlite3 databases/daybook.db 'select count(*) from expense'` — or drive `SeedFiveYears.into` from an instrumented test.
 - Layouts target 288 dp of content on a 320 dp phone: `adb shell wm density 360` on a 720 px emulator, `reset` after. **The other end of NFR-COMP-03 is `wm density 240`**, which gives exactly 480 dp on the same panel — Compose's `ForcedSize` can shrink a composition but never widen it past the real window, so the wide end has to come from the device. Set the density, run the Compose suites, reset; do not change it mid-suite, since every activity is recreated.
 - Xiaomi/MIUI physical devices need **Install via USB** enabled or the instrumentation APK is refused with `INSTALL_FAILED_USER_RESTRICTED`.
 - **A physical device runs the instrumented suite only while nothing else holds the foreground.** `MainActivityTest` and every Compose test wait for the activity to become resumed *and focused*; another app in front means that never happens, so they **hang rather than fail** — `logcat -s TestRunner:I` shows a `started:` with no matching `finished:`, and the run sits there until something kills it, which reads exactly like a slow test. Measured 28 Aug 2026 on a Redmi 13C (`gale`, HyperOS 2.0, API 35): an unrelated debug app left in the foreground with the IME open stalled the suite at **0 of 596**, and an earlier attempt died the same way after two tests when that app took focus mid-run. The emulator never shows this because nothing else runs on it. Press HOME first and leave the device alone for the whole run — one notification tap is enough. Two things make it survivable:

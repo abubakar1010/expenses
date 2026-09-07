@@ -13,13 +13,20 @@
     <application>
 
         <!--
-          adb shell am broadcast -a com.app.finance.SEED -p com.app.finance.debug
+          Seeding: the exact command is in SeedReceiver's KDoc and in
+          CLAUDE.md. It cannot be reproduced here, because it needs a
+          double-hyphen flag and XML comments may not contain one.
 
           Puts five years of data on the device so NFR-PERF-04's 300 ms can be
-          measured against the workload M4's exit criterion names. Not exported:
-          `am broadcast` from the shell reaches an unexported receiver in a
-          debuggable package, and nothing outside the shell has any business
-          rewriting the ledger.
+          measured against the workload M4's exit criterion names.
+
+          Not exported, and the `run-as` prefix that command carries is not a
+          workaround for that — it is the consequence of it. The shell uid
+          cannot deliver to a non-exported receiver in another package, and the
+          rejection is silent: the broadcast is enqueued, the receiver never
+          runs, nothing logs an error. `run-as` sends from inside the package
+          instead. This comment used to claim the plain shell form worked; it
+          does not, and finding that out cost a day (CLAUDE.md, traps; 06 §30.2).
         -->
         <receiver
             android:name="com.app.finance.dev.SeedReceiver"

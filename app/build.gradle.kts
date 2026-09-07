@@ -20,7 +20,12 @@ android {
         // minSdk 26 is what makes java.time available without desugaring.
         minSdk = 26
         targetSdk = 37
-        versionCode = 1
+        // Bumped for the FR-BUD-09 release, which is also schema v4 — the
+        // first build that upgrades an install rather than creating one.
+        // `adb install -r` tolerates a repeated versionCode; nothing else
+        // does, and an update that cannot be told apart from what it replaces
+        // is not one.
+        versionCode = 2
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

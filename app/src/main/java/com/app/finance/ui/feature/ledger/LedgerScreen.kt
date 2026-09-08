@@ -86,6 +86,20 @@ fun LedgerScreen(
     onEdit: (Long) -> Unit,
     onAdd: () -> Unit,
     onOpenPeople: () -> Unit,
+    /**
+     * A person to narrow to on arrival — FR-SHR-06, set by tapping a name on
+     * the People screen.
+     *
+     * A one-shot: the screen applies it and calls [onPersonFilterApplied],
+     * which clears it. It is held above the `NavHost` rather than carried as a
+     * route argument because the ledger is a *tab* whose back-stack entry
+     * outlives the visit to People — navigating to it with an argument would
+     * push a second Ledger entry on top of the first, and the back gesture
+     * would then have to unwind the tab twice (the same trap `navigateTop`'s
+     * comment records).
+     */
+    personFilter: Long? = null,
+    onPersonFilterApplied: () -> Unit = {},
 ) {
     val vm: LedgerViewModel = viewModel(
         factory = viewModelFactory {
@@ -111,6 +125,16 @@ fun LedgerScreen(
     }
     LaunchedEffect(listState) {
         snapshotFlow { shouldLoadMore }.collect { if (it) vm.loadMore() }
+    }
+
+    // FR-SHR-06's other end: a name tapped on the People screen. Scrolled back
+    // to the top as well, because the list underneath is a different one and a
+    // position two hundred rows into the old one names nothing in it.
+    LaunchedEffect(personFilter) {
+        val personId = personFilter ?: return@LaunchedEffect
+        vm.filterByPerson(personId)
+        listState.scrollToItem(0)
+        onPersonFilterApplied()
     }
 
     val scope = rememberCoroutineScope()

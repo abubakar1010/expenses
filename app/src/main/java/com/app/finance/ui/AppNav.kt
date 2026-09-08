@@ -122,6 +122,18 @@ fun DayBookApp(container: AppContainer) {
     // only overwrite it with an older one.
     var periodRestored by rememberSaveable { mutableStateOf(false) }
 
+    // FR-SHR-06's other half: a name tapped on the People screen narrows the
+    // ledger to that person. Hoisted here for the same reason the period is —
+    // People sits *on top of* the Ledger's own back-stack entry, so the value
+    // has to outlive the pop that takes the user back to it, and the Ledger
+    // composition that reads it does not exist while People is on screen.
+    //
+    // A one-shot, cleared by the ledger as soon as it has applied it. Left set,
+    // it would re-apply itself every time the tab was returned to — including
+    // after the user had cleared the filter by hand, which is the one moment
+    // they have said they do not want it.
+    var pendingPersonFilter by rememberSaveable { mutableStateOf<Long?>(null) }
+
     LaunchedEffect(Unit) {
         if (periodRestored) return@LaunchedEffect
         // A stored value from a future schema, or a corrupted one, would throw
@@ -215,6 +227,8 @@ fun DayBookApp(container: AppContainer) {
                         onEdit = { id -> sheetTarget = id },
                         onAdd = { sheetTarget = SHEET_NEW },
                         onOpenPeople = { navController.navigate(ROUTE_PEOPLE) },
+                        personFilter = pendingPersonFilter,
+                        onPersonFilterApplied = { pendingPersonFilter = null },
                     )
                 }
                 composable(Route.Income.path) {
@@ -281,6 +295,15 @@ fun DayBookApp(container: AppContainer) {
                         container = container,
                         snackbarHostState = snackbarHostState,
                         onBack = { navController.popBackStack() },
+                        // `navigateTop` rather than `popBackStack`, though
+                        // People is only ever reached from the Ledger today:
+                        // it pops detail routes until it reaches a tab and then
+                        // stops, so it is a pop here and stays correct if this
+                        // screen is ever opened from somewhere else.
+                        onOpenLedger = { personId ->
+                            pendingPersonFilter = personId
+                            navController.navigateTop(Route.Ledger)
+                        },
                     )
                 }
                 composable(ROUTE_RECURRING) {

@@ -303,7 +303,7 @@ Additional measures:
 | Income Source Editor | Create, rename, set kind, archive | |
 | Budget | Per-period limits, copy-from-last-month | |
 | Category Manager | Two-level tree, create/rename/reorder/archive | |
-| People | Balances per person, settle up | Reached from the Ledger header (FR-SHR-05) |
+| People | Balances per person, settle up | Reached from the Ledger header (FR-SHR-05); a name goes back to it filtered (FR-SHR-06) |
 | Repeating entries | Rules that post to the ledger on their due day | Reached from Settings (FR-REC-01…05) |
 | Reports | Custom date range, fixed/variable split, top expenses | Ledger-backed rather than rollup-backed |
 | Settings | Export, import, rebuild aggregates, delete all data, theme | |

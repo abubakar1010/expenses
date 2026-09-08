@@ -199,7 +199,8 @@ falsify both months permanently, and no later entry repairs them.
 **FR-SHR-05** The system MUST display, per person, the net amount owed in either direction, and MUST distinguish the two directions clearly.
 - *Accept:* Each balance equals a direct sum over that person's shares, the expenses they paid, and their settlements. A person who is square appears in neither list.
 
-**FR-SHR-06** The ledger MUST be filterable by person, matching expenses that person shares in or paid for. While such a filter is active the ledger MUST show the balance with that person rather than FR-EXP-11's filtered total, which answers a different question.
+**FR-SHR-06** The ledger MUST be filterable by person, matching expenses that person shares in or paid for. While such a filter is active the ledger MUST show the balance with that person rather than FR-EXP-11's filtered total, which answers a different question. The filter MUST also be reachable from the balance itself — selecting a person on the People screen MUST open the ledger narrowed to them — because a balance the user cannot take apart is a figure they have to take on trust.
+- *Accept:* Selecting a person whose balance is ৳2,450 opens the ledger showing every expense they share in or paid for and no others, with ৳2,450 in the header; a filter left over from an earlier question is discarded rather than intersected, so the rows below the balance are the rows it was computed from. A person who is square is selectable too — being square is a consequence of history, not the absence of it.
 
 **FR-SHR-07** People, shares and settlements MUST survive export and import, including a merge from another device, where a person MUST deduplicate on the normalised name key exactly as an income source does.
 - *Accept:* Export → wipe → import restores every balance unchanged; merging a file naming a person this device already knows adds no second person.

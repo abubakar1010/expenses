@@ -6415,3 +6415,60 @@ a database looks like.
 put data in it, install the new one over the top, and open it.** Recorded here
 rather than in a checklist nobody reads, and added to `07-building-and-running.md`
 where the build commands are.
+
+---
+
+## 33. A balance you could not take apart — FR-SHR-06 from the other end
+
+### 33.1 The filter existed and nothing pointed at it
+
+FR-SHR-06 was built at M6 and was complete on its own terms: `LedgerFilters`
+carries a `personId`, `ExpenseRepository.filteredPage` matches from both sides
+of a share, and a person-filtered ledger swaps FR-EXP-11's filtered total for
+`PersonBalanceHeader`. `LedgerFilterTotalTest` covers it. Nothing was wrong
+with it.
+
+What was wrong is that the only way in was the filter sheet — search bar,
+*Filter* chip, scroll past date, category, leaf and method, then a chip row of
+names. The People screen printed ৳2,450 against a name and offered no way to
+ask what it was made of. The one figure in the app derived from rows the user
+cannot see in the same place was also the one they could not get to the rows of.
+
+### 33.2 The row's tap was already spent on something it duplicated
+
+`PersonRow` had `onClick = { onSettle(row) }`, and directly underneath it a
+*Settle up* action doing the same thing. §29 added the four row actions and left
+the row's own gesture pointing at the first of them, so the whole surface of a
+person row led to one of the four things already listed under it.
+
+The tap goes to the ledger now. Settling up is unchanged and still one tap away.
+Nothing was removed to make room.
+
+### 33.3 The filter is replaced, not intersected
+
+`filterByPerson` builds a fresh `LedgerFilters` rather than copying the current
+one. Picking a name asks "what is between us"; a leaf or a date range left on
+from an earlier question would answer a narrower one silently — and worse, the
+balance header sits above those rows and is computed over *all* of the person's
+history, so an intersected filter puts a figure over a list it does not describe
+with nothing on screen to explain the gap.
+
+### 33.4 Why the pending id is hoisted above the `NavHost`
+
+People is a detail route pushed on top of the Ledger *tab*, and the Ledger's
+composition does not exist while People is on screen — so the person id cannot
+be handed down; it has to outlive the pop. Navigating to `ledger/{personId}`
+was the other option and is the worse one: it pushes a second Ledger entry over
+the first, and §27 is a whole section on what that does to `saveState`.
+
+So it is one `rememberSaveable` value beside the viewed period, and the ledger
+clears it through `onPersonFilterApplied` the moment it has applied it. Left
+set, it would re-apply itself on every return to the tab — including right after
+the user had cleared the filter by hand, which is the one moment they have said
+they do not want it. The exit is `navigateTop(Route.Ledger)` rather than
+`popBackStack()`: today it is exactly a pop, and it stays correct if People is
+ever opened from somewhere other than the Ledger.
+
+The ledger also scrolls to the top on arrival. The list underneath is a
+different list, and a position two hundred rows into the old one names nothing
+in the new one.

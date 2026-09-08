@@ -86,6 +86,39 @@ re-checking whenever a dependency is added.
 these and **fails the build** — no `android.*` imports under `domain/` or
 `core/`, and no money typed as a float. It is not optional and not skippable.
 
+### 3.2.1 Archiving one — `dist/`, and what to actually share
+
+`build/` is not where a shipped build lives: `clean` deletes it, and the next
+`assembleRelease` overwrites `app-release.apk` in place, so the binary somebody
+installed becomes unreproducible the moment anything is rebuilt. **Share the
+copy in `dist/`, never the one under `build/`.**
+
+`dist/` is gitignored — binaries and a 48 MB R8 mapping do not belong in git —
+so it is a local archive, one set of three files per shipped versionCode:
+
+```bash
+SHA=$(git rev-parse --short=7 HEAD)          # the versionCode bump commit
+BASE="daybook-1.0-<versionCode>-$SHA"
+cp app/build/outputs/apk/release/app-release.apk "dist/$BASE.apk"
+gzip -9 -c app/build/outputs/mapping/release/mapping.txt > "dist/$BASE-mapping.txt.gz"
+(cd dist && sha256sum -b "$BASE.apk" > "$BASE.apk.sha256")
+```
+
+- **`.apk`** — the artifact. Verify it is the intended one with
+  `aapt2 dump badging <apk> | head -1`, which prints the package and the
+  versionCode; §2's four application ids are easy to confuse, and a `.debug`
+  APK installs *beside* the real app rather than updating it.
+- **`.apk.sha256`** — so a copy that has been round-tripped through a chat app
+  or a USB stick can be proved identical. `sha256sum -c <file>.sha256`.
+- **`-mapping.txt.gz`** — R8 renames everything, so a stack trace from this
+  build is unreadable without the mapping that produced it. It is deleted by
+  the next release build; if it is not archived beside the APK, a crash report
+  from the field cannot be deobfuscated at all.
+
+The version in `dist/` is also what §6.4's upgrade rehearsal installs *first* —
+that step has nowhere to get "the version currently in the field" from unless
+each release was archived when it was made.
+
 ### 3.3 Benchmark
 
 ```bash

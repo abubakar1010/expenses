@@ -56,12 +56,20 @@ import kotlinx.coroutines.launch
  * because a person can be deleted — just not one who appears in an expense. So
  * the control is present and disabled with a spoken reason rather than absent,
  * which is the exception 05 §9 and that screen already document.
+ *
+ * **Tapping a name opens the ledger filtered to them** — FR-SHR-06. A balance
+ * is a conclusion, and the row it sits on is the only place in the app where
+ * the obvious next question is "from what?". The four things that can be
+ * *done* to a person stay where they were, under the row, so nothing is lost
+ * by giving the row itself the answer rather than a fifth action.
  */
 @Composable
 fun PeopleScreen(
     container: AppContainer,
     snackbarHostState: SnackbarHostState,
     onBack: () -> Unit,
+    /** The ledger, narrowed to this person — FR-SHR-06. */
+    onOpenLedger: (personId: Long) -> Unit,
 ) {
     val vm: PeopleViewModel = viewModel(
         factory = viewModelFactory {
@@ -111,6 +119,7 @@ fun PeopleScreen(
         } else {
             PeopleList(
                 state = state,
+                onOpenLedger = { row -> onOpenLedger(row.personId) },
                 onSettle = vm::settleUp,
                 onRename = vm::rename,
                 onArchive = { row ->
@@ -169,6 +178,7 @@ fun PeopleScreen(
 @Composable
 private fun PeopleList(
     state: PeopleUiState,
+    onOpenLedger: (PersonBalanceRow) -> Unit,
     onSettle: (PersonBalanceRow) -> Unit,
     onRename: (PersonBalanceRow) -> Unit,
     onArchive: (PersonBalanceRow) -> Unit,
@@ -184,7 +194,7 @@ private fun PeopleList(
                 )
             }
             items(state.owedToYou, key = { "owed-${it.personId}" }) { row ->
-                PersonRow(row, onSettle, onRename, onArchive, onRestore, onDelete)
+                PersonRow(row, onOpenLedger, onSettle, onRename, onArchive, onRestore, onDelete)
             }
         }
 
@@ -196,7 +206,7 @@ private fun PeopleList(
                 )
             }
             items(state.youOwe, key = { "owe-${it.personId}" }) { row ->
-                PersonRow(row, onSettle, onRename, onArchive, onRestore, onDelete)
+                PersonRow(row, onOpenLedger, onSettle, onRename, onArchive, onRestore, onDelete)
             }
         }
 
@@ -205,7 +215,7 @@ private fun PeopleList(
                 SectionHeader(text = stringResource(R.string.all_settled))
             }
             items(state.settled, key = { "settled-${it.personId}" }) { row ->
-                PersonRow(row, onSettle, onRename, onArchive, onRestore, onDelete)
+                PersonRow(row, onOpenLedger, onSettle, onRename, onArchive, onRestore, onDelete)
             }
         }
     }
@@ -230,10 +240,18 @@ private fun SectionTotal(money: Money) {
  * rename, archive, restore and delete were all implemented in
  * [PeopleViewModel] and reachable from nothing, and the only thing this screen
  * could do to a name was open the settle sheet.
+ *
+ * **The row itself opens the ledger, filtered to them** — FR-SHR-06. It used
+ * to open the settle sheet, which is also the first action underneath it: the
+ * one gesture the screen had led to the one thing already reachable, and the
+ * ৳2,450 printed on the row could not be taken apart from anywhere in the app.
+ * Settling up is unchanged and one tap away; it is simply no longer the only
+ * thing a name can do.
  */
 @Composable
 private fun PersonRow(
     row: PersonBalanceRow,
+    onOpenLedger: (PersonBalanceRow) -> Unit,
     onSettle: (PersonBalanceRow) -> Unit,
     onRename: (PersonBalanceRow) -> Unit,
     onArchive: (PersonBalanceRow) -> Unit,
@@ -253,7 +271,7 @@ private fun PersonRow(
             // many, and it made "You owe" ambiguous to anything looking for it.
             secondary = if (row.balanceMinor == 0L) stringResource(R.string.square) else null,
             trailing = if (row.archived) stringResource(R.string.archived) else null,
-            onClick = { onSettle(row) },
+            onClick = { onOpenLedger(row) },
         )
 
         // `FlowRow` for the reason the source rows use one: four controls do

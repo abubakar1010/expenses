@@ -267,6 +267,19 @@ class LedgerViewModel(
 
     fun clearFilters() = applyFilters(LedgerFilters(query = _state.value.filters.query))
 
+    /**
+     * Everything shared with one person, arrived at by tapping their name on
+     * the People screen — FR-SHR-06.
+     *
+     * **Replaces the filter set rather than adding to it.** Picking a name over
+     * there asks "what is between us", and a leaf or a date range left on from
+     * an earlier question would answer a narrower one without saying so: the
+     * ledger would open on a subset of that person's entries, with the balance
+     * header above it — which is over *all* of them — disagreeing with the rows
+     * underneath and no clue as to why.
+     */
+    fun filterByPerson(personId: Long) = applyFilters(LedgerFilters(personId = personId))
+
     fun openFilters() = _state.update { it.copy(filterSheetOpen = true) }
 
     fun dismissFilters() = _state.update { it.copy(filterSheetOpen = false) }

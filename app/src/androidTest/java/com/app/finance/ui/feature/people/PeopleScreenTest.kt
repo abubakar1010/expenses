@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.lifecycle.ViewModelStore
 import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
@@ -19,6 +20,7 @@ import com.app.finance.domain.model.SaveOutcome
 import com.app.finance.domain.model.Split
 import com.app.finance.ui.theme.DayBookTheme
 import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
 import org.junit.After
 import org.junit.Before
 import org.junit.Rule
@@ -95,6 +97,9 @@ class PeopleScreenTest {
             .assertIsDisplayed()
     }
 
+    /** What a tap on a name asked the ledger for — FR-SHR-06. */
+    private var openedFor: Long? = null
+
     private fun show() {
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
@@ -106,6 +111,7 @@ class PeopleScreenTest {
                             container = fx.container,
                             snackbarHostState = host,
                             onBack = {},
+                            onOpenLedger = { openedFor = it },
                         )
                     }
                 }
@@ -166,6 +172,39 @@ class PeopleScreenTest {
         awaitText("Settled up", ignoreCase = true)
         compose.onNodeWithText("They owe you", ignoreCase = true).assertDoesNotExist()
         compose.onNodeWithText("You owe", ignoreCase = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun tapping_a_name_asks_for_the_ledger_filtered_to_them() {
+        // FR-SHR-06 from this end. The balance is a conclusion; the row it is
+        // printed on is where the user asks what it is a conclusion *from*.
+        val rahim = person("Rahim")
+        shared(1_000, listOf(rahim))
+
+        show()
+        awaitText("Rahim")
+        compose.onNodeWithText("Rahim").performClick()
+        compose.waitForIdle()
+
+        assertEquals(rahim, openedFor)
+    }
+
+    @Test
+    fun somebody_square_can_still_be_opened() {
+        // Somebody square has history — that is *why* they are square — and the
+        // settled section is the only way back to it. A row that listed a name
+        // and did nothing when tapped would be a dead end on the one screen
+        // that already hides its two live sections from them.
+        val rahim = person("Rahim")
+        shared(1_000, listOf(rahim))
+        runBlocking { fx.settlements.record(rahim, Money.ofTaka(500), fx.today) }
+
+        show()
+        awaitText("Settled up", ignoreCase = true)
+        compose.onNodeWithText("Rahim").performClick()
+        compose.waitForIdle()
+
+        assertEquals(rahim, openedFor)
     }
 }
 

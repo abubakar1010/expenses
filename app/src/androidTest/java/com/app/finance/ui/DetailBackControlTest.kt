@@ -125,7 +125,7 @@ class DetailBackControlTest {
 
     @Test
     fun people_can_be_left() = assertLeavable { onBack ->
-        PeopleScreen(fx.container, LocalSnackbarHost.current, onBack)
+        PeopleScreen(fx.container, LocalSnackbarHost.current, onBack, onOpenLedger = {})
     }
 
     @Test

@@ -412,7 +412,7 @@ private fun QuickAddUiState.splitLabel(): String = when {
 }
 
 @Composable
-private fun SentencePart(text: String, onClick: () -> Unit) {
+internal fun SentencePart(text: String, onClick: () -> Unit) {
     Text(
         text = text,
         style = DayBookTheme.type.body,
@@ -426,7 +426,7 @@ private fun SentencePart(text: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun Dot() {
+internal fun Dot() {
     Box(
         Modifier
             .size(3.dp)
@@ -438,7 +438,7 @@ private fun Dot() {
 /** FR-EXP-05. A list, not a cycle — *Other* was six taps away. */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MethodPickerSheet(
+internal fun MethodPickerSheet(
     selected: PaymentMethod,
     onSelect: (PaymentMethod) -> Unit,
     onDismiss: () -> Unit,
@@ -482,7 +482,7 @@ private fun MethodPickerSheet(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun DatePickerSheet(
+internal fun DatePickerSheet(
     date: LocalDate,
     today: LocalDate,
     onPick: (LocalDate) -> Unit,
@@ -524,7 +524,7 @@ private fun DatePickerSheet(
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NoteSheet(
+internal fun NoteSheet(
     note: String?,
     onDone: (String?) -> Unit,
     onDismiss: () -> Unit,

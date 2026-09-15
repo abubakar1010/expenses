@@ -7,6 +7,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.TestFixture
 import com.app.finance.awaitState
 import com.app.finance.core.money.Money
+import com.app.finance.domain.model.EntryError
+import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.domain.model.SaveOutcome
 import com.app.finance.domain.model.Split
 import kotlinx.coroutines.Dispatchers
@@ -202,6 +204,64 @@ class PeopleViewModelTest {
         val outcome = fx.settlements.record(rahim, Money.ofTaka(100), fx.today.plusDays(1))
         assertTrue("a future settlement was accepted: $outcome", outcome is SaveOutcome.Rejected)
         assertEquals(0L, scalar("SELECT COUNT(*) FROM settlement"))
+    }
+
+    @Test
+    fun settling_records_the_date_method_and_note_chosen() = runBlocking {
+        // The sheet used to write today, Cash and no note on every save,
+        // whatever had actually happened.
+        val rahim = person("Rahim")
+        sharedExpense(1_000, listOf(rahim))
+        val vm = vm()
+        val row = vm.state.awaitState { it.owedToYou.isNotEmpty() }.owedToYou.single()
+
+        vm.settleUp(row)
+        vm.setSettleDate(fx.today.minusDays(2), fx.today)
+        vm.setSettleMethod(PaymentMethod.BKASH)
+        vm.setSettleNote("  sent on bKash  ")
+        vm.state.awaitState { it.settle?.note == "sent on bKash" }
+
+        vm.submitSettle(fx.today)
+        vm.state.awaitState { it.settle == null && it.settled.isNotEmpty() }
+
+        val saved = fx.db.settlementDao().all().single()
+        assertEquals(Money.ofTaka(500).paisa, saved.amountMinor)
+        assertEquals(fx.today.minusDays(2).toEpochDay(), saved.settledOn)
+        assertEquals(PaymentMethod.BKASH.code, saved.paymentMethod)
+        assertEquals("sent on bKash", saved.note)
+    }
+
+    @Test
+    fun an_untouched_settle_sheet_still_records_today_in_cash() = runBlocking {
+        val rahim = person("Rahim")
+        sharedExpense(1_000, listOf(rahim))
+        val vm = vm()
+        val row = vm.state.awaitState { it.owedToYou.isNotEmpty() }.owedToYou.single()
+
+        vm.settleUp(row)
+        vm.submitSettle(fx.today)
+        vm.state.awaitState { it.settle == null && it.settled.isNotEmpty() }
+
+        val saved = fx.db.settlementDao().all().single()
+        assertEquals(fx.today.toEpochDay(), saved.settledOn)
+        assertEquals(PaymentMethod.DEFAULT.code, saved.paymentMethod)
+        assertEquals(null, saved.note)
+    }
+
+    @Test
+    fun a_future_settle_date_is_refused_when_it_is_picked() = runBlocking {
+        val rahim = person("Rahim")
+        sharedExpense(1_000, listOf(rahim))
+        val vm = vm()
+        val row = vm.state.awaitState { it.owedToYou.isNotEmpty() }.owedToYou.single()
+
+        vm.settleUp(row)
+        vm.setSettleDate(fx.today.plusDays(1), fx.today)
+
+        val editor = vm.state.value.settle!!
+        assertEquals(EntryError.FUTURE_DATE, editor.error)
+        assertEquals("the refused date must not be kept", null, editor.date)
+        assertEquals(SettlePicker.NONE, editor.picker)
     }
 
     @Test

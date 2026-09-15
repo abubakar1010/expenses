@@ -23,12 +23,13 @@ android {
         // Bumped per release, not per schema change. 2 was FR-BUD-09 and
         // schema v4 — the first build that upgraded an install rather than
         // creating one; 3 is FR-SHR-06's reach-through from a person to the
-        // ledger and touches no table.
+        // ledger and touches no table. 4 is schema v5, FR-REC-06's shared
+        // repeating entries, and needs 07 §6.4's rehearsal for that reason.
         //
         // `adb install -r` tolerates a repeated versionCode; nothing else
         // does, and an update that cannot be told apart from what it replaces
         // is not one.
-        versionCode = 3
+        versionCode = 4
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

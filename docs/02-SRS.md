@@ -193,14 +193,14 @@ falsify both months permanently, and no later entry repairs them.
 **FR-SHR-03** An expense MUST record who paid: the user, or one other person. Where somebody else paid, the expense MUST still record the user's share, because they consumed it. Shares owed *to* the user MUST exist only where the user paid — the two are mutually exclusive and MUST be presented as one choice, not two.
 - *Accept:* A meal a friend paid for still charges the user's food budget their share, and offers no way to also record somebody owing them for it.
 
-**FR-SHR-04** The system MUST allow recording money moving between the user and a person that is not consumption — a repayment, or a loan made outright. Such a record MUST NOT enter any expense or income aggregate.
-- *Accept:* A friend repaying ৳750 leaves every rollup, the period total and the savings rate unchanged.
+**FR-SHR-04** The system MUST allow recording money moving between the user and a person that is not consumption — a repayment, or a loan made outright. Such a record MUST NOT enter any expense or income aggregate. It MUST record the date the money moved, how it moved (FR-EXP-05's payment methods), and an optional note, defaulting to today and the default method; a date in the future MUST be refused.
+- *Accept:* A friend repaying ৳750 leaves every rollup, the period total and the savings rate unchanged. A repayment that arrived by bKash two days ago is recorded with that date and that method.
 
 **FR-SHR-05** The system MUST display, per person, the net amount owed in either direction, and MUST distinguish the two directions clearly.
 - *Accept:* Each balance equals a direct sum over that person's shares, the expenses they paid, and their settlements. A person who is square appears in neither list.
 
-**FR-SHR-06** The ledger MUST be filterable by person, matching expenses that person shares in or paid for. While such a filter is active the ledger MUST show the balance with that person rather than FR-EXP-11's filtered total, which answers a different question. The filter MUST also be reachable from the balance itself — selecting a person on the People screen MUST open the ledger narrowed to them — because a balance the user cannot take apart is a figure they have to take on trust.
-- *Accept:* Selecting a person whose balance is ৳2,450 opens the ledger showing every expense they share in or paid for and no others, with ৳2,450 in the header; a filter left over from an earlier question is discarded rather than intersected, so the rows below the balance are the rows it was computed from. A person who is square is selectable too — being square is a consequence of history, not the absence of it.
+**FR-SHR-06** The ledger MUST be filterable by person, matching expenses that person shares in or paid for. While such a filter is active the ledger MUST show the balance with that person rather than FR-EXP-11's filtered total, which answers a different question. The filter MUST also be reachable from the balance itself — selecting a person on the People screen MUST open the ledger narrowed to them — because a balance the user cannot take apart is a figure they have to take on trust. For the same reason the filtered ledger MUST list that person's settlements (FR-SHR-04), which the balance subtracts, and each MUST be removable with undo (NFR-USE-03).
+- *Accept:* Selecting a person whose balance is ৳2,450 opens the ledger showing every expense they share in or paid for and no others, with ৳2,450 in the header; a filter left over from an earlier question is discarded rather than intersected, so the rows below the balance are the rows it was computed from. A person who is square is selectable too — being square is a consequence of history, not the absence of it. A person who has repaid ৳500 shows that settlement under the balance; one whose only history is a ৳500 loan shows the loan and the balance, not an empty result. Removing a settlement moves the balance, and undoing restores both.
 
 **FR-SHR-07** People, shares and settlements MUST survive export and import, including a merge from another device, where a person MUST deduplicate on the normalised name key exactly as an income source does.
 - *Accept:* Export → wipe → import restores every balance unchanged; merging a file naming a person this device already knows adds no second person.
@@ -239,6 +239,9 @@ falsify both months permanently, and no later entry repairs them.
 **FR-REC-04** Missed due dates accumulated while the app was unopened MUST all be generated on next launch, each individually confirmable.
 
 **FR-REC-05** Anchor days beyond the length of a short month MUST clamp to that month's final day.
+
+**FR-REC-06** A recurring **expense** rule SHOULD be shareable exactly as an expense is (FR-SHR-02, FR-SHR-03): split evenly or by amount with one or more people, or paid by one other person. The rule's amount MUST be the user's share, and every entry it generates MUST carry the rule's split. A pending entry's shares MUST enter no balance until it is confirmed. A rule naming an archived person MUST generate nothing until they are restored, and MUST say why; a new rule MUST NOT name one. Income rules MUST NOT be shared.
+- *Accept:* A ৳1,500 monthly internet bill split evenly with one person generates, each month, a pending ৳750 expense carrying a ৳750 share; confirming it moves that person's balance by ৳750, and dismissing it leaves no share behind.
 
 ### 2.9 Data portability — FR-DAT
 

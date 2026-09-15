@@ -57,6 +57,8 @@ interface PersonDao {
         SELECT EXISTS (SELECT 1 FROM expense_share WHERE person_id = :id)
             OR EXISTS (SELECT 1 FROM expense    WHERE payer_person_id = :id)
             OR EXISTS (SELECT 1 FROM settlement WHERE person_id = :id)
+            OR EXISTS (SELECT 1 FROM recurring_rule       WHERE payer_person_id = :id)
+            OR EXISTS (SELECT 1 FROM recurring_rule_share WHERE person_id = :id)
         """,
     )
     suspend fun hasHistory(id: Long): Boolean

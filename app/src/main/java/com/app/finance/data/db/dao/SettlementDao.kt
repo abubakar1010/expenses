@@ -68,7 +68,9 @@ interface SettlementDao {
                p.is_archived AS archived,
                (EXISTS (SELECT 1 FROM expense_share WHERE person_id = p.id)
                  OR EXISTS (SELECT 1 FROM expense    WHERE payer_person_id = p.id)
-                 OR EXISTS (SELECT 1 FROM settlement WHERE person_id = p.id)) AS hasHistory,
+                 OR EXISTS (SELECT 1 FROM settlement WHERE person_id = p.id)
+                 OR EXISTS (SELECT 1 FROM recurring_rule       WHERE payer_person_id = p.id)
+                 OR EXISTS (SELECT 1 FROM recurring_rule_share WHERE person_id = p.id)) AS hasHistory,
                IFNULL((SELECT SUM(s.share_minor)
                          FROM expense_share s
                          JOIN expense e ON e.id = s.expense_id

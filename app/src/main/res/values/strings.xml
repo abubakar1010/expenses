@@ -183,7 +183,7 @@
     <!-- Shared expenses (FR-SHR-*). Problem, then the fix, per 05 §9. -->
     <string name="error_person_not_found">That person isn\'t in your list. Add them first.</string>
     <string name="error_person_archived">That person is archived. Restore them to split with them.</string>
-    <string name="error_person_has_history">This person appears in your expenses. Archive them instead.</string>
+    <string name="error_person_has_history">This person appears in your expenses or repeating entries. Archive them instead.</string>
     <string name="error_share_on_foreign_payment">Someone else paid this one, so nobody owes you for it.</string>
     <string name="error_split_does_not_balance">The shares don\'t add up to the bill. Check the amounts.</string>
 
@@ -543,6 +543,10 @@
     <string name="rule_next_due">Next on %1$s</string>
     <string name="rule_paused">Paused</string>
     <string name="rule_target_archived">Archived — nothing is being added</string>
+    <!-- FR-REC-06. A rule shared with somebody since archived generates nothing,
+         for the reason an archived category stops one (FR-CAT-08). -->
+    <string name="rule_person_archived">Someone in the split is archived — nothing is being added</string>
+    <string name="rule_split_hint">Type the whole bill. Each time it repeats, only your share counts as spending.</string>
     <string name="pause_rule">Pause</string>
     <string name="resume_rule">Resume</string>
     <string name="delete_rule">Delete</string>

@@ -1,4 +1,4 @@
--- DayBook — canonical SQLite schema, version 4.
+-- DayBook — canonical SQLite schema, version 5.
 --
 -- Generated from app/src/main/java/com/app/finance/data/db/Schema.kt, which is
 -- what actually creates the database at runtime. Regenerate both together.
@@ -250,6 +250,7 @@ CREATE TABLE recurring_rule (
     auto_post    INTEGER NOT NULL DEFAULT 0 CHECK (auto_post IN (0,1)),
     is_active    INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
     note         TEXT,
+    payer_person_id INTEGER REFERENCES person(id) ON DELETE RESTRICT,
     created_at   INTEGER NOT NULL,
     updated_at   INTEGER NOT NULL,
     CHECK ((target = 0 AND category_id IS NOT NULL AND source_id IS NULL)
@@ -257,6 +258,28 @@ CREATE TABLE recurring_rule (
 );
 
 CREATE INDEX ix_rule_due ON recurring_rule(is_active, next_due_day);
+CREATE INDEX ix_rule_payer ON recurring_rule(payer_person_id);
+
+-- [v5] One other person's portion of a repeating bill (FR-REC-06) — the
+-- template expense_share is copied from on every occurrence.
+--
+-- The same rule as expense_share: rows exist only on a spending rule YOU pay
+-- (recurring_rule.payer_person_id IS NULL). recurring_rule.amount_minor stays
+-- what each generated expense stores — your share — so the bill is
+-- amount_minor + SUM(share_minor) here exactly as it is on expense, and
+-- generation copies both halves rather than dividing anything again.
+CREATE TABLE recurring_rule_share (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    uuid        TEXT    NOT NULL UNIQUE,
+    rule_id     INTEGER NOT NULL REFERENCES recurring_rule(id) ON DELETE RESTRICT,
+    person_id   INTEGER NOT NULL REFERENCES person(id) ON DELETE RESTRICT,
+    share_minor INTEGER NOT NULL CHECK (share_minor > 0),
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX ux_rule_share_rule_person ON recurring_rule_share(rule_id, person_id);
+CREATE INDEX ix_rule_share_person ON recurring_rule_share(person_id);
 
 CREATE TABLE app_meta (
     key        TEXT PRIMARY KEY,
@@ -491,6 +514,50 @@ BEGIN
     WHERE EXISTS (SELECT 1 FROM expense_share WHERE expense_id = NEW.id);
 END;
 
+-- ================================= shared-rule guards [v5] (FR-REC-06)
+-- The guards above, for the template — generation copies a rule's payer and
+-- shares onto the expense, where an impossible pair would abort the whole
+-- evaluation. And one rule more: only a spending rule is shared at all.
+CREATE TRIGGER trg_rule_share_only_when_i_pay
+BEFORE INSERT ON recurring_rule_share
+BEGIN
+    SELECT RAISE(ABORT, 'a share may only be recorded on a spending rule you pay')
+    WHERE (SELECT payer_person_id FROM recurring_rule WHERE id = NEW.rule_id) IS NOT NULL
+       OR (SELECT target FROM recurring_rule WHERE id = NEW.rule_id) <> 0;
+END;
+
+CREATE TRIGGER trg_rule_share_only_when_i_pay_upd
+BEFORE UPDATE OF rule_id ON recurring_rule_share
+BEGIN
+    SELECT RAISE(ABORT, 'a share may only be recorded on a spending rule you pay')
+    WHERE (SELECT payer_person_id FROM recurring_rule WHERE id = NEW.rule_id) IS NOT NULL
+       OR (SELECT target FROM recurring_rule WHERE id = NEW.rule_id) <> 0;
+END;
+
+CREATE TRIGGER trg_rule_payer_excludes_shares
+BEFORE UPDATE OF payer_person_id ON recurring_rule
+WHEN NEW.payer_person_id IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'a rule with shares is not paid by someone else')
+    WHERE EXISTS (SELECT 1 FROM recurring_rule_share WHERE rule_id = NEW.id);
+END;
+
+CREATE TRIGGER trg_rule_payer_spending_only
+BEFORE INSERT ON recurring_rule
+WHEN NEW.payer_person_id IS NOT NULL AND NEW.target <> 0
+BEGIN
+    SELECT RAISE(ABORT, 'only a spending rule can be paid by someone else');
+END;
+
+CREATE TRIGGER trg_rule_payer_spending_only_upd
+BEFORE UPDATE OF payer_person_id, target ON recurring_rule
+WHEN NEW.target <> 0
+BEGIN
+    SELECT RAISE(ABORT, 'only a spending rule can be paid by someone else')
+    WHERE NEW.payer_person_id IS NOT NULL
+       OR EXISTS (SELECT 1 FROM recurring_rule_share WHERE rule_id = NEW.id);
+END;
+
 -- ================================================== seed data [ADDED] (§7)
 -- Inserted in the same transaction as schema creation, so there is no
 -- observable state in which the app has a schema but nothing to spend against.
@@ -517,7 +584,7 @@ INSERT INTO category (uuid, parent_id, name, name_key, nature, is_system, sort_o
 INSERT INTO income_source (uuid, name, name_key, kind, sort_order, created_at, updated_at) VALUES
     ('<uuid>', 'Salary', 'salary', 0, 0, <now>, <now>);
 
-INSERT INTO app_meta (key, value, updated_at) VALUES ('schema_version', '4', <now>);
+INSERT INTO app_meta (key, value, updated_at) VALUES ('schema_version', '5', <now>);
 
 -- ============================================ integrity and repair (§6)
 -- The user-invocable "rebuild aggregates" action in Settings, and the recovery

@@ -15,6 +15,7 @@ import com.app.finance.data.db.entity.SettlementEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.IncomeSourceEntity
 import com.app.finance.data.db.entity.RecurringRuleEntity
+import com.app.finance.data.db.entity.RecurringRuleShareEntity
 
 /**
  * Whole-table reads and writes — export, import, and delete-all.
@@ -73,6 +74,10 @@ interface BackupDao {
     @Query("SELECT * FROM settlement ORDER BY id")
     suspend fun allSettlements(): List<SettlementEntity>
 
+    /** FR-REC-06 — a shared rule's template shares. */
+    @Query("SELECT * FROM recurring_rule_share ORDER BY id")
+    suspend fun allRuleShares(): List<RecurringRuleShareEntity>
+
     @Query("SELECT * FROM app_meta ORDER BY key")
     suspend fun allMeta(): List<AppMetaEntity>
 
@@ -117,6 +122,7 @@ interface BackupDao {
             UNION ALL SELECT MAX(updated_at), COUNT(*) FROM person
             UNION ALL SELECT MAX(updated_at), COUNT(*) FROM expense_share
             UNION ALL SELECT MAX(updated_at), COUNT(*) FROM settlement
+            UNION ALL SELECT MAX(updated_at), COUNT(*) FROM recurring_rule_share
         )
         """,
     )
@@ -156,6 +162,9 @@ interface BackupDao {
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertSettlements(rows: List<SettlementEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertRuleShares(rows: List<RecurringRuleShareEntity>)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMeta(rows: List<AppMetaEntity>)
 
@@ -185,6 +194,9 @@ interface BackupDao {
 
     @Update
     suspend fun updateSettlements(rows: List<SettlementEntity>)
+
+    @Update
+    suspend fun updateRuleShares(rows: List<RecurringRuleShareEntity>)
 
     // --- lookups the merge needs ---------------------------------------------
     //

@@ -8,13 +8,16 @@ import com.app.finance.data.db.dao.PendingExpense
 import com.app.finance.data.db.dao.PendingIncome
 import com.app.finance.data.db.dao.RuleWithTarget
 import com.app.finance.data.db.entity.ExpenseEntity
+import com.app.finance.data.db.entity.ExpenseShareEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.RecurringRuleEntity
+import com.app.finance.data.db.entity.RecurringRuleShareEntity
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.EntryStatus
 import com.app.finance.domain.model.Frequency
 import com.app.finance.domain.model.RuleTarget
 import com.app.finance.domain.model.SaveOutcome
+import com.app.finance.domain.model.Split
 import com.app.finance.domain.usecase.RecurrenceSchedule
 import kotlinx.coroutines.flow.Flow
 import java.time.Clock
@@ -25,6 +28,15 @@ import java.util.UUID
 data class GenerationResult(val pending: Int, val posted: Int) {
     val total: Int get() = pending + posted
 }
+
+/**
+ * A rule removed, whole, so Undo can put it back — [DeletedExpense]'s reason:
+ * after the delete its shares exist nowhere else.
+ */
+data class DeletedRule(
+    val rule: RecurringRuleEntity,
+    val shares: List<RecurringRuleShareEntity> = emptyList(),
+)
 
 /**
  * Recurring rules — FR-REC-01 … FR-REC-05.
@@ -59,9 +71,12 @@ class RecurringRepository(
     // --- FR-REC-01 -----------------------------------------------------------
 
     /**
+     * @param amount what each generated entry stores — for a shared spending
+     *   rule, **your share**, exactly as `ExpenseRepository.insert` takes it.
      * @param anchorDay 1..31 for monthly and yearly. Ignored by weekly rules,
      *   which recur every seventh day from [startingFrom] — "every Friday" is
      *   not a day of the month.
+     * @param split FR-REC-06. Copied onto every occurrence. Spending rules only.
      */
     suspend fun createRule(
         target: RuleTarget,
@@ -72,30 +87,65 @@ class RecurringRepository(
         autoPost: Boolean = false,
         note: String? = null,
         startingFrom: LocalDate = LocalDate.now(clock),
+        split: Split = Split.NONE,
     ): SaveOutcome {
+        if (split.isShared) {
+            if (target != RuleTarget.EXPENSE) return SaveOutcome.Rejected(EntryError.CONSTRAINT_VIOLATION)
+            // Before the amount check, so an over-allocated split says what is
+            // actually wrong with it rather than "amount can't be zero".
+            split.validate(amount)?.let { return SaveOutcome.Rejected(it) }
+        }
         if (amount.paisa <= 0L) return SaveOutcome.Rejected(EntryError.ZERO_AMOUNT)
         if (anchorDay !in RecurrenceSchedule.MIN_ANCHOR..RecurrenceSchedule.MAX_ANCHOR) {
             return SaveOutcome.Rejected(EntryError.CONSTRAINT_VIOLATION)
+        }
+        // A rule is a promise to keep writing shares against these people. An
+        // archived person is out of every picker (FR-SHR-01), and evaluation
+        // would skip the rule from its first due date — so refuse it here, with
+        // the sentence that says to restore them, rather than save a rule that
+        // never runs.
+        (split.owed.map { it.personId } + listOfNotNull(split.payerPersonId)).forEach { id ->
+            val person = db.personDao().byId(id)
+                ?: return SaveOutcome.Rejected(EntryError.PERSON_NOT_FOUND)
+            if (person.isArchived) return SaveOutcome.Rejected(EntryError.PERSON_ARCHIVED)
         }
         val now = clock.millis()
         val firstDue = RecurrenceSchedule.firstDueOnOrAfter(frequency, anchorDay, startingFrom)
 
         return runCatchingWrite {
-            dao.insertRule(
-                RecurringRuleEntity(
-                    uuid = UUID.randomUUID().toString(),
-                    target = target.code,
-                    categoryId = targetId.takeIf { target == RuleTarget.EXPENSE },
-                    sourceId = targetId.takeIf { target == RuleTarget.INCOME },
-                    amountMinor = amount.paisa,
-                    frequency = frequency.code,
-                    anchorDay = anchorDay,
-                    nextDueDay = firstDue.toEpochDay(),
-                    autoPost = autoPost,
-                    createdAt = now,
-                    updatedAt = now,
-                ),
-            )
+            db.withTransaction {
+                val id = dao.insertRule(
+                    RecurringRuleEntity(
+                        uuid = UUID.randomUUID().toString(),
+                        target = target.code,
+                        categoryId = targetId.takeIf { target == RuleTarget.EXPENSE },
+                        sourceId = targetId.takeIf { target == RuleTarget.INCOME },
+                        amountMinor = amount.paisa,
+                        frequency = frequency.code,
+                        anchorDay = anchorDay,
+                        nextDueDay = firstDue.toEpochDay(),
+                        autoPost = autoPost,
+                        payerPersonId = split.payerPersonId,
+                        createdAt = now,
+                        updatedAt = now,
+                    ),
+                )
+                if (split.owed.isNotEmpty()) {
+                    dao.insertShares(
+                        split.owed.map {
+                            RecurringRuleShareEntity(
+                                uuid = UUID.randomUUID().toString(),
+                                ruleId = id,
+                                personId = it.personId,
+                                shareMinor = it.amount.paisa,
+                                createdAt = now,
+                                updatedAt = now,
+                            )
+                        },
+                    )
+                }
+                id
+            }
         }.fold(
             onSuccess = { SaveOutcome.Saved(it) },
             // There was no mapping here at all — every failure was
@@ -121,6 +171,10 @@ class RecurringRepository(
                 it.message?.contains("FOREIGN KEY", ignoreCase = true) == true ->
                     if (target == RuleTarget.EXPENSE) EntryError.CATEGORY_NOT_FOUND
                     else EntryError.SOURCE_NOT_FOUND
+                // The FR-REC-06 guards, matched on the text they raise.
+                it.message?.contains("a share may only be recorded") == true ->
+                    EntryError.SHARE_ON_FOREIGN_PAYMENT
+                it.message?.contains("share_minor") == true -> EntryError.SPLIT_DOES_NOT_BALANCE
                 it.message?.contains("amount_minor") == true -> EntryError.ZERO_AMOUNT
                 // `CHECK (…exactly one of category_id / source_id…)` — 03 §4.5.
                 // Reachable only from a caller that built a rule with neither or
@@ -148,14 +202,28 @@ class RecurringRepository(
      * not the rule's, and nothing references a rule so `ON DELETE RESTRICT`
      * guards nothing here.
      */
-    suspend fun deleteRule(id: Long): RecurringRuleEntity? {
-        val rule = dao.ruleById(id) ?: return null
+    suspend fun deleteRule(id: Long): DeletedRule? = db.withTransaction {
+        val rule = dao.ruleById(id) ?: return@withTransaction null
+        // `recurring_rule_share.rule_id` is `ON DELETE RESTRICT`, so the shares
+        // go first — and are handed back, because Undo has to restore a shared
+        // rent as a shared rent.
+        val shares = dao.sharesForRule(id)
+        dao.deleteSharesForRule(id)
         dao.deleteRule(rule)
-        return rule
+        DeletedRule(rule, shares)
     }
 
-    /** Re-inserts a deleted rule verbatim, uuid and schedule included. */
-    suspend fun restoreRule(rule: RecurringRuleEntity): Long = dao.insertRule(rule.copy(id = 0))
+    /**
+     * Re-inserts a deleted rule verbatim, uuid and schedule included, with its
+     * shares re-pointed at the new row id and their own uuids kept.
+     */
+    suspend fun restoreRule(deleted: DeletedRule): Long = db.withTransaction {
+        val id = dao.insertRule(deleted.rule.copy(id = 0))
+        if (deleted.shares.isNotEmpty()) {
+            dao.insertShares(deleted.shares.map { it.copy(id = 0, ruleId = id) })
+        }
+        id
+    }
 
     // --- FR-REC-02, -03, -04 -------------------------------------------------
 
@@ -245,7 +313,7 @@ class RecurringRepository(
                 if (dao.countExpenseOn(categoryId, due.toEpochDay(), rule.amountMinor) > 0) {
                     return false
                 }
-                db.expenseDao().insert(
+                val expenseId = db.expenseDao().insert(
                     ExpenseEntity(
                         uuid = UUID.randomUUID().toString(),
                         categoryId = categoryId,
@@ -256,10 +324,30 @@ class RecurringRepository(
                         periodYm = Period.from(due).ym,
                         note = rule.note,
                         status = status,
+                        payerPersonId = rule.payerPersonId,
                         createdAt = now,
                         updatedAt = now,
                     ),
                 )
+                // FR-REC-06. Copied, not re-divided: the rule's shares were
+                // allocated once against the bill, and the occurrence is the
+                // same bill. A pending occurrence's shares are in no balance —
+                // `SettlementDao` reads `status = 0` — until it is confirmed.
+                val shares = dao.sharesForRule(rule.id)
+                if (shares.isNotEmpty()) {
+                    db.expenseShareDao().insert(
+                        shares.map {
+                            ExpenseShareEntity(
+                                uuid = UUID.randomUUID().toString(),
+                                expenseId = expenseId,
+                                personId = it.personId,
+                                shareMinor = it.shareMinor,
+                                createdAt = now,
+                                updatedAt = now,
+                            )
+                        },
+                    )
+                }
                 true
             }
 
@@ -302,10 +390,17 @@ class RecurringRepository(
      * it again — its `next_due_day` has already moved past — so without an undo
      * a mis-tap would lose the entry for good.
      */
-    suspend fun dismissExpense(id: Long): ExpenseEntity? {
-        val row = dao.pendingExpenseById(id) ?: return null
+    suspend fun dismissExpense(id: Long): DeletedExpense? = db.withTransaction {
+        // Read inside the transaction: if the row was confirmed a moment ago,
+        // its shares belong to a posted expense now and must not be touched.
+        val row = dao.pendingExpenseById(id) ?: return@withTransaction null
+        // A shared rule's occurrence carries shares, and
+        // `expense_share.expense_id` is `ON DELETE RESTRICT` — so they go
+        // first, and travel with the row for Undo.
+        val shares = db.expenseShareDao().forExpense(id)
+        db.expenseShareDao().deleteForExpense(id)
         dao.dismissExpense(id)
-        return row
+        DeletedExpense(row, shares)
     }
 
     suspend fun dismissIncome(id: Long): IncomeEntryEntity? {
@@ -314,9 +409,14 @@ class RecurringRepository(
         return row
     }
 
-    /** Re-inserts a dismissed row verbatim, still pending, for Undo. */
-    suspend fun restoreExpense(row: ExpenseEntity): Long =
-        db.expenseDao().insert(row.copy(id = 0))
+    /** Re-inserts a dismissed row verbatim, still pending, with its shares, for Undo. */
+    suspend fun restoreExpense(deleted: DeletedExpense): Long = db.withTransaction {
+        val id = db.expenseDao().insert(deleted.expense.copy(id = 0))
+        if (deleted.shares.isNotEmpty()) {
+            db.expenseShareDao().insert(deleted.shares.map { it.copy(id = 0, expenseId = id) })
+        }
+        id
+    }
 
     suspend fun restoreIncome(row: IncomeEntryEntity): Long =
         db.incomeDao().insertEntry(row.copy(id = 0))

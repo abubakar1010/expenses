@@ -122,7 +122,31 @@ internal object Migrations {
         }
     }
 
-    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+    /**
+     * A repeating entry can be shared — FR-REC-06.
+     *
+     * [MIGRATION_2_3]'s shape applied to the template: one nullable column on
+     * `recurring_rule`, one new table, their indices and guards. No existing
+     * row is rewritten, and every rule reads back afterwards with no payer and
+     * no shares — which is exactly what it was before the columns existed, a
+     * rule you pay for yourself.
+     *
+     * The `ALTER` comes first and is guarded by `PRAGMA table_info`, for the
+     * retry-after-interruption reason the earlier migrations give. The triggers
+     * come last because two of them are on `recurring_rule` and name the new
+     * column.
+     */
+    val MIGRATION_4_5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            if (!db.hasColumn("recurring_rule", "payer_person_id")) db.execSQL(V5_ALTER_RULE)
+            V5_TABLES.forEach(db::execSQL)
+            V5_INDICES.forEach(db::execSQL)
+            V5_TRIGGERS.forEach(db::execSQL)
+            DROP_ROOM_INVISIBLE_INDICES.forEach(db::execSQL)
+        }
+    }
+
+    val ALL = arrayOf(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
 
     // ------------------------------------------------------------------------
 
@@ -566,6 +590,81 @@ internal object Migrations {
     // ------------------------------------------------- version 4, frozen DDL
 
     private const val V4_ALTER_BUDGET = "ALTER TABLE budget ADD COLUMN note TEXT"
+
+    // ------------------------------------------------- version 5, frozen DDL
+
+    private const val V5_ALTER_RULE =
+        "ALTER TABLE recurring_rule ADD COLUMN payer_person_id INTEGER " +
+            "REFERENCES person(id) ON DELETE RESTRICT"
+
+    private val V5_TABLES = listOf(
+        """
+        CREATE TABLE IF NOT EXISTS recurring_rule_share (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            uuid        TEXT    NOT NULL UNIQUE,
+            rule_id     INTEGER NOT NULL REFERENCES recurring_rule(id) ON DELETE RESTRICT,
+            person_id   INTEGER NOT NULL REFERENCES person(id) ON DELETE RESTRICT,
+            share_minor INTEGER NOT NULL CHECK (share_minor > 0),
+            created_at  INTEGER NOT NULL,
+            updated_at  INTEGER NOT NULL
+        )
+        """,
+    ).map { it.trimIndent() }
+
+    private val V5_INDICES = listOf(
+        "CREATE INDEX IF NOT EXISTS ix_rule_payer ON recurring_rule(payer_person_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_rule_share_rule_person " +
+            "ON recurring_rule_share(rule_id, person_id)",
+        "CREATE INDEX IF NOT EXISTS ix_rule_share_person ON recurring_rule_share(person_id)",
+    )
+
+    private val V5_TRIGGERS = listOf(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_rule_share_only_when_i_pay
+        BEFORE INSERT ON recurring_rule_share
+        BEGIN
+            SELECT RAISE(ABORT, 'a share may only be recorded on a spending rule you pay')
+            WHERE (SELECT payer_person_id FROM recurring_rule WHERE id = NEW.rule_id) IS NOT NULL
+               OR (SELECT target FROM recurring_rule WHERE id = NEW.rule_id) <> 0;
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_rule_share_only_when_i_pay_upd
+        BEFORE UPDATE OF rule_id ON recurring_rule_share
+        BEGIN
+            SELECT RAISE(ABORT, 'a share may only be recorded on a spending rule you pay')
+            WHERE (SELECT payer_person_id FROM recurring_rule WHERE id = NEW.rule_id) IS NOT NULL
+               OR (SELECT target FROM recurring_rule WHERE id = NEW.rule_id) <> 0;
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_rule_payer_excludes_shares
+        BEFORE UPDATE OF payer_person_id ON recurring_rule
+        WHEN NEW.payer_person_id IS NOT NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'a rule with shares is not paid by someone else')
+            WHERE EXISTS (SELECT 1 FROM recurring_rule_share WHERE rule_id = NEW.id);
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_rule_payer_spending_only
+        BEFORE INSERT ON recurring_rule
+        WHEN NEW.payer_person_id IS NOT NULL AND NEW.target <> 0
+        BEGIN
+            SELECT RAISE(ABORT, 'only a spending rule can be paid by someone else');
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_rule_payer_spending_only_upd
+        BEFORE UPDATE OF payer_person_id, target ON recurring_rule
+        WHEN NEW.target <> 0
+        BEGIN
+            SELECT RAISE(ABORT, 'only a spending rule can be paid by someone else')
+            WHERE NEW.payer_person_id IS NOT NULL
+               OR EXISTS (SELECT 1 FROM recurring_rule_share WHERE rule_id = NEW.id);
+        END
+        """,
+    ).map { it.trimIndent() }
 
     // ------------------------------------------- the index Room must not see
 

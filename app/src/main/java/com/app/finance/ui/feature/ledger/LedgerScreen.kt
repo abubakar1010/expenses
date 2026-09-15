@@ -56,6 +56,7 @@ import com.app.finance.ui.common.EmptyState
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.LedgerRow
 import com.app.finance.data.db.dao.ExpenseWithCategory
+import com.app.finance.data.db.dao.PendingExpense
 import com.app.finance.data.db.entity.SettlementEntity
 import com.app.finance.ui.feature.entry.relativeLabel
 import com.app.finance.ui.common.MoneyText
@@ -535,6 +536,18 @@ private fun ExpenseWithCategory.splitLine(): String? {
     )
 }
 
+/** [ExpenseWithCategory.splitLine], for an occurrence a shared rule generated. */
+@Composable
+private fun PendingExpense.splitLine(): String? {
+    payerName?.let { return stringResource(R.string.split_paid_by, it) }
+    if (sharedMinor == 0L) return null
+    val locale = rememberJavaLocale()
+    return stringResource(
+        R.string.split_of_bill,
+        Money(expense.amountMinor + sharedMinor).format(locale),
+    )
+}
+
 /**
  * One settlement under a person's balance — FR-SHR-04, FR-SHR-06.
  *
@@ -671,6 +684,7 @@ private fun PendingEntries(
                 date = LocalDate.ofEpochDay(row.expense.spentOn),
                 onConfirm = { onConfirmExpense(row.expense.id) },
                 onDismiss = { onDismissExpense(row.expense.id) },
+                split = row.splitLine(),
             )
         }
         state.pendingIncome.forEach { row ->

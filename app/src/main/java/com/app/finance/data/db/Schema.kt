@@ -3,7 +3,7 @@ package com.app.finance.data.db
 import com.app.finance.core.text.NameKey
 
 /**
- * The canonical SQLite schema — version 3.
+ * The canonical SQLite schema — version 5.
  *
  * This object always describes the **current** schema. What an upgrading
  * database had before it lives in [Migrations], frozen, and must stay there:
@@ -21,6 +21,11 @@ import com.app.finance.core.text.NameKey
  *    existing changed meaning — `expense.amount_minor` is still *your* share
  *    and still the only thing the rollup triggers read, which is why not one
  *    of them was touched.
+ *  - **Version 4** added `budget.note` (FR-BUD-09) — the first migration onto
+ *    a ledger in daily use (06 §31).
+ *  - **Version 5** lets a repeating entry be shared (FR-REC-06):
+ *    `recurring_rule.payer_person_id` and `recurring_rule_share`, each the
+ *    template-side twin of what version 3 put on `expense`. Additive again.
  *
  * This object, not Room's entity annotations, is what actually creates the
  * database. Room cannot express four things this schema depends on:
@@ -48,7 +53,7 @@ import com.app.finance.core.text.NameKey
  */
 internal object Schema {
 
-    const val VERSION = 4
+    const val VERSION = 5
 
     /**
      * Applied on every connection open, before any query (03 §4.1).
@@ -220,6 +225,102 @@ internal object Schema {
         """,
     ).map { it.trimIndent() }
 
+    // ------------------------------------------------- version 5 (FR-REC-06)
+
+    /**
+     * FR-REC-06. One other person's portion of a repeating bill — the template
+     * [EXPENSE_SHARE_TABLE] is copied from on every occurrence.
+     *
+     * The same shape and the same rule: rows exist only when **you** pay the
+     * rule (`recurring_rule.payer_person_id IS NULL`), and only on a spending
+     * rule. `recurring_rule.amount_minor` stays what the generated expense
+     * stores — your share — so the bill is `amount_minor + SUM(share_minor)`
+     * here exactly as it is on `expense`, and generation copies both halves
+     * verbatim rather than dividing anything again.
+     */
+    private const val RULE_SHARE_TABLE = """
+        CREATE TABLE IF NOT EXISTS recurring_rule_share (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+            uuid        TEXT    NOT NULL UNIQUE,
+            rule_id     INTEGER NOT NULL REFERENCES recurring_rule(id) ON DELETE RESTRICT,
+            person_id   INTEGER NOT NULL REFERENCES person(id) ON DELETE RESTRICT,
+            share_minor INTEGER NOT NULL CHECK (share_minor > 0),
+            created_at  INTEGER NOT NULL,
+            updated_at  INTEGER NOT NULL
+        )
+        """
+
+    /** Version 5's table, `trimIndent`ed for [SHARED_TABLES]' reason. */
+    val RULE_SPLIT_TABLES: List<String> = listOf(RULE_SHARE_TABLE).map { it.trimIndent() }
+
+    val RULE_SPLIT_INDICES: List<String> = listOf(
+        // The foreign key's index, and the person-history probe's access path.
+        "CREATE INDEX IF NOT EXISTS ix_rule_payer ON recurring_rule(payer_person_id)",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_rule_share_rule_person " +
+            "ON recurring_rule_share(rule_id, person_id)",
+        "CREATE INDEX IF NOT EXISTS ix_rule_share_person ON recurring_rule_share(person_id)",
+    )
+
+    /**
+     * [SHARED_TRIGGERS], for the template — and one rule more.
+     *
+     * A share and a payer are exclusive on a rule for the reason they are on an
+     * expense: generation copies both onto the expense, where
+     * `trg_share_only_when_i_paid` would abort the whole evaluation — every
+     * rule in the transaction, not just the malformed one.
+     *
+     * The extra rule is that only a **spending** rule is shared at all. An
+     * income entry has no payer and no shares, and a split salary would be
+     * copied onto nothing.
+     */
+    val RULE_SPLIT_TRIGGERS: List<String> = listOf(
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_rule_share_only_when_i_pay
+        BEFORE INSERT ON recurring_rule_share
+        BEGIN
+            SELECT RAISE(ABORT, 'a share may only be recorded on a spending rule you pay')
+            WHERE (SELECT payer_person_id FROM recurring_rule WHERE id = NEW.rule_id) IS NOT NULL
+               OR (SELECT target FROM recurring_rule WHERE id = NEW.rule_id) <> 0;
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_rule_share_only_when_i_pay_upd
+        BEFORE UPDATE OF rule_id ON recurring_rule_share
+        BEGIN
+            SELECT RAISE(ABORT, 'a share may only be recorded on a spending rule you pay')
+            WHERE (SELECT payer_person_id FROM recurring_rule WHERE id = NEW.rule_id) IS NOT NULL
+               OR (SELECT target FROM recurring_rule WHERE id = NEW.rule_id) <> 0;
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_rule_payer_excludes_shares
+        BEFORE UPDATE OF payer_person_id ON recurring_rule
+        WHEN NEW.payer_person_id IS NOT NULL
+        BEGIN
+            SELECT RAISE(ABORT, 'a rule with shares is not paid by someone else')
+            WHERE EXISTS (SELECT 1 FROM recurring_rule_share WHERE rule_id = NEW.id);
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_rule_payer_spending_only
+        BEFORE INSERT ON recurring_rule
+        WHEN NEW.payer_person_id IS NOT NULL AND NEW.target <> 0
+        BEGIN
+            SELECT RAISE(ABORT, 'only a spending rule can be paid by someone else');
+        END
+        """,
+        """
+        CREATE TRIGGER IF NOT EXISTS trg_rule_payer_spending_only_upd
+        BEFORE UPDATE OF payer_person_id, target ON recurring_rule
+        WHEN NEW.target <> 0
+        BEGIN
+            SELECT RAISE(ABORT, 'only a spending rule can be paid by someone else')
+            WHERE NEW.payer_person_id IS NOT NULL
+               OR EXISTS (SELECT 1 FROM recurring_rule_share WHERE rule_id = NEW.id);
+        END
+        """,
+    ).map { it.trimIndent() }
+
     // ---------------------------------------------------------------- tables
 
     /**
@@ -342,12 +443,14 @@ internal object Schema {
             auto_post    INTEGER NOT NULL DEFAULT 0 CHECK (auto_post IN (0,1)),
             is_active    INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
             note         TEXT,
+            payer_person_id INTEGER REFERENCES person(id) ON DELETE RESTRICT,
             created_at   INTEGER NOT NULL,
             updated_at   INTEGER NOT NULL,
             CHECK ((target = 0 AND category_id IS NOT NULL AND source_id IS NULL)
                 OR (target = 1 AND source_id IS NOT NULL AND category_id IS NULL))
         )
         """,
+        RULE_SHARE_TABLE,
         """
         CREATE TABLE IF NOT EXISTS app_meta (
             key        TEXT PRIMARY KEY,
@@ -381,6 +484,8 @@ internal object Schema {
     val WIPE_ORDER: List<String> = listOf(
         "DELETE FROM rollup_expense_month",
         "DELETE FROM rollup_income_month",
+        // Before the rule it belongs to, which it references.
+        "DELETE FROM recurring_rule_share",
         "DELETE FROM recurring_rule",
         // Both reference `person`, and `expense_share` also references
         // `expense`, so both must go before either parent.
@@ -408,7 +513,8 @@ internal object Schema {
 
     /** Reverse of [TABLES] — children before parents, so drops never violate a FK. */
     val DROP_TABLES: List<String> = listOf(
-        "app_meta", "recurring_rule", "rollup_income_month", "rollup_expense_month",
+        "app_meta", "recurring_rule_share", "recurring_rule",
+        "rollup_income_month", "rollup_expense_month",
         "settlement", "expense_share",
         "expense", "budget", "income_entry", "category", "income_source",
         "person",
@@ -438,7 +544,7 @@ internal object Schema {
         "CREATE INDEX IF NOT EXISTS ix_expense_method ON expense(payment_method, period_ym)",
 
         "CREATE INDEX IF NOT EXISTS ix_rule_due ON recurring_rule(is_active, next_due_day)",
-    ) + SHARED_INDICES
+    ) + SHARED_INDICES + RULE_SPLIT_INDICES
 
     /**
      * The one index Room must never see — and the reason it is separate.
@@ -718,7 +824,7 @@ internal object Schema {
                 entry_count = entry_count + 1;
         END
         """,
-    ).map { it.trimIndent() } + SHARED_TRIGGERS
+    ).map { it.trimIndent() } + SHARED_TRIGGERS + RULE_SPLIT_TRIGGERS
 
     val DROP_TRIGGERS: List<String> = listOf(
         "trg_category_depth_insert", "trg_category_depth_update",
@@ -730,6 +836,9 @@ internal object Schema {
         "trg_rollup_inc_ins", "trg_rollup_inc_del", "trg_rollup_inc_upd",
         "trg_share_only_when_i_paid", "trg_share_only_when_i_paid_upd",
         "trg_payer_excludes_shares",
+        "trg_rule_share_only_when_i_pay", "trg_rule_share_only_when_i_pay_upd",
+        "trg_rule_payer_excludes_shares",
+        "trg_rule_payer_spending_only", "trg_rule_payer_spending_only_upd",
     ).map { "DROP TRIGGER IF EXISTS $it" }
 
     // ------------------------------------------------------------------ seed

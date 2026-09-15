@@ -13,6 +13,7 @@ import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.domain.model.SaveOutcome
 import com.app.finance.domain.model.Split
+import com.app.finance.domain.model.SplitMode
 import com.app.finance.ui.common.KeypadKey
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -530,10 +531,12 @@ class QuickAddViewModelTest {
         val rahim = person("Rahim")
 
         vm.addPerson("  rahim ")
-        // On `splitWith`, not on `people`: the list was already populated
-        // before this call, so the old predicate matched the state from
-        // *before* the add and asserted nothing (§22.8's stale match).
-        val state = vm.state.awaitState { rahim in it.splitWith }
+        // Both, because both are asserted below. On `splitWith` alone the
+        // predicate can match before the people flow has emitted at all, and
+        // `people.size` is then read from a state nothing waited for — §21.9
+        // J's shape. On `people` alone it matches the state from *before* the
+        // add and asserts nothing (§22.8's stale match).
+        val state = vm.state.awaitState { rahim in it.splitWith && it.people.isNotEmpty() }
 
         assertEquals(1, state.people.size)
         assertEquals(rahim, state.people.single().id)

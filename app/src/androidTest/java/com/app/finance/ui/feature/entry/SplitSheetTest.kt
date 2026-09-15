@@ -17,6 +17,7 @@ import com.app.finance.core.money.Money
 import com.app.finance.data.db.entity.PersonEntity
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.Split
+import com.app.finance.domain.model.SplitMode
 import com.app.finance.ui.theme.DayBookTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

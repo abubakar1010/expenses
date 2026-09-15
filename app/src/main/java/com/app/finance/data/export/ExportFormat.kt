@@ -10,6 +10,7 @@ import com.app.finance.data.db.entity.SettlementEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.IncomeSourceEntity
 import com.app.finance.data.db.entity.RecurringRuleEntity
+import com.app.finance.data.db.entity.RecurringRuleShareEntity
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -67,12 +68,14 @@ data class DayBookExport(
     val persons: List<PersonDto> = emptyList(),
     val shares: List<ExpenseShareDto> = emptyList(),
     val settlements: List<SettlementDto> = emptyList(),
+    /** FR-REC-06. Defaulted, so a file written before shared rules still reads. */
+    @SerialName("rule_shares") val ruleShares: List<RuleShareDto> = emptyList(),
     val meta: List<MetaDto> = emptyList(),
 ) {
     val rowCount: Int
         get() = categories.size + sources.size + budgets.size + expenses.size +
             incomeEntries.size + rules.size + persons.size + shares.size +
-            settlements.size + meta.size
+            settlements.size + ruleShares.size + meta.size
 
     companion object {
         /**
@@ -308,7 +311,28 @@ data class RuleDto(
     val note: String? = null,
     @SerialName("created_at") val createdAt: Long,
     @SerialName("updated_at") val updatedAt: Long,
+    /**
+     * FR-REC-06. Last and defaulted, rather than beside `note` where the
+     * column sits: every positional `RuleDto(...)` already written keeps
+     * meaning what it meant, and a file without the key reads as "you pay".
+     */
+    @SerialName("payer_person_id") val payerPersonId: Long? = null,
 ) : ExportRow
+
+/** One other person's part of a repeating bill — FR-REC-06. */
+@Serializable
+data class RuleShareDto(
+    override val id: Long,
+    override val uuid: String,
+    @SerialName("rule_id") val ruleId: Long,
+    @SerialName("person_id") val personId: Long,
+    @SerialName("share_minor") val shareMinor: Long,
+    @SerialName("created_at") val createdAt: Long,
+    @SerialName("updated_at") val updatedAt: Long,
+) : ExportRow {
+    /** `ux_rule_share_rule_person`, mirrored — read after both ids are remapped. */
+    override val naturalKey: String get() = "$ruleId/$personId"
+}
 
 @Serializable
 data class MetaDto(
@@ -391,9 +415,36 @@ fun IncomeEntryEntity.toDto() = IncomeEntryDto(
     id, uuid, sourceId, amountMinor, earnedOn, periodYm, note, status, createdAt, updatedAt,
 )
 
+// Named, and the payer populated, for `ExpenseEntity.toDto`'s reasons: an
+// omitted payer would be blanked by `@Update` on merge and would make `plan`
+// re-update the row forever.
 fun RecurringRuleEntity.toDto() = RuleDto(
-    id, uuid, target, categoryId, sourceId, amountMinor, frequency, anchorDay,
-    nextDueDay, lastRunDay, autoPost, isActive, note, createdAt, updatedAt,
+    id = id,
+    uuid = uuid,
+    target = target,
+    categoryId = categoryId,
+    sourceId = sourceId,
+    amountMinor = amountMinor,
+    frequency = frequency,
+    anchorDay = anchorDay,
+    nextDueDay = nextDueDay,
+    lastRunDay = lastRunDay,
+    autoPost = autoPost,
+    isActive = isActive,
+    note = note,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+    payerPersonId = payerPersonId,
+)
+
+fun RecurringRuleShareEntity.toDto() = RuleShareDto(
+    id = id,
+    uuid = uuid,
+    ruleId = ruleId,
+    personId = personId,
+    shareMinor = shareMinor,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
 )
 
 fun AppMetaEntity.toDto() = MetaDto(key, value, updatedAt)
@@ -468,8 +519,32 @@ fun IncomeEntryDto.toEntity() = IncomeEntryEntity(
 )
 
 fun RuleDto.toEntity() = RecurringRuleEntity(
-    id, uuid, target, categoryId, sourceId, amountMinor, frequency, anchorDay,
-    nextDueDay, lastRunDay, autoPost, isActive, note, createdAt, updatedAt,
+    id = id,
+    uuid = uuid,
+    target = target,
+    categoryId = categoryId,
+    sourceId = sourceId,
+    amountMinor = amountMinor,
+    frequency = frequency,
+    anchorDay = anchorDay,
+    nextDueDay = nextDueDay,
+    lastRunDay = lastRunDay,
+    autoPost = autoPost,
+    isActive = isActive,
+    note = note,
+    payerPersonId = payerPersonId,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
+
+fun RuleShareDto.toEntity() = RecurringRuleShareEntity(
+    id = id,
+    uuid = uuid,
+    ruleId = ruleId,
+    personId = personId,
+    shareMinor = shareMinor,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
 )
 
 fun MetaDto.toEntity() = AppMetaEntity(key, value, updatedAt)

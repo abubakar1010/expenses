@@ -266,7 +266,16 @@ class PeopleViewModel(
         )
     }
 
-    fun submitSettle(today: LocalDate) {
+    /**
+     * @param onRecorded after the write lands — what lets the screen say it
+     *   happened and offer the way to see it. Recording a repayment used to
+     *   close the sheet and change a figure, and nothing else on the screen
+     *   moved.
+     */
+    fun submitSettle(
+        today: LocalDate,
+        onRecorded: (personId: Long, personName: String) -> Unit = { _, _ -> },
+    ) {
         val editor = _state.value.settle ?: return
         val signed = editor.signed
         if (signed == null) {
@@ -284,7 +293,10 @@ class PeopleViewModel(
                 )
             }
             when (outcome) {
-                is SaveOutcome.Saved -> _state.update { it.copy(settle = null) }
+                is SaveOutcome.Saved -> {
+                    _state.update { it.copy(settle = null) }
+                    onRecorded(editor.personId, editor.personName)
+                }
                 is SaveOutcome.Rejected ->
                     _state.update { s -> s.copy(settle = s.settle?.copy(error = outcome.error)) }
             }

@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.lifecycle.ViewModelStore
@@ -20,9 +21,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.TestFixture
 import com.app.finance.core.money.Money
 import com.app.finance.domain.model.SaveOutcome
+import com.app.finance.domain.model.Split
 import com.app.finance.ui.theme.DayBookTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -253,10 +256,41 @@ class LedgerFilterTotalTest {
 
         awaitText("RAHIM")
         awaitText("SETTLEMENTS")
+        // A loan is still owed, so nothing about it is settled.
+        assertTrue(compose.onAllNodesWithText("SETTLED UP", substring = true).fetchSemanticsNodes().isEmpty())
         awaitText("I paid them")
         compose.waitUntil(WAIT_MS) {
             compose.onAllNodesWithText("bus fare", substring = true)
                 .fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
+    fun a_settle_up_is_folded_away_until_it_is_tapped() {
+        // FR-SHR-06, as reported: settling up used to leave the paid-back
+        // dinner looking exactly like one still owed.
+        val rahim = runBlocking { (fx.people.findOrCreate("Rahim") as SaveOutcome.Saved).id }
+        runBlocking {
+            val (yours, split) = Split.evenly(Money.ofTaka(1_000), listOf(rahim))
+            fx.expenses.insert(yours, fx.leafId("Grocery"), fx.today, note = "rice", split = split)
+            fx.settlements.record(rahim, Money.ofTaka(500), fx.today)
+        }
+
+        show(personFilter = rahim)
+
+        awaitText("SETTLED UP · TODAY")
+        assertTrue(
+            "a settled row must be folded away",
+            compose.onAllNodesWithText("rice").fetchSemanticsNodes().isEmpty(),
+        )
+
+        compose.onNodeWithText("SETTLED UP · TODAY").performClick()
+        awaitText("rice")
+        awaitText("They paid me")
+
+        compose.onNodeWithText("SETTLED UP · TODAY").performClick()
+        compose.waitUntil(WAIT_MS) {
+            compose.onAllNodesWithText("rice").fetchSemanticsNodes().isEmpty()
         }
     }
 }

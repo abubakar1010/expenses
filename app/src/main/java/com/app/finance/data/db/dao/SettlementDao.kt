@@ -35,6 +35,40 @@ interface SettlementDao {
     )
     fun observeForPerson(personId: Long): Flow<List<SettlementEntity>>
 
+    /** [observeForPerson], read once — so a reload sees one consistent moment. */
+    @Query(
+        "SELECT * FROM settlement WHERE person_id = :personId " +
+            "ORDER BY settled_on DESC, id DESC",
+    )
+    suspend fun forPerson(personId: Long): List<SettlementEntity>
+
+    /**
+     * Every event that moved one person's balance, unordered — FR-SHR-06.
+     *
+     * The three terms of [observeBalances], one row each, signed as that query
+     * sums them, which is what lets `SettleUpCycles` find the moments the
+     * balance was zero by walking them. `UNION ALL` of three indexed reads over
+     * tables that grow with sharing, not with the ledger — the same argument
+     * [observeBalances] makes for having no rollup.
+     */
+    @Query(
+        """
+        SELECT 0 AS kind, e.id AS id, e.spent_on AS day, e.created_at AS createdAt,
+               s.share_minor AS signedMinor
+          FROM expense_share s JOIN expense e ON e.id = s.expense_id
+         WHERE s.person_id = :personId AND e.status = 0
+        UNION ALL
+        SELECT 0, e.id, e.spent_on, e.created_at, -e.amount_minor
+          FROM expense e
+         WHERE e.payer_person_id = :personId AND e.status = 0
+        UNION ALL
+        SELECT 1, t.id, t.settled_on, t.created_at, -t.amount_minor
+          FROM settlement t
+         WHERE t.person_id = :personId
+        """,
+    )
+    suspend fun historyOf(personId: Long): List<PersonHistoryRow>
+
     /**
      * What every person's balance comes to — FR-SHR-05.
      *
@@ -121,4 +155,13 @@ data class PersonBalanceRow(
      */
     val hasHistory: Boolean,
     val balanceMinor: Long,
+)
+
+/** One event in a person's history — `kind` 0 is an expense, 1 a settlement. */
+data class PersonHistoryRow(
+    val kind: Int,
+    val id: Long,
+    val day: Long,
+    val createdAt: Long,
+    val signedMinor: Long,
 )

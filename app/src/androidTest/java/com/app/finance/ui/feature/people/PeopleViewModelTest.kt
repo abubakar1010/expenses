@@ -205,7 +205,9 @@ class PeopleViewModelTest {
     }
 
     @Test
-    fun undoing_a_settlement_puts_the_balance_back() = runBlocking {
+    fun a_settlement_deleted_elsewhere_moves_the_balance_here() = runBlocking {
+        // Deleting moved to the ledger filtered to a person (FR-SHR-06), which
+        // is where settlements are listed. This screen only has to follow.
         val rahim = person("Rahim")
         sharedExpense(1_000, listOf(rahim))
         val settlementId =
@@ -214,13 +216,9 @@ class PeopleViewModelTest {
         val vm = vm()
         vm.state.awaitState { it.settled.isNotEmpty() }
 
-        vm.deleteSettlement(settlementId)
+        fx.settlements.delete(settlementId)
         val removed = vm.state.awaitState { it.owedToYou.isNotEmpty() }
         assertEquals(Money.ofTaka(500).paisa, removed.owedToYou.single().balanceMinor)
-
-        vm.undo(removed.undoQueue.first().id)
-        val restored = vm.state.awaitState { it.settled.isNotEmpty() }
-        assertTrue(restored.owedToYou.isEmpty())
     }
 
     // --- the editor -----------------------------------------------------------

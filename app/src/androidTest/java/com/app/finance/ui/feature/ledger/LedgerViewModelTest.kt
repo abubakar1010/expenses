@@ -9,6 +9,8 @@ import com.app.finance.awaitState
 import com.app.finance.core.money.Money
 import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.domain.model.PaymentMethod
+import com.app.finance.domain.model.SaveOutcome
+import com.app.finance.domain.model.Split
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -69,6 +71,122 @@ class LedgerViewModelTest {
             spentOn = fx.today.minusDays(daysAgo),
             note = note,
         )
+
+    private suspend fun person(name: String): Long =
+        (fx.people.findOrCreate(name) as SaveOutcome.Saved).id
+
+    /** You paid [taka] and split it evenly with [personId]. */
+    private suspend fun shared(taka: Long, personId: Long) {
+        val (yours, split) = Split.evenly(Money.ofTaka(taka), listOf(personId))
+        fx.expenses.insert(yours, fx.leafId("Grocery"), fx.today, split = split)
+    }
+
+    /** Positive: they paid you. Negative: you paid them. */
+    private suspend fun settle(personId: Long, taka: Long, daysAgo: Long = 0): Long =
+        (
+            fx.settlements.record(personId, Money.ofTaka(taka), fx.today.minusDays(daysAgo))
+                as SaveOutcome.Saved
+            ).id
+
+    // --- FR-SHR-06: the settlements under a person's balance -----------------
+
+    @Test
+    fun filtering_to_a_person_lists_their_settlements_newest_first() = runBlocking {
+        val rahim = person("Rahim")
+        val karim = person("Karim")
+        shared(1_000, rahim)
+        settle(rahim, 100, daysAgo = 3)
+        settle(rahim, 200, daysAgo = 1)
+        settle(karim, 50)
+
+        val vm = vm()
+        vm.filterByPerson(rahim)
+        // ৳500 owed, ৳300 of it repaid. Awaited on the balance as well as the
+        // list: the two arrive from different places.
+        val state = vm.state.awaitState {
+            it.settlements.size == 2 && it.days.isNotEmpty() && it.personBalance == Money.ofTaka(200)
+        }
+
+        assertEquals(listOf(200_00L, 100_00L), state.settlements.map { it.amountMinor })
+        assertTrue("Karim's settlement is not Rahim's", state.settlements.all { it.personId == rahim })
+    }
+
+    @Test
+    fun deleting_a_settlement_moves_the_balance_and_undo_puts_it_back() = runBlocking {
+        val rahim = person("Rahim")
+        shared(1_000, rahim)
+        val id = settle(rahim, 200)
+
+        val vm = vm()
+        vm.filterByPerson(rahim)
+        vm.state.awaitState { it.settlements.size == 1 && it.personBalance == Money.ofTaka(300) }
+
+        vm.deleteSettlement(id)
+        val removed = vm.state.awaitState {
+            it.settlements.isEmpty() && it.personBalance == Money.ofTaka(500) && it.undoQueue.size == 1
+        }
+        assertTrue(removed.undoQueue.single().payload is LedgerUndo.SettlementRemoved)
+
+        vm.undo(removed.undoQueue.single().id)
+        val restored = vm.state.awaitState {
+            it.settlements.size == 1 && it.personBalance == Money.ofTaka(300) && it.undoQueue.isEmpty()
+        }
+        assertEquals(200_00L, restored.settlements.single().amountMinor)
+    }
+
+    @Test
+    fun a_person_whose_only_history_is_a_loan_is_not_an_empty_result() = runBlocking {
+        // "I lent Rahim ৳500" writes no expense. Filtering to him used to say
+        // nothing matched, and hid the balance header along with it.
+        val rahim = person("Rahim")
+        settle(rahim, -500)
+
+        val vm = vm()
+        vm.filterByPerson(rahim)
+        val state = vm.state.awaitState {
+            !it.initialLoad && it.settlements.size == 1 && it.personBalance == Money.ofTaka(500)
+        }
+
+        assertTrue(state.days.isEmpty())
+        assertFalse("a loan is not an empty result", state.isFilteredEmpty)
+        assertTrue("the balance header must show", state.showsFilteredTotal)
+    }
+
+    @Test
+    fun a_settlement_recorded_on_another_screen_reaches_the_filtered_ledger() = runBlocking {
+        // `observeRevision` ticks on `expense` only, so without its own flow a
+        // repayment recorded on People would leave this balance stale.
+        val rahim = person("Rahim")
+        shared(1_000, rahim)
+
+        val vm = vm()
+        vm.filterByPerson(rahim)
+        vm.state.awaitState { it.days.isNotEmpty() && it.personBalance == Money.ofTaka(500) }
+
+        settle(rahim, 150)
+
+        val state = vm.state.awaitState {
+            it.settlements.size == 1 && it.personBalance == Money.ofTaka(350)
+        }
+        assertEquals(150_00L, state.settlements.single().amountMinor)
+    }
+
+    @Test
+    fun leaving_the_person_filter_takes_their_settlements_with_it() = runBlocking {
+        val rahim = person("Rahim")
+        settle(rahim, -500)
+        seed(100, "Grocery")
+
+        val vm = vm()
+        vm.filterByPerson(rahim)
+        vm.state.awaitState { it.settlements.size == 1 }
+
+        vm.clearFilters()
+        val state = vm.state.awaitState { it.filters.personId == null && it.days.isNotEmpty() }
+
+        assertTrue(state.settlements.isEmpty())
+        assertFalse(state.showsFilteredTotal)
+    }
 
     @Test
     fun rows_are_grouped_by_day_with_a_subtotal_per_day() = runBlocking {

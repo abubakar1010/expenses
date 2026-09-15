@@ -105,6 +105,10 @@
     <string name="i_paid_them">I paid them</string>
     <string name="record_settlement">Record it</string>
     <string name="settlement_removed">Settlement removed</string>
+    <!-- The ledger filtered to a person (FR-SHR-06) lists the settlements its
+         balance subtracts, above the expenses. -->
+    <string name="settlements_heading">Settlements</string>
+    <string name="delete_settlement">Delete settlement</string>
     <!-- Spoken, so TalkBack does not read a bare number beside the bill. -->
     <string name="your_share_spoken">%1$s your share</string>
 

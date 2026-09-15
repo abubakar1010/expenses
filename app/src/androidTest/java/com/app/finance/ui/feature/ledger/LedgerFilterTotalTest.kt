@@ -19,6 +19,7 @@ import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.TestFixture
 import com.app.finance.core.money.Money
+import com.app.finance.domain.model.SaveOutcome
 import com.app.finance.ui.theme.DayBookTheme
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -94,7 +95,7 @@ class LedgerFilterTotalTest {
         )
     }
 
-    private fun show() {
+    private fun show(personFilter: Long? = null) {
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides storeOwner) {
                 DayBookTheme {
@@ -107,6 +108,7 @@ class LedgerFilterTotalTest {
                             onEdit = {},
                             onAdd = {},
                             onOpenPeople = {},
+                            personFilter = personFilter,
                         )
                     }
                 }
@@ -235,6 +237,27 @@ class LedgerFilterTotalTest {
 
         compose.waitUntil(WAIT_MS) { !headerShown() }
         awaitText("dal")
+    }
+
+    @Test
+    fun a_person_filter_lists_the_settlements_under_their_balance() {
+        // FR-SHR-06. The balance subtracts settlements, so the rows under it
+        // have to include them — and a person whose only history is a loan
+        // must get the header and the row, not "nothing matches".
+        val rahim = runBlocking { (fx.people.findOrCreate("Rahim") as SaveOutcome.Saved).id }
+        runBlocking {
+            fx.settlements.record(rahim, Money.ofTaka(-500), fx.today, note = "bus fare")
+        }
+
+        show(personFilter = rahim)
+
+        awaitText("RAHIM")
+        awaitText("SETTLEMENTS")
+        awaitText("I paid them")
+        compose.waitUntil(WAIT_MS) {
+            compose.onAllNodesWithText("bus fare", substring = true)
+                .fetchSemanticsNodes().isNotEmpty()
+        }
     }
 }
 

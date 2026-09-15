@@ -6472,3 +6472,191 @@ ever opened from somewhere other than the Ledger.
 The ledger also scrolls to the top on arrival. The list underneath is a
 different list, and a position two hundred rows into the old one names nothing
 in the new one.
+
+
+## 34. Four gaps in the shared-expense feature, closed
+
+The request was to explain splitting, people and settling "properly", and the
+explanation turned up four places where the feature was built and not finished.
+None was a wrong figure — every balance reconciled with a direct sum throughout
+— and all four were things the user could not reach, or could not say.
+
+### 34.1 A settlement could be recorded and never seen again
+
+`PeopleViewModel.deleteSettlement` existed, with an undo queue behind it and a
+`settlement_removed` string, and **no screen ever listed a settlement to call it
+on**. `SettlementRepository.observeForPerson` was written and unused. So a
+repayment typed wrongly — ৳5,000 for ৳500 — could not be corrected anywhere in
+the app; the only remedy was a second settlement cancelling the first, leaving
+two lies in the history that happen to sum to the truth.
+
+It is the same shape as §29.8's four controls that were built and never drawn:
+the state, the repository method and the undo machinery all present and correct,
+with nothing on screen pointing at them.
+
+**The fix puts settlements where their balance already is.** FR-SHR-06's
+person-filtered ledger prints "৳2,450 with Rahim" over the rows that figure was
+computed from — except that the balance subtracts settlements and the rows did
+not include them. Once anybody had repaid anything, the header stopped being
+derivable from the list beneath it, which is precisely the property §33 added
+the reach-through for.
+
+So the filtered ledger grows a `Settlements` section above the day groups,
+swipe-to-delete with the ledger's existing undo queue, and `deleteSettlement`
+moves to `LedgerViewModel` where it is reachable. Above the day groups rather
+than interleaved: a repayment is not spending, and folding one into a day would
+make that day's subtotal stop meaning what FR-EXP-09 says it means.
+
+Two consequences worth stating:
+
+- **Settlements have their own flow.** `observeRevision()` ticks on `expense`,
+  so a settlement recorded on the People screen would otherwise leave the
+  balance stale until something touched the ledger. Every emission after the
+  first also reloads, because the balance above the list is computed in
+  `reload()` and has just moved.
+- **A loan is no longer an empty result.** "I lent Rahim ৳500" writes no
+  expense, so filtering to him showed *nothing matches* — and
+  `showsFilteredTotal` hid the balance with it. `isEmpty` and
+  `showsFilteredTotal` now count settlements as content.
+
+### 34.2 The settle sheet threw away three columns
+
+`settlement` has carried `settled_on`, `payment_method` and `note` since the
+table existed. The sheet wrote `today`, `PaymentMethod.DEFAULT` and `null` on
+every save. A repayment that arrived by bKash on Tuesday was recorded as cash,
+today — and the *date* is the one that matters, because a balance is a running
+sum and FR-SHR-04 refuses a future date precisely so the figure means something
+at the moment it is read.
+
+The sheet now carries Quick Add's inline sentence, *Today · Cash · Add note*,
+opening Quick Add's own three pickers. They were made `internal` rather than
+copied: `DatePickerSheet` already encodes FR-EXP-02's future-date clamp in its
+`SelectableDates`, and a second copy would be a second place for that rule to
+drift. The future date is refused when it is *picked* as well as by the
+repository on save, so the sentence lands beside the control that caused it
+rather than after the fact.
+
+### 34.3 A repeating entry could not be shared — FR-REC-06
+
+The largest of the four, and the only one that was silently wrong rather than
+merely unreachable.
+
+A shared bill is at least as likely to repeat as a one-off one: the flat's rent
+split with a flatmate, the internet, the water bill. `recurring_rule` had no
+payer and no shares, so the only way to record one was a rule for the whole
+bill — which charged the user's own budget the whole bill every month and left
+nobody owing them anything — or no rule at all, and a hand-entered split twelve
+times a year. The feature that exists to remove exactly that arithmetic did not
+reach the entries that repeat it.
+
+**Schema version 5** adds `recurring_rule.payer_person_id` and
+`recurring_rule_share`, the template-side twins of what version 3 put on
+`expense`. The governing decision carries over unchanged: **`amount_minor` is
+the user's share**, so generation *copies* the payer and each share row onto the
+occurrence rather than dividing the bill again. There is no second allocation to
+disagree with the first, and the bill is `amount_minor + SUM(share_minor)` on
+the template exactly as it is on the expense.
+
+**The guards matter more here than on `expense`.** An impossible pair on a rule
+is not refused when it is written — it is *copied onto an expense during
+evaluation*, where `trg_share_only_when_i_paid` aborts, and `evaluate()` runs
+every due rule in one transaction. One malformed rule would take that launch's
+whole catch-up down with it. Five triggers: the two share guards, the payer
+guard, and two more making shares and payers a spending-rule thing, since an
+income entry has no payer and a split salary would be copied onto nothing.
+
+**An archived person stops a rule**, exactly as an archived category does
+(FR-CAT-08, and `dueOnOrBefore`'s existing join). A rule that went on writing
+shares against somebody the user had deliberately removed from every picker
+would create debts they could not have created by hand. `next_due_day` does not
+move, so restoring them catches up — the archived-target behaviour, tested the
+same way. A *new* rule naming an archived person is refused outright with
+`PERSON_ARCHIVED`, because saving a rule that can never run is worse than
+saying so. Both new references count as history for FR-SHR-01's delete guard,
+in `PersonDao.hasHistory` and in `observeBalances`'s `hasHistory` — they have to
+agree with the foreign keys, or the People screen offers a delete the database
+refuses.
+
+**`SplitDraft` is the part worth keeping.** The rule editor needs every question
+the split sheet asks, and §29 is nine subsections of defects that all lived in
+how those questions are asked — the payer arm that could not be chosen, the
+membership lost when switching styles, the person added but not selected. A
+second copy of that logic would need fixing twice to stay fixed once. So the
+four split fields and their seven transitions moved out of `QuickAddUiState` and
+`QuickAddViewModel` into a pure `domain/` value with its own JVM suite, and
+`SplitSheet` gained an overload over it. `QuickAddUiState` keeps the four fields
+rather than holding a `SplitDraft`, because `SavedStateHandle` persists them one
+by one and a half-typed split still has to survive process death.
+
+The pending row grows the ledger row's third line for the same reason the ledger
+row has one: an occurrence of a ৳1,500 internet bill waiting to be confirmed as
+a bare ৳750 reads as the wrong bill.
+
+### 34.4 What the migration is, and what it is not
+
+`MIGRATION_4_5` is §31's shape: one guarded `ALTER`, one new table, three
+indices, five triggers, and **no existing row rewritten**. Every rule reads back
+afterwards with no payer and no shares, which is what it said before the columns
+existed. §32's `DROP_ROOM_INVISIBLE_INDICES` is on the end, as it must be on
+every migration.
+
+`SchemaMigrationTest` gains
+`a_v4_install_upgrades_to_v5_with_its_rules_and_balances_intact`, built the way
+`CanonicalSchema.onCreate` builds a database rather than the way the current
+`Schema` describes one — §32.2's lesson, applied without having to relearn it.
+It holds a rule, a shared expense and a settlement, asserts the balance across
+the upgrade, and then exercises the new guard on the upgraded file. The v1 and
+v3 fixtures grew their strip lists, per §31.2.
+
+### 34.5 Measured
+
+- JVM: **335 tests**, green — including `SplitDraftTest` and
+  `SchemaDocumentTest`, which is what forced `docs/schema_v1.sql` to be
+  regenerated in the same commit rather than eventually.
+- On the Redmi 13C: `RecurringRepositoryTest`, `SchemaMigrationTest`,
+  `SchemaValidationTest` and `SchemaAssertionsTest` — **92 tests**, green in
+  20 s. Then the export, repository and ViewModel suites — **149 tests**, one
+  failure, described below.
+- The whole instrumented suite, less `PerformanceProbeTest`, on the `DayBook`
+  emulator: **980 tests, zero failures**, in three parts. The first run reached
+  the ledger suites before the host killed it for memory — the emulator and the
+  Gradle daemon competing for ~2 GB, which the hardware note already records —
+  so the remaining suites ran as two smaller batches. §31.5's note that
+  instrumentation-launched activities hang on the phone still holds:
+  `MainActivityTest` stalled on its first test there and passed on the emulator.
+
+**The one failure was a test asserting a race**, not a defect:
+`adding_a_person_inline_finds_one_that_already_exists` awaited
+`rahim in it.splitWith` and then asserted on `state.people.size`, which arrives
+from a different flow. It is §21.9 J exactly, in a test whose own comment
+explains §22.8's stale match — the previous fix moved the predicate off `people`
+to avoid matching too early and thereby stopped waiting for it at all. The
+predicate now names both fields, which is what "await the state you are about to
+assert on" means when two flows feed one assertion.
+
+### 34.6 The upgrade rehearsal
+
+§32 is a whole section on why the suite cannot be trusted to cover this, and
+07 §6.4 makes it required whenever `Schema.VERSION` moves. Run on the `DayBook`
+emulator rather than the phone, because it wants a *release* install and the
+phone is where the author's own ledger lives:
+
+1. `adb install -r dist/daybook-1.0-3-7a400fb.apk` — the shipped v4 release.
+2. Through its UI, by tapping: a ৳450 Grocery expense, and a ৳1,500 monthly
+   Internet rule. The rule is the point — `recurring_rule` is the table this
+   migration alters, and a v4 file holding one is what the fixtures cannot be
+   trusted to reproduce.
+3. `adb install -r` the new release over the top. **Never uninstall**; that is
+   the whole test.
+
+The app opened on the dashboard with ৳450 still there — not `RecoveryScreen` —
+and the rule read back as `Internet · ৳1,500 · Every month · Next on 1 Oct 2026`
+with no split caption, which is what an upgraded rule must say: one the user
+pays in full. Nothing in logcat.
+
+Then the other half, which the rehearsal is not usually asked to prove and is
+worth proving once here: a **new** shared rule was created on that upgraded
+database — Internet, ৳1,500, split evenly with a person added inline — and
+saved. It lists as `৳750 · of ৳1,500`. Those rows went into a
+`recurring_rule_share` that `MIGRATION_4_5` created, not one `onCreate` did, and
+through the trigger the same migration installed.

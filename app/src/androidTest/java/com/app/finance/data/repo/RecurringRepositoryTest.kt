@@ -3,9 +3,11 @@ package com.app.finance.data.repo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.app.finance.TestFixture
 import com.app.finance.core.money.Money
+import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.Frequency
 import com.app.finance.domain.model.RuleTarget
 import com.app.finance.domain.model.SaveOutcome
+import com.app.finance.domain.model.Split
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -373,6 +375,213 @@ class RecurringRepositoryTest {
             listOf("Internet"),
             fx.recurring.observePendingExpenses().first().map { it.categoryName },
         )
+    }
+
+    // --- FR-REC-06: a repeating entry that is shared -------------------------
+
+    private suspend fun person(name: String): Long =
+        (fx.people.findOrCreate(name) as SaveOutcome.Saved).id
+
+    private fun exec(sql: String) = fx.db.openHelper.writableDatabase.execSQL(sql)
+
+    /** Internet, ৳1,500 a month from July, split evenly with [with]: you store ৳750. */
+    private suspend fun sharedInternetRule(with: Long): Long {
+        val (yours, split) = Split.evenly(Money.ofTaka(1_500), listOf(with))
+        return (
+            fx.recurring.createRule(
+                target = RuleTarget.EXPENSE,
+                targetId = fx.leafId("Internet"),
+                amount = yours,
+                frequency = Frequency.MONTHLY,
+                anchorDay = 1,
+                startingFrom = LocalDate.of(2026, 7, 1),
+                split = split,
+            ) as SaveOutcome.Saved
+            ).id
+    }
+
+    @Test
+    fun a_shared_rule_copies_its_shares_onto_every_occurrence() = runBlocking {
+        val rahim = person("Rahim")
+        sharedInternetRule(rahim)
+
+        fx.recurring.evaluate(LocalDate.of(2026, 8, 14)) // July and August
+
+        assertEquals(2, pendingCount())
+        assertEquals("each occurrence stores your share", 1_500_00L, scalar("SELECT SUM(amount_minor) FROM expense"))
+        assertEquals(2L, scalar("SELECT COUNT(*) FROM expense_share"))
+        assertEquals(1_500_00L, scalar("SELECT SUM(share_minor) FROM expense_share"))
+        // Pending, so nobody owes anything yet — FR-REC-02 applies to debts too.
+        assertEquals(0L, fx.db.settlementDao().balanceOf(rahim))
+
+        val first = fx.recurring.observePendingExpenses().first().first()
+        assertEquals("the ledger row's third line needs the others' shares", 750_00L, first.sharedMinor)
+        fx.recurring.confirmExpense(first.expense.id)
+        assertEquals(750_00L, fx.db.settlementDao().balanceOf(rahim))
+    }
+
+    @Test
+    fun a_rule_someone_else_pays_generates_expenses_they_paid() = runBlocking {
+        val rahim = person("Rahim")
+        fx.recurring.createRule(
+            target = RuleTarget.EXPENSE,
+            targetId = fx.leafId("House Rent"),
+            amount = Money.ofTaka(5_000),
+            frequency = Frequency.MONTHLY,
+            anchorDay = 1,
+            autoPost = true,
+            startingFrom = LocalDate.of(2026, 8, 1),
+            split = Split.TheyPaid(rahim),
+        )
+
+        fx.recurring.evaluate(LocalDate.of(2026, 8, 14))
+
+        assertEquals(rahim, scalar("SELECT payer_person_id FROM expense"))
+        assertEquals(0L, scalar("SELECT COUNT(*) FROM expense_share"))
+        assertEquals("you owe Rahim your share", -5_000_00L, fx.db.settlementDao().balanceOf(rahim))
+        assertEquals("and it is still your spending", 5_000_00L, rollupTotal())
+    }
+
+    @Test
+    fun dismissing_a_shared_occurrence_takes_its_shares_and_undo_puts_them_back() = runBlocking {
+        // `expense_share.expense_id` is RESTRICT: without the shares going
+        // first the dismissal would throw, on exactly the rows this creates.
+        val rahim = person("Rahim")
+        sharedInternetRule(rahim)
+        fx.recurring.evaluate(LocalDate.of(2026, 7, 14))
+        val pending = fx.recurring.observePendingExpenses().first().single()
+
+        val removed = fx.recurring.dismissExpense(pending.expense.id)
+        assertNotNull(removed)
+        assertEquals(1, removed!!.shares.size)
+        assertEquals(0L, scalar("SELECT COUNT(*) FROM expense"))
+        assertEquals(0L, scalar("SELECT COUNT(*) FROM expense_share"))
+
+        fx.recurring.restoreExpense(removed)
+        assertEquals(1, pendingCount())
+        assertEquals(750_00L, scalar("SELECT SUM(share_minor) FROM expense_share"))
+    }
+
+    @Test
+    fun deleting_a_shared_rule_takes_its_shares_and_undo_puts_them_back() = runBlocking {
+        val rahim = person("Rahim")
+        val id = sharedInternetRule(rahim)
+
+        val deleted = fx.recurring.deleteRule(id)!!
+        assertEquals(1, deleted.shares.size)
+        assertEquals(0L, scalar("SELECT COUNT(*) FROM recurring_rule_share"))
+
+        fx.recurring.restoreRule(deleted)
+        val restored = fx.recurring.observeRules().first().single()
+        assertEquals(750_00L, restored.sharedMinor)
+        assertEquals(1, restored.shareCount)
+        // Its own uuid kept, so a backup taken either side of the undo merges
+        // onto the same share rather than beside it.
+        assertEquals(
+            1L,
+            scalar("SELECT COUNT(*) FROM recurring_rule_share WHERE uuid = '${deleted.shares.single().uuid}'"),
+        )
+    }
+
+    @Test
+    fun an_income_rule_cannot_be_shared() = runBlocking {
+        val rahim = person("Rahim")
+        val salary = fx.db.incomeDao().observeAllSources().first().first { it.name == "Salary" }
+
+        val outcome = fx.recurring.createRule(
+            target = RuleTarget.INCOME,
+            targetId = salary.id,
+            amount = Money.ofTaka(1_000),
+            frequency = Frequency.MONTHLY,
+            anchorDay = 1,
+            split = Split.TheyPaid(rahim),
+        )
+
+        assertTrue("a shared salary was accepted: $outcome", outcome is SaveOutcome.Rejected)
+        assertEquals(0L, scalar("SELECT COUNT(*) FROM recurring_rule"))
+    }
+
+    @Test
+    fun the_database_refuses_a_share_on_a_rule_someone_else_pays() = runBlocking {
+        // The trigger, not the repository — the importer writes rules without
+        // going through `createRule`.
+        val rahim = person("Rahim")
+        fx.recurring.createRule(
+            target = RuleTarget.EXPENSE,
+            targetId = fx.leafId("House Rent"),
+            amount = Money.ofTaka(5_000),
+            frequency = Frequency.MONTHLY,
+            anchorDay = 1,
+            split = Split.TheyPaid(rahim),
+        )
+        val ruleId = scalar("SELECT id FROM recurring_rule")
+
+        val refused = runCatching {
+            exec(
+                "INSERT INTO recurring_rule_share (uuid, rule_id, person_id, share_minor, " +
+                    "created_at, updated_at) VALUES ('x', $ruleId, $rahim, 100, 1, 1)",
+            )
+        }.exceptionOrNull()
+
+        assertNotNull("a share was accepted on a rule Rahim pays", refused)
+    }
+
+    @Test
+    fun a_split_that_leaves_you_nothing_is_refused() = runBlocking {
+        val rahim = person("Rahim")
+        val outcome = fx.recurring.createRule(
+            target = RuleTarget.EXPENSE,
+            targetId = fx.leafId("Internet"),
+            amount = Money.ofTaka(-100),
+            frequency = Frequency.MONTHLY,
+            anchorDay = 1,
+            split = Split.YouPaid(listOf(Split.Owed(rahim, Money.ofTaka(1_100)))),
+        )
+        assertEquals(SaveOutcome.Rejected(EntryError.SPLIT_DOES_NOT_BALANCE), outcome)
+    }
+
+    @Test
+    fun a_rule_shared_with_somebody_archived_waits_and_says_why() = runBlocking {
+        val rahim = person("Rahim")
+        sharedInternetRule(rahim)
+        fx.people.setArchived(rahim, true)
+
+        fx.recurring.evaluate(LocalDate.of(2026, 8, 14))
+        assertEquals(0, pendingCount())
+        assertTrue(fx.recurring.observeRules().first().single().personArchived)
+
+        // Restoring them catches up, because the rule never moved past the
+        // dates it skipped — the archived-category behaviour exactly.
+        fx.people.setArchived(rahim, false)
+        fx.recurring.evaluate(LocalDate.of(2026, 8, 14))
+        assertEquals(2, pendingCount())
+    }
+
+    @Test
+    fun a_new_rule_cannot_be_shared_with_somebody_archived() = runBlocking {
+        val rahim = person("Rahim")
+        fx.people.setArchived(rahim, true)
+        val (yours, split) = Split.evenly(Money.ofTaka(1_500), listOf(rahim))
+
+        val outcome = fx.recurring.createRule(
+            target = RuleTarget.EXPENSE,
+            targetId = fx.leafId("Internet"),
+            amount = yours,
+            frequency = Frequency.MONTHLY,
+            anchorDay = 1,
+            split = split,
+        )
+
+        assertEquals(SaveOutcome.Rejected(EntryError.PERSON_ARCHIVED), outcome)
+    }
+
+    @Test
+    fun somebody_a_rule_names_has_history_and_cannot_be_deleted() = runBlocking {
+        // Every foreign key to `person` is RESTRICT; the count has to agree
+        // with it, or the People screen offers a delete the database refuses.
+        val rahim = person("Rahim")
+        sharedInternetRule(rahim)
+        assertEquals(SaveOutcome.Rejected(EntryError.PERSON_HAS_HISTORY), fx.people.delete(rahim))
     }
 
     // --- A4: NFR-USE-03 ------------------------------------------------------

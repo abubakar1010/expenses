@@ -114,6 +114,14 @@ class SchemaMigrationTest {
             assertTrue(db.has("index", "ix_share_person"))
             assertTrue(db.has("index", "ix_expense_payer"))
 
+            // v5's additions.
+            assertTrue("recurring_rule_share missing", db.has("table", "recurring_rule_share"))
+            assertEquals(1, db.countColumns("recurring_rule", "payer_person_id"))
+            assertTrue(db.has("trigger", "trg_rule_share_only_when_i_pay"))
+            assertTrue(db.has("trigger", "trg_rule_payer_spending_only"))
+            assertTrue(db.has("index", "ix_rule_payer"))
+            assertTrue(db.has("index", "ux_rule_share_rule_person"))
+
             // v1's own objects have to come back from the rebuild. The rollup
             // triggers are the ones that matter: dropped and not recreated,
             // every figure in the app would freeze at its pre-upgrade value
@@ -185,8 +193,14 @@ class SchemaMigrationTest {
             Migrations.MIGRATION_1_2.migrate(db)
             Migrations.MIGRATION_2_3.migrate(db)
             Migrations.MIGRATION_2_3.migrate(db)
+            Migrations.MIGRATION_3_4.migrate(db)
+            Migrations.MIGRATION_3_4.migrate(db)
+            Migrations.MIGRATION_4_5.migrate(db)
+            Migrations.MIGRATION_4_5.migrate(db)
 
             assertEquals("the column was added twice", 1, db.countColumns("expense", "payer_person_id"))
+            assertEquals(1, db.countColumns("budget", "note"))
+            assertEquals(1, db.countColumns("recurring_rule", "payer_person_id"))
             assertTrue(db.idIsNotNull("expense"))
             assertTrue(
                 "person's key: " + db.sqlOf("person"),
@@ -263,6 +277,8 @@ class SchemaMigrationTest {
             assertFalse("expense_share should not exist yet", db.has("table", "expense_share"))
             assertFalse("settlement should not exist yet", db.has("table", "settlement"))
             assertEquals(0, db.countColumns("expense", "payer_person_id"))
+            assertFalse("recurring_rule_share should not exist yet", db.has("table", "recurring_rule_share"))
+            assertEquals(0, db.countColumns("recurring_rule", "payer_person_id"))
         } finally {
             helper.close()
         }
@@ -287,11 +303,13 @@ class SchemaMigrationTest {
         try {
             val db = helper.writableDatabase
             v1Ddl().forEach(db::execSQL)
-            (Schema.INDICES - Schema.SHARED_INDICES.toSet()).forEach(db::execSQL)
+            (Schema.INDICES - Schema.SHARED_INDICES.toSet() - Schema.RULE_SPLIT_INDICES.toSet())
+                .forEach(db::execSQL)
             // v1 had the functional index in the schema proper, which is
             // exactly the state the migration has to get out of.
             Schema.ROOM_INVISIBLE_INDICES.forEach(db::execSQL)
-            (Schema.TRIGGERS - Schema.SHARED_TRIGGERS.toSet()).forEach(db::execSQL)
+            (Schema.TRIGGERS - Schema.SHARED_TRIGGERS.toSet() - Schema.RULE_SPLIT_TRIGGERS.toSet())
+                .forEach(db::execSQL)
             populate(db)
             db.version = 1
         } finally {
@@ -300,7 +318,9 @@ class SchemaMigrationTest {
     }
 
     private fun v1Ddl(): List<String> =
-        (Schema.TABLES - Schema.SHARED_TABLES.toSet()).map { ddl ->
+        // `payer_person_id` is stripped below from every table carrying it —
+        // `expense` (v3) and `recurring_rule` (v5) alike.
+        (Schema.TABLES - Schema.SHARED_TABLES.toSet() - Schema.RULE_SPLIT_TABLES.toSet()).map { ddl ->
             val isBudget = ddl.contains("CREATE TABLE IF NOT EXISTS budget")
             ddl.lines()
                 .filterNot { it.contains("payer_person_id") }
@@ -417,10 +437,10 @@ class SchemaMigrationTest {
         try {
             val db = helper.writableDatabase
             v3Ddl().forEach(db::execSQL)
-            Schema.INDICES.forEach(db::execSQL)
+            (Schema.INDICES - Schema.RULE_SPLIT_INDICES.toSet()).forEach(db::execSQL)
             // The whole point of this fixture.
             Schema.ROOM_INVISIBLE_INDICES.forEach(db::execSQL)
-            Schema.TRIGGERS.forEach(db::execSQL)
+            (Schema.TRIGGERS - Schema.RULE_SPLIT_TRIGGERS.toSet()).forEach(db::execSQL)
             populate(db)
             db.version = 3
         } finally {
@@ -429,10 +449,135 @@ class SchemaMigrationTest {
     }
 
     private fun v3Ddl(): List<String> =
-        Schema.TABLES.map { ddl ->
+        v4Ddl().map { ddl ->
             val isBudget = ddl.contains("CREATE TABLE IF NOT EXISTS budget")
             ddl.lines()
                 .filterNot { isBudget && it.trim().startsWith("note ") }
+                .joinToString("\n")
+        }
+
+    // ------------------------------------------------------------------------
+
+    /**
+     * The upgrade every install in the field performs next — v4 to v5
+     * (FR-REC-06).
+     *
+     * Built as `CanonicalSchema.onCreate` would have built a version-4 file,
+     * functional index included (§32), and holding exactly what the additive
+     * migration must not disturb: a rule, a shared expense and a settlement.
+     * Opening it through Room is what compares `recurring_rule_share` and the
+     * new column against their entities.
+     */
+    @Test
+    fun a_v4_install_upgrades_to_v5_with_its_rules_and_balances_intact() {
+        withV4Database { db ->
+            db.execSQL(
+                "INSERT INTO category (id, uuid, parent_id, name, name_key, nature, " +
+                    "is_system, is_archived, sort_order, created_at, updated_at) " +
+                    "VALUES (1, 'cat-root', NULL, 'Fixed', 'fixed', 0, 1, 0, 0, 100, 100)",
+            )
+            db.execSQL(
+                "INSERT INTO category (id, uuid, parent_id, name, name_key, nature, " +
+                    "is_system, is_archived, sort_order, created_at, updated_at) " +
+                    "VALUES (2, 'cat-leaf', 1, 'Internet', 'internet', 0, 1, 0, 0, 100, 100)",
+            )
+            db.execSQL(
+                "INSERT INTO person (id, uuid, name, name_key, sort_order, is_archived, " +
+                    "created_at, updated_at) VALUES (1, 'p-v4', 'Rahim', 'rahim', 0, 0, 100, 100)",
+            )
+            db.execSQL(
+                "INSERT INTO expense (id, uuid, category_id, amount_minor, spent_on, " +
+                    "period_ym, payment_method, status, created_at, updated_at) " +
+                    "VALUES (9, 'exp-v4', 2, 50000, 20700, 202609, 0, 0, 100, 100)",
+            )
+            db.execSQL(
+                "INSERT INTO expense_share (uuid, expense_id, person_id, share_minor, " +
+                    "created_at, updated_at) VALUES ('share-v4', 9, 1, 50000, 100, 100)",
+            )
+            db.execSQL(
+                "INSERT INTO settlement (uuid, person_id, amount_minor, settled_on, " +
+                    "payment_method, created_at, updated_at) " +
+                    "VALUES ('set-v4', 1, 20000, 20701, 0, 100, 100)",
+            )
+            db.execSQL(
+                "INSERT INTO recurring_rule (id, uuid, target, category_id, source_id, " +
+                    "amount_minor, frequency, anchor_day, next_due_day, last_run_day, " +
+                    "auto_post, is_active, note, created_at, updated_at) " +
+                    "VALUES (4, 'rule-v4', 0, 2, NULL, 150000, 0, 1, 20720, NULL, 0, 1, 'wifi', 100, 100)",
+            )
+        }
+
+        val migrated = AppDatabase.named(context, name)
+        try {
+            val db = migrated.openHelper.writableDatabase
+
+            db.query("SELECT amount_minor, note, payer_person_id FROM recurring_rule WHERE id = 4")
+                .use { c ->
+                    assertTrue("the v4 rule did not survive", c.moveToFirst())
+                    assertEquals(150_000L, c.getLong(0))
+                    assertEquals("wifi", c.getString(1))
+                    // Null, and rightly: every rule made before this feature
+                    // was one you pay for yourself.
+                    assertTrue("an existing rule must have no payer", c.isNull(2))
+                }
+            assertEquals(
+                "an existing balance moved",
+                30_000L,
+                db.count(
+                    "SELECT (SELECT SUM(share_minor) FROM expense_share WHERE person_id = 1) " +
+                        "- (SELECT SUM(amount_minor) FROM settlement WHERE person_id = 1)",
+                ),
+            )
+            assertEquals(0L, db.count("SELECT COUNT(*) FROM recurring_rule_share"))
+
+            assertTrue(db.has("table", "recurring_rule_share"))
+            assertTrue(db.has("trigger", "trg_rule_payer_excludes_shares"))
+            assertTrue(db.has("index", "ix_rule_share_person"))
+            assertTrue(
+                "the functional unique index was not restored after validation",
+                db.has("index", "ux_category_parent_key"),
+            )
+
+            // The guard, on the upgrade path: once somebody else pays the rule,
+            // nobody can owe you a share of it.
+            db.execSQL("UPDATE recurring_rule SET payer_person_id = 1 WHERE id = 4")
+            val refused = runCatching {
+                db.execSQL(
+                    "INSERT INTO recurring_rule_share (uuid, rule_id, person_id, share_minor, " +
+                        "created_at, updated_at) VALUES ('rs', 4, 1, 100, 1, 1)",
+                )
+            }.exceptionOrNull()
+            assertTrue("a share was accepted on a rule someone else pays", refused != null)
+        } finally {
+            migrated.close()
+        }
+    }
+
+    /** A version-4 file as `CanonicalSchema` would have left it, minus version 5. */
+    private fun withV4Database(populate: (SupportSQLiteDatabase) -> Unit) {
+        val helper = rawHelper()
+        try {
+            val db = helper.writableDatabase
+            v4Ddl().forEach(db::execSQL)
+            (Schema.INDICES - Schema.RULE_SPLIT_INDICES.toSet()).forEach(db::execSQL)
+            Schema.ROOM_INVISIBLE_INDICES.forEach(db::execSQL)
+            (Schema.TRIGGERS - Schema.RULE_SPLIT_TRIGGERS.toSet()).forEach(db::execSQL)
+            populate(db)
+            db.version = 4
+        } finally {
+            helper.close()
+        }
+    }
+
+    /**
+     * The current tables with version 5 taken back out — its table, and the
+     * payer column on `recurring_rule` only (`expense` has had one since v3).
+     */
+    private fun v4Ddl(): List<String> =
+        (Schema.TABLES - Schema.RULE_SPLIT_TABLES.toSet()).map { ddl ->
+            val isRule = ddl.contains("CREATE TABLE IF NOT EXISTS recurring_rule (")
+            ddl.lines()
+                .filterNot { isRule && it.contains("payer_person_id") }
                 .joinToString("\n")
         }
 }

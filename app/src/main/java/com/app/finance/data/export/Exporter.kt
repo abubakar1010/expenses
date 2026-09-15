@@ -56,6 +56,8 @@ class Exporter(private val db: AppDatabase) {
             counts[PERSONS] = w.array(PERSONS, PersonDto.serializer(), dao.allPersons()) { it.toDto() }
             counts[SHARES] = w.array(SHARES, ExpenseShareDto.serializer(), dao.allShares()) { it.toDto() }
             counts[SETTLEMENTS] = w.array(SETTLEMENTS, SettlementDto.serializer(), dao.allSettlements()) { it.toDto() }
+            // FR-REC-06. After both the rules and the people they reference.
+            counts[RULE_SHARES] = w.array(RULE_SHARES, RuleShareDto.serializer(), dao.allRuleShares()) { it.toDto() }
             counts[META] = w.array(META, MetaDto.serializer(), exportableMeta()) { it.toDto() }
 
             w.write("}")
@@ -115,6 +117,7 @@ class Exporter(private val db: AppDatabase) {
                     it.id.s(), it.uuid, it.target.s(), it.categoryId?.s(), it.sourceId?.s(),
                     it.amountMinor.s(), it.frequency.s(), it.anchorDay.s(), it.nextDueDay.s(),
                     it.lastRunDay?.s(), it.autoPost.s(), it.isActive.s(), it.note,
+                    it.payerPersonId?.s(),
                     it.createdAt.s(), it.updatedAt.s(),
                 )
             }
@@ -136,6 +139,12 @@ class Exporter(private val db: AppDatabase) {
                     it.id.s(), it.uuid, it.personId.s(), it.amountMinor.s(),
                     it.settledOn.s(), it.paymentMethod.s(), it.note,
                     it.createdAt.s(), it.updatedAt.s(),
+                )
+            }
+            counts[RULE_SHARES] = zip.csv(RULE_SHARES, RULE_SHARE_HEADER, dao.allRuleShares()) {
+                listOf(
+                    it.id.s(), it.uuid, it.ruleId.s(), it.personId.s(),
+                    it.shareMinor.s(), it.createdAt.s(), it.updatedAt.s(),
                 )
             }
             counts[META] = zip.csv(META, META_HEADER, exportableMeta()) {
@@ -217,6 +226,7 @@ class Exporter(private val db: AppDatabase) {
         const val PERSONS = "persons"
         const val SHARES = "shares"
         const val SETTLEMENTS = "settlements"
+        const val RULE_SHARES = "rule_shares"
         const val META = "meta"
 
         const val CATEGORY_HEADER =
@@ -234,7 +244,8 @@ class Exporter(private val db: AppDatabase) {
             "id,uuid,source_id,amount_minor,earned_on,period_ym,note,status,created_at,updated_at"
         const val RULE_HEADER =
             "id,uuid,target,category_id,source_id,amount_minor,frequency,anchor_day," +
-                "next_due_day,last_run_day,auto_post,is_active,note,created_at,updated_at"
+                "next_due_day,last_run_day,auto_post,is_active,note,payer_person_id," +
+                "created_at,updated_at"
         const val PERSON_HEADER =
             "id,uuid,name,name_key,sort_order,is_archived,created_at,updated_at"
         const val SHARE_HEADER =
@@ -242,6 +253,8 @@ class Exporter(private val db: AppDatabase) {
         const val SETTLEMENT_HEADER =
             "id,uuid,person_id,amount_minor,settled_on,payment_method,note," +
                 "created_at,updated_at"
+        const val RULE_SHARE_HEADER =
+            "id,uuid,rule_id,person_id,share_minor,created_at,updated_at"
         const val META_HEADER = "key,value,updated_at"
     }
 }

@@ -504,7 +504,8 @@ val FILTERABLE_METHODS: List<PaymentMethod?> = listOf(null) + PaymentMethod.SELE
 
 /** A dismissed pending row, held only while its undo snackbar is up. */
 sealed interface DismissedEntry {
-    @JvmInline value class Expense(val row: ExpenseEntity) : DismissedEntry
+    /** With its shares — a shared rule's occurrence has them (FR-REC-06). */
+    @JvmInline value class Expense(val row: DeletedExpense) : DismissedEntry
 
     @JvmInline value class Income(val row: IncomeEntryEntity) : DismissedEntry
 }

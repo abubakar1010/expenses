@@ -255,8 +255,17 @@ data class RollupIncomeMonthEntity(
             childColumns = ["source_id"],
             onDelete = ForeignKey.RESTRICT,
         ),
+        ForeignKey(
+            entity = PersonEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["payer_person_id"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
     ],
-    indices = [Index(name = "ix_rule_due", value = ["is_active", "next_due_day"])],
+    indices = [
+        Index(name = "ix_rule_due", value = ["is_active", "next_due_day"]),
+        Index(name = "ix_rule_payer", value = ["payer_person_id"]),
+    ],
 )
 data class RecurringRuleEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -275,6 +284,14 @@ data class RecurringRuleEntity(
     @ColumnInfo(name = "auto_post", defaultValue = "0") val autoPost: Boolean = false,
     @ColumnInfo(name = "is_active", defaultValue = "1") val isActive: Boolean = true,
     val note: String? = null,
+    /**
+     * Who pays each occurrence — NULL means you do (FR-REC-06, FR-SHR-03).
+     *
+     * [amountMinor] is your share either way, exactly as on `expense`: it is
+     * what every generated expense stores, and what the rollups count once it
+     * is confirmed.
+     */
+    @ColumnInfo(name = "payer_person_id") val payerPersonId: Long? = null,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )
@@ -406,6 +423,50 @@ data class SettlementEntity(
     @ColumnInfo(name = "settled_on") val settledOn: Long,
     @ColumnInfo(name = "payment_method", defaultValue = "0") val paymentMethod: Int = 0,
     val note: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long,
+    @ColumnInfo(name = "updated_at") val updatedAt: Long,
+)
+
+/**
+ * One other person's portion of a repeating bill — FR-REC-06.
+ *
+ * [ExpenseShareEntity]'s template. Every occurrence the rule generates gets a
+ * copy of each row, so a shared rent is shared every month without anybody
+ * dividing it again. Exists only on a spending rule you pay;
+ * `trg_rule_share_only_when_i_pay` enforces both halves.
+ */
+@Entity(
+    tableName = "recurring_rule_share",
+    foreignKeys = [
+        ForeignKey(
+            entity = RecurringRuleEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["rule_id"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
+        ForeignKey(
+            entity = PersonEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["person_id"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
+    ],
+    indices = [
+        Index(
+            name = "ux_rule_share_rule_person",
+            value = ["rule_id", "person_id"],
+            unique = true,
+        ),
+        Index(name = "ix_rule_share_person", value = ["person_id"]),
+    ],
+)
+data class RecurringRuleShareEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val uuid: String,
+    @ColumnInfo(name = "rule_id") val ruleId: Long,
+    @ColumnInfo(name = "person_id") val personId: Long,
+    /** Paisa, always positive. */
+    @ColumnInfo(name = "share_minor") val shareMinor: Long,
     @ColumnInfo(name = "created_at") val createdAt: Long,
     @ColumnInfo(name = "updated_at") val updatedAt: Long,
 )

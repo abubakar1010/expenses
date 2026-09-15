@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -55,6 +56,7 @@ import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.NumericKeypad
 import com.app.finance.ui.common.SectionHeader
 import com.app.finance.ui.common.rememberJavaLocale
+import com.app.finance.ui.feature.entry.SplitSheet
 import com.app.finance.ui.feature.entry.messageRes
 import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
@@ -86,6 +88,7 @@ fun RecurringScreen(
                 recurring = container.recurringRepo,
                 categories = container.categoryRepo,
                 income = container.incomeRepo,
+                people = container.personRepo,
             )
         },
     )
@@ -149,9 +152,29 @@ fun RecurringScreen(
             onAnchorDay = vm::setAnchorDay,
             onAutoPost = vm::setAutoPost,
             onKey = vm::onKey,
+            onOpenSplit = vm::openSplit,
             onSave = { vm.submit {} },
             onDismiss = vm::dismissEditor,
         )
+
+        // FR-REC-06 — Quick Add's split sheet, over the rule's own draft.
+        if (editor.splitOpen) {
+            SplitSheet(
+                draft = editor.split,
+                bill = editor.amount,
+                negative = false,
+                candidates = state.splitCandidates(editor),
+                error = editor.error,
+                onTogglePerson = vm::togglePerson,
+                onPaidBy = vm::paidBy,
+                onPaidByOther = vm::setPaidByOther,
+                onSplitEvenly = vm::setSplitEvenly,
+                onShare = vm::setShare,
+                onClear = vm::clearSplit,
+                onAddPerson = vm::addPerson,
+                onDismiss = vm::dismissSplit,
+            )
+        }
     }
 }
 
@@ -197,9 +220,15 @@ private fun RuleRow(
                 style = DayBookTheme.type.body,
                 // A rule that is not generating is greyed *and* says why on the
                 // line below — colour is never the only signal (NFR-USE-05).
-                color = if (rule.isActive && !row.targetArchived) colors.ink else colors.inkSoft,
+                color = if (rule.isActive && !row.targetArchived && !row.personArchived) {
+                    colors.ink
+                } else {
+                    colors.inkSoft
+                },
             )
             Box(Modifier.weight(1f))
+            // Your share, which is what each occurrence stores; the caption
+            // below says what it is a share of.
             MoneyText(Money(rule.amountMinor))
         }
         Text(
@@ -209,12 +238,17 @@ private fun RuleRow(
             text = when {
                 row.targetArchived ->
                     "$cadence · " + stringResource(R.string.rule_target_archived)
+                row.personArchived ->
+                    "$cadence · " + stringResource(R.string.rule_person_archived)
                 rule.isActive -> "$cadence · " + stringResource(R.string.rule_next_due, due)
                 else -> "$cadence · " + stringResource(R.string.rule_paused)
             },
             style = DayBookTheme.type.caption,
             color = colors.inkSoft,
         )
+        row.splitCaption(locale)?.let { caption ->
+            Text(caption, style = DayBookTheme.type.caption, color = colors.inkSoft)
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(Space.s3)) {
             TextAction(
                 text = stringResource(
@@ -249,6 +283,7 @@ private fun RuleEditorSheet(
     onAnchorDay: (Int) -> Unit,
     onAutoPost: (Boolean) -> Unit,
     onKey: (com.app.finance.ui.common.KeypadKey) -> Unit,
+    onOpenSplit: () -> Unit,
     onSave: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -324,6 +359,47 @@ private fun RuleEditorSheet(
                             onClick = { onTargetId(source.id) },
                         )
                     }
+                }
+            }
+
+            // FR-REC-06. A repeating bill is shared as often as a one-off one
+            // — the flat's rent, the internet — and without this every month
+            // charged the whole bill to your budget and nobody owed you for it.
+            if (editor.target == RuleTarget.EXPENSE) {
+                val shared = editor.split.split(editor.amount).isShared
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = Space.gutter, vertical = Space.s2),
+                    horizontalArrangement = Arrangement.spacedBy(Space.s2),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    DayBookChip(
+                        label = editor.splitLabel(state),
+                        selected = shared,
+                        onClick = onOpenSplit,
+                    )
+                    if (shared) {
+                        Box(Modifier.weight(1f))
+                        Text(
+                            text = stringResource(R.string.your_share),
+                            style = DayBookTheme.type.caption,
+                            color = colors.inkSoft,
+                        )
+                        editor.yourShare?.let { share ->
+                            MoneyText(
+                                money = share,
+                                style = DayBookTheme.type.caption,
+                                color = if (share.paisa <= 0L) colors.vermilion else colors.ink,
+                            )
+                        }
+                    }
+                }
+                if (shared) {
+                    Text(
+                        text = stringResource(R.string.rule_split_hint),
+                        style = DayBookTheme.type.caption,
+                        color = colors.inkSoft,
+                        modifier = Modifier.padding(horizontal = Space.gutter),
+                    )
                 }
             }
 
@@ -428,6 +504,31 @@ private fun TextAction(text: String, onClick: () -> Unit, destructive: Boolean =
             .semantics { role = Role.Button }
             .padding(vertical = Space.s2),
     )
+}
+
+/** *Split* until it is one, then what it became — Quick Add's `splitLabel`. */
+@Composable
+private fun RuleEditor.splitLabel(state: RecurringUiState): String {
+    val split = split.split(amount)
+    val payer = split.payerPersonId?.let { id -> state.people.firstOrNull { it.id == id } }
+    return when {
+        payer != null -> stringResource(R.string.split_paid_by, payer.name)
+        split.owed.isNotEmpty() ->
+            pluralStringResource(R.plurals.split_with_count, split.owed.size, split.owed.size)
+        else -> stringResource(R.string.split)
+    }
+}
+
+/**
+ * `Rahim paid`, or `of ৳1,500` — the ledger row's third line (FR-SHR-02), on
+ * the rule that will write it. Null on a rule nobody shares.
+ */
+@Composable
+private fun RuleWithTarget.splitCaption(locale: Locale): String? = when {
+    payerName != null -> stringResource(R.string.split_paid_by, payerName)
+    shareCount > 0 ->
+        stringResource(R.string.split_of_bill, Money(rule.amountMinor + sharedMinor).format(locale))
+    else -> null
 }
 
 private fun dayFormat(locale: Locale): DateTimeFormatter =

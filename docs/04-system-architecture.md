@@ -303,8 +303,8 @@ Additional measures:
 | Income Source Editor | Create, rename, set kind, archive | |
 | Budget | Per-period limits, copy-from-last-month | |
 | Category Manager | Two-level tree, create/rename/reorder/archive | |
-| People | Balances per person, settle up | Reached from the Ledger header (FR-SHR-05); a name goes back to it filtered (FR-SHR-06) |
-| Repeating entries | Rules that post to the ledger on their due day | Reached from Settings (FR-REC-01…05) |
+| People | Balances per person, settle up with date, method and note | Reached from the Ledger header (FR-SHR-05); a name goes back to it filtered, where that person's settlements are listed and removable (FR-SHR-06) |
+| Repeating entries | Rules that post to the ledger on their due day, shared or not | Reached from Settings (FR-REC-01…06); the split is Quick Add's own sheet |
 | Reports | Custom date range, fixed/variable split, top expenses | Ledger-backed rather than rollup-backed |
 | Settings | Export, import, rebuild aggregates, delete all data, theme | |
 | Backup | Folder, schedule, retention, passphrase, back up now, send a copy, restore | Reached from Settings; the bottom bar is fixed at four |

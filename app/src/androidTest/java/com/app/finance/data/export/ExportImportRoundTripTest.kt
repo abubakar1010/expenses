@@ -28,6 +28,8 @@ import org.junit.runner.RunWith
 import com.app.finance.core.money.Money
 import com.app.finance.domain.model.SaveOutcome
 import com.app.finance.domain.model.Split
+import com.app.finance.domain.model.Frequency
+import com.app.finance.domain.model.RuleTarget
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 
@@ -104,7 +106,8 @@ class ExportImportRoundTripTest {
             "SELECT COUNT(*), IFNULL(SUM(id + source_id + amount_minor + earned_on + period_ym + status), 0) FROM income_entry",
         ),
         "recurring_rule" to row(
-            "SELECT COUNT(*), IFNULL(SUM(id + amount_minor + frequency + anchor_day + next_due_day), 0) FROM recurring_rule",
+            "SELECT COUNT(*), IFNULL(SUM(id + amount_minor + frequency + anchor_day + next_due_day" +
+                " + IFNULL(payer_person_id, 0)), 0) FROM recurring_rule",
         ),
         // FR-SHR-07. Without these a round trip could drop every share and
         // still pass, which is the shape of gate that is not one.
@@ -114,6 +117,11 @@ class ExportImportRoundTripTest {
         ),
         "settlement" to row(
             "SELECT COUNT(*), IFNULL(SUM(id + person_id + amount_minor + settled_on), 0) FROM settlement",
+        ),
+        // FR-REC-06, for the same reason: a restore that dropped these would
+        // turn every shared rent back into one you pay in full, silently.
+        "recurring_rule_share" to row(
+            "SELECT COUNT(*), IFNULL(SUM(id + rule_id + person_id + share_minor), 0) FROM recurring_rule_share",
         ),
         "app_meta" to row("SELECT COUNT(*), 0 FROM app_meta"),
         // Derived, and rebuilt rather than restored — which is exactly why it
@@ -361,7 +369,7 @@ class ExportImportRoundTripTest {
             listOf(
                 "categories.csv", "sources.csv", "budgets.csv", "expenses.csv",
                 "income_entries.csv", "recurring_rules.csv",
-                "persons.csv", "shares.csv", "settlements.csv", "meta.csv",
+                "persons.csv", "shares.csv", "settlements.csv", "rule_shares.csv", "meta.csv",
             ),
             names,
         )
@@ -384,6 +392,17 @@ class ExportImportRoundTripTest {
             Money.ofTaka(250), grocery, fx.today, split = Split.TheyPaid(rahim),
         )
         fx.settlements.record(rahim, Money.ofTaka(200), fx.today)
+
+        // FR-REC-06: one rule you pay and share, one somebody else pays.
+        val (ruleYours, ruleSplit) = Split.evenly(Money.ofTaka(1_500), listOf(rahim, karim))
+        fx.recurring.createRule(
+            RuleTarget.EXPENSE, fx.leafId("Internet"), ruleYours, Frequency.MONTHLY, 1,
+            split = ruleSplit,
+        )
+        fx.recurring.createRule(
+            RuleTarget.EXPENSE, fx.leafId("House Rent"), Money.ofTaka(5_000), Frequency.MONTHLY, 5,
+            split = Split.TheyPaid(karim),
+        )
     }
 
     @Test

@@ -46,6 +46,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.app.finance.R
 import com.app.finance.core.money.Money
+import com.app.finance.data.db.entity.PersonEntity
+import com.app.finance.domain.model.EntryError
+import com.app.finance.domain.model.SplitDraft
+import com.app.finance.domain.model.SplitMode
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.EmptyState
 import com.app.finance.ui.common.LeaderDots
@@ -93,10 +97,53 @@ fun SplitSheet(
     onClear: () -> Unit,
     onAddPerson: (String) -> Unit,
     onDismiss: () -> Unit,
+) = SplitSheet(
+    draft = state.splitDraft,
+    bill = state.amount,
+    negative = state.negative,
+    candidates = state.splitCandidates,
+    error = state.error,
+    onTogglePerson = onTogglePerson,
+    onPaidBy = onPaidBy,
+    onPaidByOther = onPaidByOther,
+    onSplitEvenly = onSplitEvenly,
+    onShare = onShare,
+    onClear = onClear,
+    onAddPerson = onAddPerson,
+    onDismiss = onDismiss,
+)
+
+/**
+ * The same sheet over any [SplitDraft] — Quick Add's, above, and a repeating
+ * entry's (FR-REC-06).
+ *
+ * One sheet rather than a second one for rules, because every defect §29
+ * recorded was in how this sheet asks its questions, and a copy would have to
+ * be fixed twice to stay fixed once.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SplitSheet(
+    draft: SplitDraft,
+    /** The bill as typed, or null until there is one. */
+    bill: Money?,
+    /** A refund (FR-EXP-06). A repeating entry never is one. */
+    negative: Boolean,
+    /** Active people, plus anybody [draft] already names — FR-CAT-08's rule. */
+    candidates: List<PersonEntity>,
+    error: EntryError?,
+    onTogglePerson: (Long) -> Unit,
+    onPaidBy: (Long) -> Unit,
+    onPaidByOther: (Boolean) -> Unit,
+    onSplitEvenly: (Boolean) -> Unit,
+    onShare: (Long, Money?) -> Unit,
+    onClear: () -> Unit,
+    onAddPerson: (String) -> Unit,
+    onDismiss: () -> Unit,
 ) {
     val colors = DayBookTheme.colors
-    val theyPaid = state.splitMode == SplitMode.THEY_PAID
-    val byAmount = state.splitMode == SplitMode.CUSTOM
+    val theyPaid = draft.mode == SplitMode.THEY_PAID
+    val byAmount = draft.mode == SplitMode.CUSTOM
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -139,7 +186,7 @@ fun SplitSheet(
             // per person". Offered only once somebody is in the split, because
             // until then the two styles describe the same empty division, and
             // never on the payer arm, which has no shares to divide.
-            if (!theyPaid && state.splitWith.isNotEmpty()) {
+            if (!theyPaid && draft.members.isNotEmpty()) {
                 ChipRow {
                     DayBookChip(
                         label = stringResource(R.string.split_evenly),
@@ -154,7 +201,7 @@ fun SplitSheet(
                 }
             }
 
-            if (state.splitCandidates.isEmpty()) {
+            if (candidates.isEmpty()) {
                 EmptyState(
                     message = stringResource(R.string.split_no_people),
                     modifier = Modifier.padding(Space.gutter),
@@ -165,7 +212,9 @@ fun SplitSheet(
                     else stringResource(R.string.split_who_owes),
                 )
                 PeopleList(
-                    state = state,
+                    draft = draft,
+                    bill = bill,
+                    candidates = candidates,
                     theyPaid = theyPaid,
                     byAmount = byAmount,
                     onTogglePerson = onTogglePerson,
@@ -180,7 +229,7 @@ fun SplitSheet(
             // split announces itself: `Split.validate` refuses one, and a user
             // who cannot see their share go past zero has no way to know why
             // Save went dead.
-            Summary(state)
+            Summary(draft, bill, negative)
 
             // FR-SHR-01's inline creation, and it is not optional: without it
             // the empty state above says "add a person to start" on a sheet
@@ -198,9 +247,9 @@ fun SplitSheet(
             // name, and the name of somebody archived, are both refused by
             // `PersonRepository.findOrCreate` — and the sentence explaining it
             // was being drawn on a screen the user could not see.
-            state.error?.let { error ->
+            error?.let { shown ->
                 Text(
-                    text = stringResource(error.messageRes()),
+                    text = stringResource(shown.messageRes()),
                     style = DayBookTheme.type.caption,
                     color = colors.vermilion,
                     modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s1),
@@ -220,7 +269,7 @@ fun SplitSheet(
                     .padding(horizontal = Space.gutter, vertical = Space.s2),
                 horizontalArrangement = Arrangement.spacedBy(Space.s2),
             ) {
-                if (state.splitMode != SplitMode.NONE) {
+                if (draft.mode != SplitMode.NONE) {
                     TextButton(
                         onClick = onClear,
                         modifier = Modifier.height(Sizes.minTouchTarget),
@@ -267,10 +316,10 @@ private fun ChipRow(content: @Composable () -> Unit) {
  * handed to other people, and it moves with every tap.
  */
 @Composable
-private fun Summary(state: QuickAddUiState) {
+private fun Summary(draft: SplitDraft, bill: Money?, negative: Boolean) {
     val colors = DayBookTheme.colors
-    if (!state.split.isShared) return
-    val share = state.yourShare ?: return
+    if (!draft.split(bill).isShared) return
+    val share = draft.yourShare(bill) ?: return
 
     Row(
         Modifier
@@ -291,7 +340,7 @@ private fun Summary(state: QuickAddUiState) {
             // a shared expense — paying entirely on somebody's behalf is a loan,
             // which FR-SHR-04's settlement records without pretending anything
             // was consumed — and `Split.validate` refuses it.
-            color = if (share.paisa <= 0L && !state.negative) colors.vermilion else colors.ink,
+            color = if (share.paisa <= 0L && !negative) colors.vermilion else colors.ink,
         )
     }
 }
@@ -360,17 +409,19 @@ private fun AddPersonField(onAdd: (String) -> Unit) {
 
 @Composable
 private fun PeopleList(
-    state: QuickAddUiState,
+    draft: SplitDraft,
+    bill: Money?,
+    candidates: List<PersonEntity>,
     theyPaid: Boolean,
     byAmount: Boolean,
     onTogglePerson: (Long) -> Unit,
     onPaidBy: (Long) -> Unit,
     onShare: (Long, Money?) -> Unit,
 ) {
-    val chosen = if (theyPaid) setOfNotNull(state.payerId) else state.splitWith.toSet()
+    val chosen = if (theyPaid) setOfNotNull(draft.payerId) else draft.members.toSet()
 
     LazyColumn(Modifier.heightIn(max = 320.dp)) {
-        items(state.splitCandidates, key = { it.id }) { person ->
+        items(candidates, key = { it.id }) { person ->
             val selected = person.id in chosen
             PersonSplitRow(
                 name = person.name,
@@ -386,8 +437,8 @@ private fun PeopleList(
                 // figure is yours, because what you know about a bill somebody
                 // else paid is your own part of it.
                 amount = when {
-                    theyPaid -> if (selected) state.yourShare ?: Money.ZERO else Money.ZERO
-                    else -> state.owedBy(person.id) ?: Money.ZERO
+                    theyPaid -> if (selected) draft.yourShare(bill) ?: Money.ZERO else Money.ZERO
+                    else -> draft.owedBy(person.id, bill) ?: Money.ZERO
                 },
                 // FR-SHR-02's hand-typed half. Editable only for the people
                 // actually in the split, and only in that style.

@@ -14,6 +14,8 @@ import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.domain.model.SaveOutcome
 import com.app.finance.domain.model.Split
+import com.app.finance.domain.model.SplitDraft
+import com.app.finance.domain.model.SplitMode
 import com.app.finance.ui.common.KeypadKey
 import com.app.finance.ui.common.editableText
 import kotlinx.coroutines.CoroutineDispatcher
@@ -30,15 +32,6 @@ import java.time.LocalDate
 
 /** Which of the sheet's secondary pickers is open, if any. */
 enum class EntrySheet { NONE, CATEGORY, METHOD, DATE, NOTE, SPLIT }
-
-/**
- * How the bill is divided — FR-SHR-02, FR-SHR-03.
- *
- * One enum rather than independent flags, because [Split]'s two arms are
- * mutually exclusive in the database and the sheet must not offer a state that
- * cannot be stored.
- */
-enum class SplitMode { NONE, EVEN, CUSTOM, THEY_PAID }
 
 data class QuickAddUiState(
     /**
@@ -140,29 +133,35 @@ data class QuickAddUiState(
         get() = Money.parseOrNull(input)?.let { if (negative) -it.absoluteValue else it }
 
     /**
+     * The four split fields as one value — what the split sheet draws from and
+     * what every split intent transforms.
+     *
+     * The fields stay on this state rather than being replaced by one
+     * [SplitDraft] property because `SavedStateHandle` persists them one by one
+     * (`persist`), and a half-typed split has to survive process death.
+     */
+    val splitDraft: SplitDraft
+        get() = SplitDraft(splitMode, splitWith, customOwed, payerId)
+
+    /** This state with [draft]'s split, and the error cleared when it changed. */
+    fun withSplit(draft: SplitDraft): QuickAddUiState =
+        if (draft == splitDraft) this
+        else copy(
+            splitMode = draft.mode,
+            splitWith = draft.members,
+            customOwed = draft.customOwed,
+            payerId = draft.payerId,
+            error = null,
+        )
+
+    /**
      * The split, derived from [splitMode] and the bill currently typed.
      *
      * Recomputed on every keystroke, which is the point — an even division of a
      * bill that is still being entered cannot be stored without going stale.
      */
     val split: Split
-        get() = when (splitMode) {
-            SplitMode.NONE -> Split.NONE
-            SplitMode.EVEN ->
-                if (splitWith.isEmpty()) Split.NONE
-                else amount?.let { Split.evenly(it, splitWith).second } ?: Split.NONE
-            // Driven by `splitWith`, so a person whose amount has not been
-            // typed yet is simply absent from the split rather than present
-            // with a zero share that `CHECK (share_minor > 0)` would refuse.
-            SplitMode.CUSTOM -> {
-                val owed = splitWith
-                    .mapNotNull { id -> customOwed.firstOrNull { it.personId == id } }
-                    .filter { it.amount.paisa > 0L }
-                if (owed.isEmpty()) Split.NONE else Split.YouPaid(owed)
-            }
-            SplitMode.THEY_PAID ->
-                payerId?.let { Split.TheyPaid(it) } ?: Split.NONE
-        }
+        get() = splitDraft.split(amount)
 
     /**
      * Who the sheet may offer — FR-CAT-08's rule, applied to people.
@@ -177,17 +176,10 @@ data class QuickAddUiState(
 
     /** Everybody this split names, whichever arm it is on. */
     val participants: Set<Long>
-        get() = buildSet {
-            addAll(splitWith)
-            addAll(customOwed.map { it.personId })
-            payerId?.let(::add)
-        }
+        get() = splitDraft.participants
 
     /** What each person in the split currently owes, blank ones included. */
-    fun owedBy(personId: Long): Money? = when (splitMode) {
-        SplitMode.CUSTOM -> customOwed.firstOrNull { it.personId == personId }?.amount
-        else -> split.owed.firstOrNull { it.personId == personId }?.amount
-    }
+    fun owedBy(personId: Long): Money? = splitDraft.owedBy(personId, amount)
 
     /**
      * What the expense will actually store — the bill less what others owe.
@@ -196,7 +188,7 @@ data class QuickAddUiState(
      * figure you typed is already your share.
      */
     val yourShare: Money?
-        get() = amount?.let { bill -> Money(bill.paisa - split.owed.sumOf { it.amount.paisa }) }
+        get() = splitDraft.yourShare(amount)
 
     val selectedCategory: CategoryNode?
         get() = allLeaves.firstOrNull { it.id == selectedCategoryId }
@@ -487,22 +479,7 @@ class QuickAddViewModel(
      * Re-tapping the arm already chosen is a no-op rather than a reset.
      */
     fun setPaidByOther(theyPaid: Boolean) = updateAndPersist {
-        val already = it.splitMode == SplitMode.THEY_PAID
-        if (already == theyPaid) it
-        else if (theyPaid) it.copy(
-            splitMode = SplitMode.THEY_PAID,
-            payerId = null,
-            splitWith = emptyList(),
-            customOwed = emptyList(),
-            error = null,
-        )
-        else it.copy(
-            splitMode = SplitMode.NONE,
-            payerId = null,
-            splitWith = emptyList(),
-            customOwed = emptyList(),
-            error = null,
-        )
+        it.withSplit(it.splitDraft.paidByOther(theyPaid))
     }
 
     /**
@@ -514,13 +491,7 @@ class QuickAddViewModel(
      * "evenly" means.
      */
     fun setSplitEvenly(evenly: Boolean) = updateAndPersist {
-        if (it.splitMode == SplitMode.THEY_PAID || it.splitWith.isEmpty()) it
-        else if (evenly) it.copy(splitMode = SplitMode.EVEN, customOwed = emptyList(), error = null)
-        else it.copy(
-            splitMode = SplitMode.CUSTOM,
-            customOwed = it.customOwed.ifEmpty { it.split.owed },
-            error = null,
-        )
+        it.withSplit(it.splitDraft.evenly(evenly, it.amount))
     }
 
     /**
@@ -530,31 +501,12 @@ class QuickAddViewModel(
      * not silently become an even one because somebody was added to it late.
      */
     fun togglePerson(personId: Long) = updateAndPersist {
-        val next = it.splitWith.toMutableList()
-        val removed = next.remove(personId)
-        if (!removed) next += personId
-        it.copy(
-            splitMode = when {
-                next.isEmpty() -> SplitMode.NONE
-                it.splitMode == SplitMode.CUSTOM -> SplitMode.CUSTOM
-                else -> SplitMode.EVEN
-            },
-            splitWith = next,
-            customOwed = if (removed) it.customOwed.filterNot { o -> o.personId == personId }
-            else it.customOwed,
-            payerId = null,
-            error = null,
-        )
+        it.withSplit(it.splitDraft.toggle(personId))
     }
 
     /** One person's hand-typed share. Null clears it without unpicking them. */
     fun setShare(personId: Long, amount: Money?) = updateAndPersist {
-        val rest = it.customOwed.filterNot { o -> o.personId == personId }
-        it.copy(
-            splitMode = SplitMode.CUSTOM,
-            customOwed = if (amount == null) rest else rest + Split.Owed(personId, amount),
-            error = null,
-        )
+        it.withSplit(it.splitDraft.share(personId, amount))
     }
 
     /*
@@ -585,25 +537,11 @@ class QuickAddViewModel(
      * a trap on a sheet whose only other exit is losing the whole entry.
      */
     fun paidBy(personId: Long) = updateAndPersist {
-        it.copy(
-            splitMode = SplitMode.THEY_PAID,
-            payerId = personId.takeIf { id -> id != it.payerId },
-            splitWith = emptyList(),
-            customOwed = emptyList(),
-            error = null,
-        )
+        it.withSplit(it.splitDraft.paidBy(personId))
     }
 
     /** Back to an ordinary expense — every arm's selection dropped with it. */
-    fun clearSplit() = updateAndPersist {
-        it.copy(
-            splitMode = SplitMode.NONE,
-            splitWith = emptyList(),
-            customOwed = emptyList(),
-            payerId = null,
-            error = null,
-        )
-    }
+    fun clearSplit() = updateAndPersist { it.withSplit(SplitDraft.NONE) }
 
     /**
      * Adds somebody without leaving the sheet — FR-SHR-01, FR-IS-03's shape.
@@ -622,19 +560,7 @@ class QuickAddViewModel(
         viewModelScope.launch {
             when (val outcome = withContext(io) { people.findOrCreate(name) }) {
                 is SaveOutcome.Saved -> _state.update { s ->
-                    if (s.splitMode == SplitMode.THEY_PAID) {
-                        s.copy(payerId = outcome.id, error = null)
-                    } else if (outcome.id in s.splitWith) {
-                        s.copy(error = null)
-                    } else {
-                        s.copy(
-                            splitMode = if (s.splitMode == SplitMode.CUSTOM) SplitMode.CUSTOM
-                            else SplitMode.EVEN,
-                            splitWith = s.splitWith + outcome.id,
-                            payerId = null,
-                            error = null,
-                        )
-                    }
+                    s.withSplit(s.splitDraft.including(outcome.id)).copy(error = null)
                 }
                 is SaveOutcome.Rejected -> _state.update { it.copy(error = outcome.error) }
             }

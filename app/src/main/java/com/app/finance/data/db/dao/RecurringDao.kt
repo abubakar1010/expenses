@@ -9,6 +9,7 @@ import androidx.room.Update
 import com.app.finance.data.db.entity.ExpenseEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.RecurringRuleEntity
+import com.app.finance.data.db.entity.RecurringRuleShareEntity
 import kotlinx.coroutines.flow.Flow
 
 /** A rule with the name of whatever it posts to — the manager's rows. */
@@ -26,12 +27,34 @@ data class RuleWithTarget(
      * evaluation skips it and the row says so rather than looking live.
      */
     val targetArchived: Boolean,
+    /** Who pays each occurrence, when it is not you — FR-REC-06. */
+    val payerName: String? = null,
+    /** What the other people's shares of each occurrence add up to. */
+    val sharedMinor: Long = 0,
+    val shareCount: Int = 0,
+    /**
+     * Whether anybody the split names has been archived.
+     *
+     * [targetArchived]'s reasoning, applied to people: FR-SHR-01 takes an
+     * archived person out of the split picker, so a rule that went on writing
+     * new shares against them would create debts the user could not have
+     * created by hand. Evaluation skips the rule, and the row says why.
+     */
+    val personArchived: Boolean = false,
 )
 
 /** A pending expense with its category name — the ledger's confirm rows. */
 data class PendingExpense(
     @Embedded val expense: ExpenseEntity,
     val categoryName: String,
+    /**
+     * The split, for the row's third line — `Rahim paid`, or `of ৳1,500`.
+     *
+     * A shared rule's occurrence stores your share, and waiting to be confirmed
+     * as a bare ৳750 under *Internet* reads as the wrong bill (FR-SHR-02).
+     */
+    val payerName: String? = null,
+    val sharedMinor: Long = 0,
 )
 
 /** A pending income entry with its source name. */
@@ -56,10 +79,20 @@ interface RecurringDao {
         """
         SELECT r.*,
                COALESCE(c.name, s.name) AS targetName,
-               COALESCE(c.is_archived, s.is_archived, 0) AS targetArchived
+               COALESCE(c.is_archived, s.is_archived, 0) AS targetArchived,
+               p.name AS payerName,
+               (SELECT IFNULL(SUM(rs.share_minor), 0) FROM recurring_rule_share rs
+                 WHERE rs.rule_id = r.id) AS sharedMinor,
+               (SELECT COUNT(*) FROM recurring_rule_share rs
+                 WHERE rs.rule_id = r.id) AS shareCount,
+               (IFNULL(p.is_archived, 0) = 1
+                 OR EXISTS (SELECT 1 FROM recurring_rule_share rs
+                              JOIN person sp ON sp.id = rs.person_id
+                             WHERE rs.rule_id = r.id AND sp.is_archived = 1)) AS personArchived
           FROM recurring_rule r
           LEFT JOIN category c      ON c.id = r.category_id
           LEFT JOIN income_source s ON s.id = r.source_id
+          LEFT JOIN person p        ON p.id = r.payer_person_id
          ORDER BY r.is_active DESC, r.next_due_day
         """,
     )
@@ -83,9 +116,30 @@ interface RecurringDao {
          WHERE r.is_active = 1
            AND r.next_due_day <= :today
            AND COALESCE(c.is_archived, s.is_archived, 0) = 0
+           AND NOT EXISTS (SELECT 1 FROM person p
+                            WHERE p.id = r.payer_person_id AND p.is_archived = 1)
+           AND NOT EXISTS (SELECT 1 FROM recurring_rule_share rs
+                             JOIN person p ON p.id = rs.person_id
+                            WHERE rs.rule_id = r.id AND p.is_archived = 1)
         """,
     )
     suspend fun dueOnOrBefore(today: Long): List<RecurringRuleEntity>
+
+    // --- a rule's split (FR-REC-06) ------------------------------------------
+
+    @Insert
+    suspend fun insertShares(shares: List<RecurringRuleShareEntity>)
+
+    @Query("SELECT * FROM recurring_rule_share WHERE rule_id = :ruleId ORDER BY id")
+    suspend fun sharesForRule(ruleId: Long): List<RecurringRuleShareEntity>
+
+    /**
+     * Needed before the rule itself can go: `recurring_rule_share.rule_id` is
+     * `ON DELETE RESTRICT`. Both happen in one transaction — see
+     * [com.app.finance.data.repo.RecurringRepository.deleteRule].
+     */
+    @Query("DELETE FROM recurring_rule_share WHERE rule_id = :ruleId")
+    suspend fun deleteSharesForRule(ruleId: Long)
 
     @Query("SELECT * FROM recurring_rule WHERE id = :id")
     suspend fun ruleById(id: Long): RecurringRuleEntity?
@@ -108,8 +162,12 @@ interface RecurringDao {
 
     @Query(
         """
-        SELECT e.*, c.name AS categoryName
+        SELECT e.*, c.name AS categoryName,
+               p.name AS payerName,
+               (SELECT IFNULL(SUM(s.share_minor), 0) FROM expense_share s
+                 WHERE s.expense_id = e.id) AS sharedMinor
           FROM expense e JOIN category c ON c.id = e.category_id
+          LEFT JOIN person p ON p.id = e.payer_person_id
          WHERE e.status = 1
          ORDER BY e.spent_on, e.id
         """,

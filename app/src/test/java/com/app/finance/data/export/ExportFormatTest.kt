@@ -181,6 +181,28 @@ class ExportFormatTest {
     }
 
     @Test
+    fun `a rule share's natural key is its rule and person`() {
+        // FR-REC-06 — `ux_rule_share_rule_person`, as `ExpenseShareDto` mirrors
+        // its own index.
+        val share = RuleShareDto(1, "rs-1", ruleId = 4, personId = 9, shareMinor = 75_000, createdAt = 1, updatedAt = 1)
+        assertEquals("4/9", share.naturalKey)
+    }
+
+    @Test
+    fun `a rule written before shared rules existed reads as one you pay`() {
+        val text = """
+            {"schema_version":4,"exported_at":1,"recurring_rules":[
+              {"id":1,"uuid":"r","target":0,"category_id":2,"amount_minor":100,
+               "frequency":0,"anchor_day":1,"next_due_day":1,"created_at":1,"updated_at":1}]}
+        """.trimIndent()
+
+        val back = codec.decodeFromString(DayBookExport.serializer(), text)
+
+        assertNull(back.rules.single().payerPersonId)
+        assertTrue(back.ruleShares.isEmpty())
+    }
+
+    @Test
     fun `transactional rows have no natural key at all`() {
         // And that is a fact about the data rather than an omission: two
         // identical expenses on one day are two expenses, and FR-IE-02 says the

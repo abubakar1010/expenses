@@ -187,6 +187,10 @@ class Importer(private val db: AppDatabase) {
         dao.insertSettlements(export.settlements.map { it.toEntity() })
         dao.insertIncomeEntries(export.incomeEntries.map { it.derived().toEntity() })
         dao.insertRules(export.rules.map { it.toEntity() })
+        // After the rules and the people, both of which they reference, and
+        // after each rule carries its payer — `trg_rule_share_only_when_i_pay`
+        // reads it.
+        dao.insertRuleShares(export.ruleShares.map { it.toEntity() })
         writeMeta(export)
 
         return linkedMapOf(
@@ -199,6 +203,7 @@ class Importer(private val db: AppDatabase) {
             PERSONS to ImportCounts(inserted = export.persons.size),
             SHARES to ImportCounts(inserted = export.shares.size),
             SETTLEMENTS to ImportCounts(inserted = export.settlements.size),
+            RULE_SHARES to ImportCounts(inserted = export.ruleShares.size),
             META to ImportCounts(inserted = export.meta.size),
         )
     }
@@ -318,12 +323,29 @@ class Importer(private val db: AppDatabase) {
             it.copy(
                 categoryId = it.categoryId?.let(::category),
                 sourceId = it.sourceId?.let(::source),
+                payerPersonId = it.payerPersonId?.let(::person),
             )
         }
         val rulePlan = plan(rules, dao.allRules().associate { it.uuid to it.toDto() }) { d, id -> d.copy(id = id) }
         dao.insertRules(rulePlan.inserts.map { it.toEntity() })
         dao.updateRules(rulePlan.updates.map { it.toEntity() })
         counts[RULES] = rulePlan.counts
+
+        // --- a shared rule's template shares (FR-REC-06) ---------------------
+        //
+        // The expense-share arrangement again: re-read so the file's rule ids
+        // map onto whatever SQLite assigned, and both ids remapped before the
+        // natural key is read.
+        val ruleIds = resolve(rules, dao.allRules().map { it.toDto() })
+        fun rule(fileId: Long): Long = ruleIds[fileId] ?: throw DanglingReference()
+
+        val ruleShares = export.ruleShares.map {
+            it.copy(ruleId = rule(it.ruleId), personId = person(it.personId))
+        }
+        val ruleSharePlan = plan(ruleShares, dao.allRuleShares().associate { it.uuid to it.toDto() }) { d, id -> d.copy(id = id) }
+        dao.insertRuleShares(ruleSharePlan.inserts.map { it.toEntity() })
+        dao.updateRuleShares(ruleSharePlan.updates.map { it.toEntity() })
+        counts[RULE_SHARES] = ruleSharePlan.counts
 
         // `app_meta` is preferences, not history: the incoming value wins. The
         // user is restoring a backup, and their last-used payment method is part
@@ -465,6 +487,7 @@ class Importer(private val db: AppDatabase) {
         const val PERSONS = "persons"
         const val SHARES = "shares"
         const val SETTLEMENTS = "settlements"
+        const val RULE_SHARES = "rule_shares"
         const val META = "meta"
 
         /**

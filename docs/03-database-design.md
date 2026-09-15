@@ -299,6 +299,7 @@ CREATE TABLE recurring_rule (
     auto_post     INTEGER NOT NULL DEFAULT 0 CHECK (auto_post IN (0,1)),
     is_active     INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
     note          TEXT,
+    payer_person_id INTEGER REFERENCES person(id) ON DELETE RESTRICT,  -- v5, FR-REC-06
     created_at    INTEGER NOT NULL,
     updated_at    INTEGER NOT NULL,
     CHECK ((target = 0 AND category_id IS NOT NULL AND source_id IS NULL)
@@ -306,9 +307,24 @@ CREATE TABLE recurring_rule (
 );
 
 CREATE INDEX ix_rule_due ON recurring_rule(is_active, next_due_day);
+CREATE INDEX ix_rule_payer ON recurring_rule(payer_person_id);
+
+-- v5, FR-REC-06: the template expense_share is copied from on every occurrence.
+CREATE TABLE recurring_rule_share (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    uuid        TEXT    NOT NULL UNIQUE,
+    rule_id     INTEGER NOT NULL REFERENCES recurring_rule(id) ON DELETE RESTRICT,
+    person_id   INTEGER NOT NULL REFERENCES person(id) ON DELETE RESTRICT,
+    share_minor INTEGER NOT NULL CHECK (share_minor > 0),
+    created_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+);
+
+CREATE UNIQUE INDEX ux_rule_share_rule_person ON recurring_rule_share(rule_id, person_id);
+CREATE INDEX ix_rule_share_person ON recurring_rule_share(person_id);
 ```
 
-The table-level `CHECK` enforces the exclusive-or between the two target types, so a rule can never be simultaneously an income and an expense template. `last_run_day` provides the idempotency guarantee required by FR-REC-03: generation for a due date only proceeds when `next_due_day > last_run_day`.
+The table-level `CHECK` enforces the exclusive-or between the two target types, so a rule can never be simultaneously an income and an expense template. A shared rule's `amount_minor` is the user's share, exactly as on `expense`; see §8a. `last_run_day` provides the idempotency guarantee required by FR-REC-03: generation for a due date only proceeds when `next_due_day > last_run_day`.
 
 Anchor day 31 in a 30-day month clamps at generation time, satisfying FR-REC-05.
 
@@ -460,6 +476,22 @@ A share means "they owe me", which is only true when you paid. If a friend paid 
 **A settlement is neither an expense nor income**, and no rollup reads it. A repayment is the user's own money coming home; counting it would lift the savings rate every time somebody paid them back. The same table records a loan made outright, since that is the same row with the sign reversed.
 
 **No rollup table backs the balances.** Share rows scale with how often the user splits rather than with the 20,000-row ledger, and people number in the tens, so `SettlementDao.observeBalances` is an indexed sum over a small table. It uses correlated subqueries rather than three `LEFT JOIN`s: joining two one-to-many tables against `person` multiplies their rows together and silently inflates both sums.
+
+### Version 5 — a repeating entry can be shared (FR-REC-06)
+
+`recurring_rule.payer_person_id` and `recurring_rule_share` are the template-side twins of `expense.payer_person_id` and `expense_share`. **`recurring_rule.amount_minor` is the user's share**, so generation copies the rule's payer and every share row onto each occurrence verbatim rather than dividing the bill again, and the bill is `amount_minor + SUM(share_minor)` on the template exactly as it is on the expense. A pending occurrence's shares are in no balance — `SettlementDao` reads `status = 0` — until it is confirmed.
+
+| Trigger | Refuses |
+|---|---|
+| `trg_rule_share_only_when_i_pay` / `_upd` | a share on a rule somebody else pays, or on an income rule |
+| `trg_rule_payer_excludes_shares` | naming a payer on a rule that still has shares |
+| `trg_rule_payer_spending_only` / `_upd` | a payer on an income rule |
+
+The guards matter more on the template than on the expense: an impossible pair on a rule would be copied onto an expense during evaluation, where `trg_share_only_when_i_paid` aborts the whole transaction — every rule due that launch, not just the malformed one.
+
+A rule naming an **archived** person is skipped by `RecurringDao.dueOnOrBefore`, for the reason a rule targeting an archived category is (FR-CAT-08): it would otherwise write shares the user could no longer write by hand. Its `next_due_day` does not move, so restoring the person catches up. Both new references count as history for FR-SHR-01's delete guard.
+
+`MIGRATION_4_5` is additive — one guarded `ALTER`, one table, three indices, five triggers — and no existing row is rewritten; every rule reads back as one the user pays.
 
 ---
 

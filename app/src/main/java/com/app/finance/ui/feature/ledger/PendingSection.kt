@@ -57,12 +57,25 @@ fun PendingRow(
     date: LocalDate,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
+    /**
+     * `Rahim paid`, or `of ৳1,500` — a shared rule's occurrence (FR-REC-06).
+     *
+     * The ledger row's third line, for the ledger row's reason: the figure is
+     * your share, and waiting to be confirmed as a bare ৳750 it reads as the
+     * wrong bill.
+     */
+    split: String? = null,
 ) {
     val colors = DayBookTheme.colors
     val locale = rememberJavaLocale()
     val confirm = stringResource(R.string.confirm_entry)
     val dismiss = stringResource(R.string.dismiss_entry)
-    val spoken = "$label, ${amount.spokenForm(locale)}, ${date.format(dayFormat(locale))}"
+    val spoken = listOfNotNull(
+        label,
+        amount.spokenForm(locale),
+        split,
+        date.format(dayFormat(locale)),
+    ).joinToString(", ")
 
     Column(
         Modifier
@@ -88,6 +101,9 @@ fun PendingRow(
             // `inkSoft` rather than `ink`: it is a figure that is not yet true,
             // and the words beside it say so as well (NFR-USE-05).
             MoneyText(amount, color = colors.inkSoft)
+        }
+        if (split != null) {
+            Text(split, style = DayBookTheme.type.caption, color = colors.inkSoft)
         }
         Row(
             verticalAlignment = Alignment.CenterVertically,

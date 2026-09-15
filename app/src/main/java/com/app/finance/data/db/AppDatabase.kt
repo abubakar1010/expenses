@@ -28,6 +28,7 @@ import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.IncomeSourceEntity
 import com.app.finance.data.db.entity.PersonEntity
 import com.app.finance.data.db.entity.RecurringRuleEntity
+import com.app.finance.data.db.entity.RecurringRuleShareEntity
 import com.app.finance.data.db.entity.RollupExpenseMonthEntity
 import com.app.finance.data.db.entity.RollupIncomeMonthEntity
 import com.app.finance.data.db.entity.SettlementEntity
@@ -46,6 +47,7 @@ import com.app.finance.data.db.entity.SettlementEntity
         PersonEntity::class,
         ExpenseShareEntity::class,
         SettlementEntity::class,
+        RecurringRuleShareEntity::class,
     ],
     version = Schema.VERSION,
     exportSchema = true,

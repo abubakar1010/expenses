@@ -171,6 +171,125 @@ class LedgerViewModelTest {
         assertEquals(150_00L, state.settlements.single().amountMinor)
     }
 
+    // --- FR-SHR-06: what a settle-up settled --------------------------------
+
+    @Test
+    fun settling_up_in_full_moves_everything_it_settled_into_one_group() = runBlocking {
+        val rahim = person("Rahim")
+        shared(1_000, rahim)
+        settle(rahim, 500)
+
+        val vm = vm()
+        vm.filterByPerson(rahim)
+        // Every field asserted below arrives in the same publish as these.
+        val state = vm.state.awaitState {
+            !it.initialLoad && it.settledCycles.size == 1 && it.settledCycles.single().days.isNotEmpty()
+        }
+
+        assertTrue("nothing is open once square", state.days.isEmpty())
+        assertTrue(state.settlements.isEmpty())
+        val group = state.settledCycles.single()
+        assertEquals(2, group.entryCount)
+        assertEquals(fx.today, group.closedOn)
+        assertEquals(1, group.settlements.size)
+        assertEquals(Money.ZERO, state.personBalance)
+        assertFalse("a settled person is not an empty result", state.isFilteredEmpty)
+        assertTrue(state.showsFilteredTotal)
+        assertTrue("collapsed until asked", state.expandedCycles.isEmpty())
+    }
+
+    @Test
+    fun what_happened_after_the_last_settle_up_stays_open() = runBlocking {
+        val rahim = person("Rahim")
+        val (oldYours, oldSplit) = Split.evenly(Money.ofTaka(1_000), listOf(rahim))
+        fx.expenses.insert(oldYours, fx.leafId("Grocery"), fx.today.minusDays(3), note = "old", split = oldSplit)
+        settle(rahim, 500, daysAgo = 2)
+        val (newYours, newSplit) = Split.evenly(Money.ofTaka(600), listOf(rahim))
+        fx.expenses.insert(newYours, fx.leafId("Grocery"), fx.today, note = "new", split = newSplit)
+
+        val vm = vm()
+        vm.filterByPerson(rahim)
+        val state = vm.state.awaitState {
+            it.days.isNotEmpty() && it.settledCycles.size == 1 && it.settledCycles.single().days.isNotEmpty()
+        }
+
+        assertEquals(listOf("new"), state.days.flatMap { d -> d.rows.map { r -> r.expense.note } })
+        assertEquals(
+            listOf("old"),
+            state.settledCycles.single().days.flatMap { d -> d.rows.map { r -> r.expense.note } },
+        )
+        assertEquals(fx.today.minusDays(2), state.settledCycles.single().closedOn)
+        assertEquals(Money.ofTaka(300), state.personBalance)
+    }
+
+    @Test
+    fun a_partial_repayment_settles_nothing() = runBlocking {
+        val rahim = person("Rahim")
+        shared(1_000, rahim)
+        settle(rahim, 200)
+
+        val vm = vm()
+        vm.filterByPerson(rahim)
+        val state = vm.state.awaitState {
+            it.days.isNotEmpty() && it.settlements.size == 1 && it.personBalance == Money.ofTaka(300)
+        }
+
+        assertTrue("no expense is half settled", state.settledCycles.isEmpty())
+    }
+
+    @Test
+    fun settling_up_while_the_ledger_is_open_folds_the_rows_away() = runBlocking {
+        // The reported case: a repayment recorded and nothing visibly changing.
+        val rahim = person("Rahim")
+        shared(1_000, rahim)
+
+        val vm = vm()
+        vm.filterByPerson(rahim)
+        vm.state.awaitState { it.days.isNotEmpty() && it.settledCycles.isEmpty() }
+
+        settle(rahim, 500)
+
+        val state = vm.state.awaitState {
+            it.days.isEmpty() && it.settledCycles.size == 1 && it.personBalance == Money.ZERO
+        }
+        assertEquals(2, state.settledCycles.single().entryCount)
+    }
+
+    @Test
+    fun an_opened_settle_up_stays_open_until_the_question_changes() = runBlocking {
+        val rahim = person("Rahim")
+        shared(1_000, rahim)
+        settle(rahim, 500)
+
+        val vm = vm()
+        vm.filterByPerson(rahim)
+        val key = vm.state.awaitState { it.settledCycles.size == 1 }.settledCycles.single().key
+
+        vm.toggleCycle(key)
+        assertTrue(key in vm.state.value.expandedCycles)
+        vm.toggleCycle(key)
+        assertTrue(vm.state.value.expandedCycles.isEmpty())
+
+        vm.toggleCycle(key)
+        vm.filterByPerson(rahim)
+        assertTrue("a fresh visit starts collapsed", vm.state.value.expandedCycles.isEmpty())
+    }
+
+    @Test
+    fun a_person_filter_narrowed_by_anything_else_does_not_group() = runBlocking {
+        // A search cuts a settle-up in half; a header counting three entries
+        // over the one that matched would be describing rows it hid.
+        val rahim = person("Rahim")
+        shared(1_000, rahim)
+        settle(rahim, 500)
+
+        val vm = vm()
+        vm.applyFilters(LedgerFilters(personId = rahim, query = "zzz"))
+        val state = vm.state.awaitState { !it.initialLoad && it.filters.query == "zzz" && it.settlements.size == 1 }
+
+        assertTrue(state.settledCycles.isEmpty())
+    }
+
     @Test
     fun leaving_the_person_filter_takes_their_settlements_with_it() = runBlocking {
         val rahim = person("Rahim")

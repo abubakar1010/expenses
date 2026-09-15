@@ -20,6 +20,7 @@ import com.app.finance.data.repo.RecurringRepository
 import com.app.finance.domain.model.CategoryNode
 import com.app.finance.domain.model.LedgerFilters
 import com.app.finance.domain.model.PaymentMethod
+import com.app.finance.domain.usecase.SettleUpHistory
 import com.app.finance.ui.common.Undoable
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -39,6 +40,21 @@ data class LedgerDay(
     val date: LocalDate,
     val total: Money,
     val rows: List<ExpenseWithCategory>,
+)
+
+/**
+ * One settle-up with a person and everything it settled — FR-SHR-06.
+ *
+ * [entryCount] comes from the whole history rather than from [days], which
+ * holds only the rows paged in so far: the collapsed header has to say how much
+ * it is hiding before any of it has been loaded.
+ */
+data class SettledGroup(
+    val key: String,
+    val closedOn: LocalDate,
+    val entryCount: Int,
+    val settlements: List<SettlementEntity>,
+    val days: List<LedgerDay>,
 )
 
 data class LedgerUiState(
@@ -74,6 +90,22 @@ data class LedgerUiState(
      * category, method-of-spend or note-as-search to match against.
      */
     val settlements: List<SettlementEntity> = emptyList(),
+    /**
+     * Filtered to one person: each settle-up, and what it settled — FR-SHR-06.
+     *
+     * Settling up used to change one figure and nothing else. The dinner that
+     * had just been paid back sat in the list looking exactly like one still
+     * owed, so recording a repayment appeared to have done nothing. Everything
+     * up to each return to zero moves here, newest settle-up first, and
+     * [days] and [settlements] keep only what is still open.
+     *
+     * Empty whenever the filter narrows by anything but the person: a date
+     * range or a category would cut a settle-up in half, and a group that says
+     * "3 entries" over one would be describing rows the list has hidden.
+     */
+    val settledCycles: List<SettledGroup> = emptyList(),
+    /** [SettledGroup.key]s the user has opened. Collapsed is the default. */
+    val expandedCycles: Set<String> = emptySet(),
     /**
      * `LocalDate.ofEpochDay(0)`, not `LocalDate.EPOCH` — that constant was only
      * added in API 34 and this app ships to API 26, so it would have thrown
@@ -123,7 +155,8 @@ data class LedgerUiState(
      * archived categories out of *entry* pickers.
      */
     val categoriesPresent: Set<Long>
-        get() = days.flatMapTo(HashSet()) { day -> day.rows.map { it.expense.categoryId } }
+        get() = (days + settledCycles.flatMap { it.days })
+            .flatMapTo(HashSet()) { day -> day.rows.map { it.expense.categoryId } }
 
     /**
      * Who the filter chips offer — FR-SHR-06, with [categoriesPresent]'s
@@ -145,7 +178,8 @@ data class LedgerUiState(
      * result told the user "nothing matches" directly under a name that owes
      * them ৳500.
      */
-    val isEmpty: Boolean get() = !initialLoad && days.isEmpty() && settlements.isEmpty()
+    val isEmpty: Boolean
+        get() = !initialLoad && days.isEmpty() && settlements.isEmpty() && settledCycles.isEmpty()
 
     /** An empty result means something different when a filter is applied. */
     val isFilteredEmpty: Boolean get() = isEmpty && !filters.isDefault
@@ -160,7 +194,8 @@ data class LedgerUiState(
      * an unfiltered ledger is for.
      */
     val showsFilteredTotal: Boolean
-        get() = !filters.isDefault && !initialLoad && (days.isNotEmpty() || settlements.isNotEmpty())
+        get() = !filters.isDefault && !initialLoad &&
+            (days.isNotEmpty() || settlements.isNotEmpty() || settledCycles.isNotEmpty())
 }
 
 /**
@@ -212,6 +247,12 @@ class LedgerViewModel(
     /** The person whose settlements [settlementJob] is following, if any. */
     private var followedPerson: Long? = null
     private var settlementJob: Job? = null
+
+    /** The filtered person's settlements, as of the last [reload]. */
+    private var personSettlements = emptyList<SettlementEntity>()
+
+    /** Their settle-ups, as of the last [reload]; null unless filtered to the person alone. */
+    private var history: SettleUpHistory? = null
 
     init {
         reload()
@@ -285,7 +326,10 @@ class LedgerViewModel(
     fun setQuery(query: String) = applyFilters(_state.value.filters.copy(query = query))
 
     fun applyFilters(filters: LedgerFilters) {
-        _state.update { it.copy(filters = filters, filterSheetOpen = false) }
+        // A different question starts with every settle-up closed again.
+        _state.update {
+            it.copy(filters = filters, filterSheetOpen = false, expandedCycles = emptySet())
+        }
         followSettlements(filters.personId)
         // A filter change invalidates every loaded page, so paging restarts.
         pagesLoaded = 1
@@ -311,22 +355,62 @@ class LedgerViewModel(
 
     fun dismissFilters() = _state.update { it.copy(filterSheetOpen = false) }
 
+    /**
+     * Opens or closes one settle-up — FR-SHR-06.
+     *
+     * Opening one can need rows that have not been paged in yet: a settled-up
+     * group is the oldest part of a person's history, which is exactly the
+     * part a first page does not reach.
+     */
+    fun toggleCycle(key: String) {
+        val expanding = key !in _state.value.expandedCycles
+        _state.update {
+            it.copy(expandedCycles = if (expanding) it.expandedCycles + key else it.expandedCycles - key)
+        }
+        if (expanding) loadMore()
+    }
+
     // --- paging (FR-EXP-10) -------------------------------------------------
 
     fun loadMore() {
         val current = _state.value
         if (current.initialLoad || current.loadingMore || current.endReached) return
+        if (!needsMore(current)) return
         val cursor = rows.lastOrNull() ?: return
 
         _state.update { it.copy(loadingMore = true) }
         viewModelScope.launch {
-            val next = withContext(io) {
-                repo.filteredPage(current.filters, after = cursor)
-            }
-            rows = rows + next
-            if (next.isNotEmpty()) pagesLoaded++
-            publish(endReached = next.size < repo.pageSize, loadingMore = false)
+            var after = cursor
+            var end: Boolean
+            // One page, as it always was — except filtered to a person, where
+            // the rows a newly opened settle-up needs may be several pages
+            // down and nothing on screen would scroll to fetch them.
+            do {
+                val next = withContext(io) { repo.filteredPage(current.filters, after = after) }
+                rows = rows + next
+                if (next.isNotEmpty()) pagesLoaded++
+                end = next.size < repo.pageSize
+                after = rows.lastOrNull() ?: break
+            } while (!end && history != null && needsMore(_state.value))
+            publish(endReached = end, loadingMore = false)
         }
+    }
+
+    /**
+     * Whether paging further would put anything on screen.
+     *
+     * Always, on an ordinary ledger. Filtered to a person, only while a row that
+     * is open, or inside an opened settle-up, has not been loaded yet. Without
+     * this a collapsed group at the bottom of the list keeps the load-more
+     * trigger in view, and the ledger pages that person's entire settled
+     * history into memory to show none of it — FR-EXP-10's rule, broken by a
+     * header.
+     */
+    private fun needsMore(state: LedgerUiState): Boolean {
+        val h = history ?: return true
+        val loaded = rows.mapTo(HashSet()) { it.expense.id }
+        return !loaded.containsAll(h.openExpenseIds) ||
+            h.cycles.any { it.key in state.expandedCycles && !loaded.containsAll(it.expenseIds) }
     }
 
     // --- deletion (FR-EXP-07, NFR-USE-03) -----------------------------------
@@ -414,16 +498,15 @@ class LedgerViewModel(
         if (personId == followedPerson) return
         followedPerson = personId
         settlementJob?.cancel()
-        _state.update { it.copy(settlements = emptyList()) }
+        _state.update { it.copy(settlements = emptyList(), settledCycles = emptyList()) }
         if (personId == null) return
 
+        // Only a trigger. [reload] reads the settlements, the balance and the
+        // settle-up history together, so the three can never describe
+        // different moments. The first emission repeats [applyFilters]' own
+        // reload, which cancels rather than races it.
         settlementJob = viewModelScope.launch {
-            var first = true
-            settlements.observeForPerson(personId).collect { rows ->
-                _state.update { it.copy(settlements = rows) }
-                if (!first) reload()
-                first = false
-            }
+            settlements.observeForPerson(personId).collect { reload() }
         }
     }
 
@@ -459,33 +542,53 @@ class LedgerViewModel(
             // this come to between us" rather than FR-EXP-11's "what did I
             // spend" — which is a different question and not the one being
             // asked by picking a name.
-            val balance = filters.personId?.let {
-                withContext(io) { settlements.balanceOf(it) }
-            } ?: Money.ZERO
+            val personId = filters.personId
+            // FR-SHR-06's settle-ups, only when nothing else narrows the list —
+            // see `LedgerUiState.settledCycles`.
+            val personOnly = personId != null && filters.copy(personId = null).isDefault
+            val person: Triple<Money, List<SettlementEntity>, SettleUpHistory?> = withContext(io) {
+                if (personId == null) {
+                    Triple(Money.ZERO, emptyList(), null)
+                } else {
+                    Triple(
+                        settlements.balanceOf(personId),
+                        settlements.settlementsFor(personId),
+                        if (personOnly) settlements.historyOf(personId) else null,
+                    )
+                }
+            }
             rows = fresh
             total = freshTotal
-            personBalance = balance
-            publish(
-                endReached = fresh.size < repo.pageSize * pagesLoaded,
-                loadingMore = false,
-            )
+            personBalance = person.first
+            personSettlements = person.second
+            history = person.third
+            val end = fresh.size < repo.pageSize * pagesLoaded
+            publish(endReached = end, loadingMore = false)
+            // The open rows may not all be on the first page.
+            if (history != null && !end && needsMore(_state.value)) loadMore()
         }
     }
 
     private fun publish(endReached: Boolean, loadingMore: Boolean) {
-        val grouped = rows
-            .groupBy { LocalDate.ofEpochDay(it.expense.spentOn) }
-            .toSortedMap(compareByDescending { it })
-            .map { (date, dayRows) ->
-                LedgerDay(
-                    date = date,
-                    total = Money(dayRows.sumOf { it.expense.amountMinor }),
-                    rows = dayRows,
-                )
-            }
+        val h = history
+        val (openRows, settledRows) =
+            if (h == null) rows to emptyList<ExpenseWithCategory>()
+            else rows.partition { it.expense.id !in h.settledExpenseIds }
+        val settledSettlementIds = h?.settledSettlementIds.orEmpty()
+        val cycles = h?.cycles.orEmpty().map { cycle ->
+            SettledGroup(
+                key = cycle.key,
+                closedOn = LocalDate.ofEpochDay(cycle.closedOnDay),
+                entryCount = cycle.entryCount,
+                settlements = personSettlements.filter { it.id in cycle.settlementIds },
+                days = groupByDay(settledRows.filter { it.expense.id in cycle.expenseIds }),
+            )
+        }
         _state.update {
             it.copy(
-                days = grouped,
+                days = groupByDay(openRows),
+                settlements = personSettlements.filterNot { s -> s.id in settledSettlementIds },
+                settledCycles = cycles,
                 filteredTotal = Money(total.totalMinor),
                 filteredCount = total.txnCount,
                 people = it.people,
@@ -498,6 +601,18 @@ class LedgerViewModel(
         }
     }
 }
+
+/** Newest day first, each with FR-EXP-09's subtotal. */
+private fun groupByDay(rows: List<ExpenseWithCategory>): List<LedgerDay> = rows
+    .groupBy { LocalDate.ofEpochDay(it.expense.spentOn) }
+    .toSortedMap(compareByDescending { it })
+    .map { (date, dayRows) ->
+        LedgerDay(
+            date = date,
+            total = Money(dayRows.sumOf { it.expense.amountMinor }),
+            rows = dayRows,
+        )
+    }
 
 /** The payment methods offered in the filter sheet, plus "any". */
 val FILTERABLE_METHODS: List<PaymentMethod?> = listOf(null) + PaymentMethod.SELECTABLE

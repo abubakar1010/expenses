@@ -7,6 +7,9 @@ import com.app.finance.data.db.entity.SettlementEntity
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.domain.model.SaveOutcome
+import com.app.finance.domain.usecase.HistoryEvent
+import com.app.finance.domain.usecase.SettleUpCycles
+import com.app.finance.domain.usecase.SettleUpHistory
 import kotlinx.coroutines.flow.Flow
 import java.time.Clock
 import java.time.LocalDate
@@ -40,6 +43,22 @@ class SettlementRepository(
         dao.observeForPerson(personId)
 
     suspend fun balanceOf(personId: Long): Money = Money(dao.balanceOf(personId))
+
+    suspend fun settlementsFor(personId: Long): List<SettlementEntity> = dao.forPerson(personId)
+
+    /** What a person's settle-ups have settled, and what is still open — FR-SHR-06. */
+    suspend fun historyOf(personId: Long): SettleUpHistory =
+        SettleUpCycles.of(
+            dao.historyOf(personId).map {
+                HistoryEvent(
+                    kind = if (it.kind == 1) HistoryEvent.Kind.SETTLEMENT else HistoryEvent.Kind.EXPENSE,
+                    id = it.id,
+                    day = it.day,
+                    createdAt = it.createdAt,
+                    signed = Money(it.signedMinor),
+                )
+            },
+        )
 
     /**
      * Records money moving — FR-SHR-04.

@@ -10,7 +10,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -84,6 +86,8 @@ fun PeopleScreen(
     val archivedTemplate = stringResource(R.string.person_archived)
     val restoredTemplate = stringResource(R.string.person_restored)
     val deletedTemplate = stringResource(R.string.person_deleted)
+    val recordedTemplate = stringResource(R.string.settlement_recorded)
+    val viewLabel = stringResource(R.string.settlement_view)
     val undoLabel = stringResource(R.string.undo)
 
     BackHandler(onBack = onBack)
@@ -159,7 +163,20 @@ fun PeopleScreen(
             onMethod = vm::setSettleMethod,
             onNote = vm::setSettleNote,
             onDismissPicker = vm::dismissSettlePicker,
-            onSubmit = { vm.submitSettle(today) },
+            // FR-SHR-06's other door: say it happened, and offer the ledger
+            // where it now shows — the settle-up it just closed.
+            onSubmit = {
+                vm.submitSettle(today) { personId, name ->
+                    scope.launch {
+                        val result = snackbarHostState.showSnackbar(
+                            message = String.format(locale, recordedTemplate, name),
+                            actionLabel = viewLabel,
+                            duration = SnackbarDuration.Short,
+                        )
+                        if (result == SnackbarResult.ActionPerformed) onOpenLedger(personId)
+                    }
+                }
+            },
             onDismiss = vm::dismissSettle,
         )
     }

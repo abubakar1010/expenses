@@ -109,6 +109,21 @@
          balance subtracts, above the expenses. -->
     <string name="settlements_heading">Settlements</string>
     <string name="delete_settlement">Delete settlement</string>
+    <!-- Each settle-up on a person's ledger (FR-SHR-06), collapsed until
+         tapped: "SETTLED UP · TODAY   3 entries · Show". -->
+    <string name="settled_cycle_title">Settled up · %1$s</string>
+    <plurals name="settled_cycle_count">
+        <item quantity="one">%1$d entry</item>
+        <item quantity="other">%1$d entries</item>
+    </plurals>
+    <string name="settled_show">Show</string>
+    <string name="settled_hide">Hide</string>
+    <!-- Spoken, as the state of the settle-up row. -->
+    <string name="settled_expanded">Expanded</string>
+    <string name="settled_collapsed">Collapsed</string>
+    <!-- After "Record it": says it happened, and "View" opens the ledger. -->
+    <string name="settlement_recorded">Recorded for %1$s</string>
+    <string name="settlement_view">View</string>
     <!-- Spoken, so TalkBack does not read a bare number beside the bill. -->
     <string name="your_share_spoken">%1$s your share</string>
 

@@ -206,6 +206,24 @@ class PeopleScreenTest {
 
         assertEquals(rahim, openedFor)
     }
+
+    @Test
+    fun recording_a_settlement_says_so_and_offers_the_ledger() {
+        // Reported: settling up closed the sheet, changed a figure, and nothing
+        // else on the screen said anything had happened.
+        val rahim = person("Rahim")
+        shared(1_000, listOf(rahim))
+
+        show()
+        awaitText("Settle up")
+        compose.onNodeWithText("Settle up").performClick()
+        awaitText("Record it")
+        compose.onNodeWithText("Record it").performClick()
+
+        awaitText("Recorded for Rahim")
+        compose.onNodeWithText("View").performClick()
+        compose.waitUntil(WAIT_MS) { openedFor == rahim }
+    }
 }
 
 private const val WAIT_MS = 5_000L

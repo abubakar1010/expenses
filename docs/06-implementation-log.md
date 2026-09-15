@@ -6610,7 +6610,7 @@ v3 fixtures grew their strip lists, per §31.2.
 
 ### 34.5 Measured
 
-- JVM: **335 tests**, green — including `SplitDraftTest` and
+- JVM: **334 tests**, green — including `SplitDraftTest` and
   `SchemaDocumentTest`, which is what forced `docs/schema_v1.sql` to be
   regenerated in the same commit rather than eventually.
 - On the Redmi 13C: `RecurringRepositoryTest`, `SchemaMigrationTest`,
@@ -6660,3 +6660,98 @@ database — Internet, ৳1,500, split evenly with a person added inline — and
 saved. It lists as `৳750 · of ৳1,500`. Those rows went into a
 `recurring_rule_share` that `MIGRATION_4_5` created, not one `onCreate` did, and
 through the trigger the same migration installed.
+
+
+## 35. Settling up did nothing you could see
+
+Reported straight after §34: *"I didn't see any settle-up history, and it seemed
+nothing happened after settling up — just the header amount got updated."* The
+user proposed collapsing the settled part of a person's ledger, expanding it on
+a tap, and leaving the unsettled part as it was.
+
+### 35.1 What was actually on screen
+
+Reproduced on the emulator with the §34 build before changing anything. §34.1's
+settlement list was there and correct — but only on the ledger, only after
+tapping the name, and above a list that had not changed. The ৳500 dinner that
+had just been repaid sat under *Today* looking exactly like one still owed. On
+People, *Record it* closed the sheet and moved a figure to ৳0, and nothing else
+on the screen said anything had happened.
+
+So the report was right on both counts, and §34.1 had fixed a narrower problem
+than the one the user met: it made settlements *findable*, not settling
+*visible*.
+
+### 35.2 The one thing the proposal needed that it did not say
+
+"Collapse what is settled" needs a rule for **what is settled**, and the schema
+has no answer: a settlement is money that moved, tied to no expense (03 §8a).
+The obvious rules — repayments pay the oldest debt first, or the largest — are
+conventions the user never chose, and both would show a dinner as half settled
+while money is still owed on it.
+
+The rule adopted makes no such choice: **everything up to the last moment the
+balance was exactly zero is settled; everything after is open.** At zero nobody
+owes anybody, so every entry before that point is accounted for without deciding
+which repayment paid for which dinner. A partial repayment settles nothing, and
+the entries still owed on stay in plain view. `SettleUpCycles` is that walk, pure
+Kotlin with its own JVM suite.
+
+Two refinements over the proposal, both following from the rule:
+
+- **One group per settle-up, not one pile.** Every return to zero closes a cycle,
+  so the collapsed part is a history — *Settled up · 13 Sep*, *Settled up · 2 Jul*
+  — newest first. That is also the "settle-up history" the report asked for.
+- **Two debts that cancel are settled too.** You paid lunch, they paid the cinema,
+  the same amount: the balance is zero with no settlement at all, and that is
+  what square means.
+
+### 35.3 What it is on screen
+
+Filtered to one person: what is open is listed as before — open settlements, then
+day groups — and beneath it each settle-up is a single 48 dp row, `moss`,
+reading *SETTLED UP · 13 SEP   2 entries · Show*. Tapping it lists that cycle's
+settlements and day groups in place; tapping again folds them away. Nothing
+inside a group leaves any figure, and every row stays editable and swipeable —
+it is folded, not archived.
+
+After *Record it*, People now shows *Recorded for Tanvir* with **View**, which
+opens that person's ledger through §33's existing path.
+
+### 35.4 Three decisions worth recording
+
+**Grouping only when the person is the whole filter.** A search or a date range
+cuts a settle-up in half, and a header counting *3 entries* over the one that
+matched would describe rows the list has hidden. Narrowed further, the ledger
+behaves as §34 left it.
+
+**A collapsed group must not page the history in.** It sits at the bottom of the
+list, so it keeps the load-more trigger in view, and the ledger would have paged
+the person's entire settled history into memory to show none of it — FR-EXP-10,
+broken by a header. `needsMore` stops paging once every open row, and every row
+of an opened group, is loaded; opening a group pages until its rows arrive.
+
+**One snapshot per reload.** The settlements list, the balance and the history
+are read together in `reload()`, and the settlement flow is only a trigger.
+§34.1 had the flow write the list directly, which let the list and the balance
+above it describe different moments for the length of a query.
+
+### 35.5 Measured
+
+- JVM: **343 tests**, green — `SettleUpCyclesTest` is 9 of them. (§34.5 said
+  335; counting the result files gives 334 for that build, and it is corrected
+  there.)
+- On the `DayBook` emulator: the ledger, People and settlement suites —
+  `LedgerViewModelTest`, `LedgerFilterTotalTest`, `PeopleScreenTest`,
+  `PeopleViewModelTest`, `LedgerUndoScreenTest`, `LedgerSplitRowTest`,
+  `LedgerPendingTest`, `SharedExpenseTest`, `PersonRepositoryTest`,
+  `ExportImportRoundTripTest`, `QuickAddViewModelTest` — **149 tests, zero
+  failures.** The full suite was not rerun; nothing outside the ledger, People
+  and `SettlementDao` changed.
+- **Driven by hand on the benchmark seed**, 22,160 expenses: one person with a
+  dinner repaid two days ago and a lunch today. The ledger opened on the lunch,
+  with *SETTLED UP · 13 SEP · 2 entries* folded beneath it; *Show* listed the
+  bKash repayment with its note and the dinner it settled.
+
+No schema change, so no migration and no upgrade rehearsal; `versionCode`
+stays at §34's 4, which has not been shipped.

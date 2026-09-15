@@ -1,6 +1,7 @@
 package com.app.finance.ui.feature.ledger
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -42,7 +44,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -283,27 +289,43 @@ fun LedgerScreen(
                     }
                 }
 
-                state.days.forEach { day ->
-                    item(key = "header-${day.date.toEpochDay()}") {
-                        DayHeader(day, state.today)
+                ledgerDays(
+                    days = state.days,
+                    keyPrefix = "",
+                    today = state.today,
+                    onDelete = vm::delete,
+                    onEdit = onEdit,
+                )
+
+                // FR-SHR-06: each settle-up, collapsed, newest first, under
+                // what is still open. Nothing in a group is gone — every row
+                // is still in every figure, still editable and still
+                // swipeable — it is only folded away, because it no longer
+                // needs acting on.
+                state.settledCycles.forEach { group ->
+                    val expanded = group.key in state.expandedCycles
+                    item(key = "cycle-${group.key}") {
+                        SettledCycleHeader(
+                            group = group,
+                            expanded = expanded,
+                            today = state.today,
+                            onToggle = { vm.toggleCycle(group.key) },
+                        )
                     }
-                    items(
-                        count = day.rows.size,
-                        key = { i -> day.rows[i].expense.id },
-                    ) { i ->
-                        val row = day.rows[i]
-                        SwipeableRow(onDelete = { vm.delete(row.expense.id) }) {
-                            LedgerRow(
-                                label = row.categoryName,
-                                amount = Money(row.expense.amountMinor),
-                                secondary = row.expense.note,
-                                trailing = stringResource(
-                                    PaymentMethod.fromCode(row.expense.paymentMethod).labelRes(),
-                                ),
-                                split = row.splitLine(),
-                                onClick = { onEdit(row.expense.id) },
-                            )
-                        }
+                    if (expanded) {
+                        settlementRows(
+                            settlements = group.settlements,
+                            keyPrefix = "cycle-${group.key}-",
+                            today = state.today,
+                            onDelete = vm::deleteSettlement,
+                        )
+                        ledgerDays(
+                            days = group.days,
+                            keyPrefix = "cycle-${group.key}-",
+                            today = state.today,
+                            onDelete = vm::delete,
+                            onEdit = onEdit,
+                        )
                     }
                 }
             }
@@ -570,6 +592,118 @@ private fun SettlementRow(row: SettlementEntity, today: LocalDate) {
         secondary = listOfNotNull(date, row.note).joinToString(" · "),
         trailing = stringResource(PaymentMethod.fromCode(row.paymentMethod).labelRes()),
     )
+}
+
+/** Day groups of expense rows — the ledger's body, and each opened settle-up's. */
+private fun LazyListScope.ledgerDays(
+    days: List<LedgerDay>,
+    /** Keeps day-header keys distinct when two groups hold the same date. */
+    keyPrefix: String,
+    today: LocalDate,
+    onDelete: (Long) -> Unit,
+    onEdit: (Long) -> Unit,
+) {
+    days.forEach { day ->
+        item(key = "${keyPrefix}header-${day.date.toEpochDay()}") {
+            DayHeader(day, today)
+        }
+        items(
+            count = day.rows.size,
+            key = { i -> day.rows[i].expense.id },
+        ) { i ->
+            val row = day.rows[i]
+            SwipeableRow(onDelete = { onDelete(row.expense.id) }) {
+                LedgerRow(
+                    label = row.categoryName,
+                    amount = Money(row.expense.amountMinor),
+                    secondary = row.expense.note,
+                    trailing = stringResource(
+                        PaymentMethod.fromCode(row.expense.paymentMethod).labelRes(),
+                    ),
+                    split = row.splitLine(),
+                    onClick = { onEdit(row.expense.id) },
+                )
+            }
+        }
+    }
+}
+
+/** Settlement rows inside an opened settle-up, swipeable exactly as the open ones are. */
+private fun LazyListScope.settlementRows(
+    settlements: List<SettlementEntity>,
+    keyPrefix: String,
+    today: LocalDate,
+    onDelete: (Long) -> Unit,
+) {
+    items(
+        count = settlements.size,
+        key = { i -> "${keyPrefix}settlement-${settlements[i].id}" },
+    ) { i ->
+        val settlement = settlements[i]
+        SwipeableRow(
+            onDelete = { onDelete(settlement.id) },
+            deleteLabel = stringResource(R.string.delete_settlement),
+        ) {
+            SettlementRow(settlement, today)
+        }
+    }
+}
+
+/**
+ * `SETTLED UP · 15 SEP          3 entries · Show` — FR-SHR-06.
+ *
+ * The whole row is the control, 48 dp tall, and it speaks as a button with an
+ * expanded or collapsed state rather than as a heading: TalkBack has to say
+ * that tapping it does something, and what it will do. `moss` marks it as
+ * done, and the words say so too (NFR-USE-05).
+ */
+@Composable
+private fun SettledCycleHeader(
+    group: SettledGroup,
+    expanded: Boolean,
+    today: LocalDate,
+    onToggle: () -> Unit,
+) {
+    val colors = DayBookTheme.colors
+    val locale = rememberJavaLocale()
+    val title = stringResource(R.string.settled_cycle_title, group.closedOn.relativeLabel(today))
+    val count = pluralStringResource(R.plurals.settled_cycle_count, group.entryCount, group.entryCount)
+    val action = stringResource(if (expanded) R.string.settled_hide else R.string.settled_show)
+    val spokenState = stringResource(if (expanded) R.string.settled_expanded else R.string.settled_collapsed)
+
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = Sizes.minTouchTarget)
+            .clickable(onClick = onToggle)
+            .semantics(mergeDescendants = true) {
+                role = Role.Button
+                stateDescription = spokenState
+            }
+            .drawBehind {
+                drawLine(
+                    color = colors.rule,
+                    start = Offset(0f, size.height),
+                    end = Offset(size.width, size.height),
+                    strokeWidth = Sizes.hairline.toPx(),
+                )
+            }
+            .padding(horizontal = Space.gutter, vertical = Space.s3),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.s2),
+    ) {
+        Text(
+            text = title.uppercase(locale),
+            style = DayBookTheme.type.sectionHeader,
+            color = colors.moss,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            text = "$count · $action",
+            style = DayBookTheme.type.caption,
+            color = colors.indigo,
+        )
+    }
 }
 
 /** `TODAY · FRIDAY 14 AUGUST` with the day's subtotal on the right. */

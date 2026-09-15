@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
@@ -82,27 +81,12 @@ fun PeopleScreen(
     val today = java.time.LocalDate.now(container.clock)
 
     // Hoisted: a composable cannot be called inside `scope.launch`.
-    val settlementRemoved = stringResource(R.string.settlement_removed)
     val archivedTemplate = stringResource(R.string.person_archived)
     val restoredTemplate = stringResource(R.string.person_restored)
     val deletedTemplate = stringResource(R.string.person_deleted)
     val undoLabel = stringResource(R.string.undo)
 
     BackHandler(onBack = onBack)
-
-    // NFR-USE-03. Keyed on the head's id, never the object — the queue is what
-    // keeps a second deletion inside the window from cancelling the first
-    // effect without running either branch.
-    val nextUndo = state.undoQueue.firstOrNull()
-    LaunchedEffect(nextUndo?.id) {
-        val item = nextUndo ?: return@LaunchedEffect
-        snackbarHostState.offerUndo(
-            message = settlementRemoved,
-            undoLabel = undoLabel,
-            onUndo = { vm.undo(item.id) },
-            onExpired = { vm.dropUndo(item.id) },
-        )
-    }
 
     Column(Modifier.fillMaxSize()) {
         DetailHeader(

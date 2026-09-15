@@ -10,6 +10,7 @@ import com.app.finance.data.db.dao.PendingIncome
 import com.app.finance.data.db.entity.ExpenseEntity
 import com.app.finance.data.db.entity.IncomeEntryEntity
 import com.app.finance.data.db.entity.PersonEntity
+import com.app.finance.data.db.entity.SettlementEntity
 import com.app.finance.data.repo.CategoryRepository
 import com.app.finance.data.repo.DeletedExpense
 import com.app.finance.data.repo.ExpenseRepository
@@ -59,6 +60,20 @@ data class LedgerUiState(
     val people: List<PersonEntity> = emptyList(),
     /** The balance with the filtered person, when one is filtered — FR-SHR-06. */
     val personBalance: Money = Money.ZERO,
+    /**
+     * Every settlement with the filtered person, newest first — FR-SHR-06.
+     *
+     * The third term of [personBalance], and it used to be the one term nothing
+     * showed. The header subtracted repayments the rows underneath did not
+     * list, so once somebody had paid you back the balance stopped being
+     * computable from what was on screen — and a settlement typed wrongly could
+     * be neither seen nor removed anywhere in the app.
+     *
+     * Not narrowed by the rest of the filter set, for the same reason the
+     * balance is not: both belong to the person, and a settlement has no
+     * category, method-of-spend or note-as-search to match against.
+     */
+    val settlements: List<SettlementEntity> = emptyList(),
     /**
      * `LocalDate.ofEpochDay(0)`, not `LocalDate.EPOCH` — that constant was only
      * added in API 34 and this app ships to API 26, so it would have thrown
@@ -124,7 +139,13 @@ data class LedgerUiState(
     val peopleForFilter: List<PersonEntity>
         get() = people.filter { !it.isArchived || it.id == filters.personId }
 
-    val isEmpty: Boolean get() = !initialLoad && days.isEmpty()
+    /**
+     * Settlements count as content. A person whose whole history is a loan
+     * made outright has no expense to list, and treating that as an empty
+     * result told the user "nothing matches" directly under a name that owes
+     * them ৳500.
+     */
+    val isEmpty: Boolean get() = !initialLoad && days.isEmpty() && settlements.isEmpty()
 
     /** An empty result means something different when a filter is applied. */
     val isFilteredEmpty: Boolean get() = isEmpty && !filters.isDefault
@@ -138,7 +159,8 @@ data class LedgerUiState(
      * on it that never changes. The day subtotals FR-EXP-09 requires are what
      * an unfiltered ledger is for.
      */
-    val showsFilteredTotal: Boolean get() = !filters.isDefault && !initialLoad && days.isNotEmpty()
+    val showsFilteredTotal: Boolean
+        get() = !filters.isDefault && !initialLoad && (days.isNotEmpty() || settlements.isNotEmpty())
 }
 
 /**
@@ -186,6 +208,10 @@ class LedgerViewModel(
     private var personBalance = Money.ZERO
     private var pagesLoaded = 1
     private var loadJob: Job? = null
+
+    /** The person whose settlements [settlementJob] is following, if any. */
+    private var followedPerson: Long? = null
+    private var settlementJob: Job? = null
 
     init {
         reload()
@@ -260,6 +286,7 @@ class LedgerViewModel(
 
     fun applyFilters(filters: LedgerFilters) {
         _state.update { it.copy(filters = filters, filterSheetOpen = false) }
+        followSettlements(filters.personId)
         // A filter change invalidates every loaded page, so paging restarts.
         pagesLoaded = 1
         reload()
@@ -318,6 +345,20 @@ class LedgerViewModel(
         }
     }
 
+    /**
+     * Removes a settlement and keeps it for Undo — FR-SHR-04, NFR-USE-03.
+     *
+     * This screen rather than People, because this is where a settlement can be
+     * seen. `PeopleViewModel` had the same method and an undo queue for it, and
+     * nothing on the People screen ever listed a settlement to call it on.
+     */
+    fun deleteSettlement(id: Long) {
+        viewModelScope.launch {
+            val removed = withContext(io) { settlements.delete(id) } ?: return@launch
+            queueUndo(LedgerUndo.SettlementRemoved(removed))
+        }
+    }
+
     // --- the undo queue (NFR-USE-03) ----------------------------------------
 
     /**
@@ -346,6 +387,7 @@ class LedgerViewModel(
                         is DismissedEntry.Expense -> recurring.restoreExpense(entry.row)
                         is DismissedEntry.Income -> recurring.restoreIncome(entry.row)
                     }
+                    is LedgerUndo.SettlementRemoved -> settlements.restore(action.row)
                 }
             }
             dropUndo(id)
@@ -357,6 +399,33 @@ class LedgerViewModel(
         _state.update { state -> state.copy(undoQueue = state.undoQueue.filterNot { it.id == id }) }
 
     // --- internals ----------------------------------------------------------
+
+    /**
+     * Follows [personId]'s settlements, or stops following anybody.
+     *
+     * A flow of its own rather than a read inside [reload], because nothing
+     * else would notice a change: `observeRevision` ticks on `expense`, and a
+     * settlement recorded on the People screen — or deleted and undone here —
+     * touches only `settlement`. Every emission after the first reloads, since
+     * the balance above the list is computed there and has just moved; the
+     * first is the one [applyFilters] is already reloading for.
+     */
+    private fun followSettlements(personId: Long?) {
+        if (personId == followedPerson) return
+        followedPerson = personId
+        settlementJob?.cancel()
+        _state.update { it.copy(settlements = emptyList()) }
+        if (personId == null) return
+
+        settlementJob = viewModelScope.launch {
+            var first = true
+            settlements.observeForPerson(personId).collect { rows ->
+                _state.update { it.copy(settlements = rows) }
+                if (!first) reload()
+                first = false
+            }
+        }
+    }
 
     /**
      * Re-reads exactly as many pages as were loaded before, so an edit made
@@ -461,4 +530,7 @@ sealed interface LedgerUndo {
 
     /** A pending row turned down rather than confirmed — FR-REC-02. */
     @JvmInline value class Dismissed(val entry: DismissedEntry) : LedgerUndo
+
+    /** A settlement swiped away from a person-filtered ledger — FR-SHR-04. */
+    @JvmInline value class SettlementRemoved(val row: SettlementEntity) : LedgerUndo
 }

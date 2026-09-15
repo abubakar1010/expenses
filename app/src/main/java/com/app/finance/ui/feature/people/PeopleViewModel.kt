@@ -5,13 +5,11 @@ import androidx.lifecycle.viewModelScope
 import com.app.finance.core.money.Money
 import com.app.finance.data.db.dao.PersonBalanceRow
 import com.app.finance.data.db.entity.PersonEntity
-import com.app.finance.data.db.entity.SettlementEntity
 import com.app.finance.data.repo.PersonRepository
 import com.app.finance.data.repo.SettlementRepository
 import com.app.finance.domain.model.EntryError
 import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.domain.model.SaveOutcome
-import com.app.finance.ui.common.Undoable
 import com.app.finance.ui.common.editableText
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -58,7 +56,6 @@ data class PeopleUiState(
     val loading: Boolean = true,
     val editor: PersonEditor? = null,
     val settle: SettleEditor? = null,
-    val undoQueue: List<Undoable<SettlementEntity>> = emptyList(),
 ) {
     /**
      * Split by direction, and **square people appear in neither** — FR-SHR-05.
@@ -243,34 +240,13 @@ class PeopleViewModel(
         }
     }
 
-    // --- undo (NFR-USE-03) ---------------------------------------------------
-
-    private var nextUndoId = 0L
-
-    /**
-     * Removes a settlement, keeping it for Undo.
+    /*
+     * There is deliberately no `deleteSettlement` here.
      *
-     * The queue rather than a slot, and for the reason `LedgerViewModel`'s
-     * comment records: two deletions inside one window re-key a `LaunchedEffect`
-     * that then runs neither branch, losing the only surviving copy.
+     * There was, with an undo queue behind it — and nothing on this screen ever
+     * listed a settlement to call it on, so a repayment typed wrongly could not
+     * be removed from anywhere in the app. Settlements are listed, and deleted,
+     * on the ledger filtered to their person (FR-SHR-06), which is the one
+     * place the rows the balance is computed from are all on screen together.
      */
-    fun deleteSettlement(id: Long) {
-        viewModelScope.launch {
-            val removed = withContext(io) { settlements.delete(id) } ?: return@launch
-            // Computed outside `update`, whose lambda can be re-run.
-            val undoId = ++nextUndoId
-            _state.update { it.copy(undoQueue = it.undoQueue + Undoable(undoId, removed)) }
-        }
-    }
-
-    fun undo(id: Long) {
-        val item = _state.value.undoQueue.firstOrNull { it.id == id } ?: return
-        viewModelScope.launch {
-            withContext(io) { settlements.restore(item.payload) }
-            dropUndo(id)
-        }
-    }
-
-    fun dropUndo(id: Long) =
-        _state.update { s -> s.copy(undoQueue = s.undoQueue.filterNot { it.id == id }) }
 }

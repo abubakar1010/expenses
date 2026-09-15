@@ -56,6 +56,8 @@ import com.app.finance.ui.common.EmptyState
 import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.LedgerRow
 import com.app.finance.data.db.dao.ExpenseWithCategory
+import com.app.finance.data.db.entity.SettlementEntity
+import com.app.finance.ui.feature.entry.relativeLabel
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.rememberJavaLocale
 import com.app.finance.ui.common.SectionHeader
@@ -141,6 +143,8 @@ fun LedgerScreen(
     val deletedMessage = stringResource(R.string.expense_deleted)
     val dismissedMessage = stringResource(R.string.entry_dismissed)
     val confirmedMessage = stringResource(R.string.entry_confirmed)
+    val settlementRemovedMessage = stringResource(R.string.settlement_removed)
+    val deleteSettlementLabel = stringResource(R.string.delete_settlement)
     val undoLabel = stringResource(R.string.undo)
 
     // NFR-USE-03: "undoable for at least 5 seconds", one action at a time.
@@ -160,6 +164,7 @@ fun LedgerScreen(
             message = when (item.payload) {
                 is LedgerUndo.Deleted -> deletedMessage
                 is LedgerUndo.Dismissed -> dismissedMessage
+                is LedgerUndo.SettlementRemoved -> settlementRemovedMessage
             },
             undoLabel = undoLabel,
             onUndo = { vm.undo(item.id) },
@@ -245,6 +250,38 @@ fun LedgerScreen(
             )
 
             else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                // FR-SHR-06: the third term of the balance above, which the
+                // list used to leave out. Above the day groups rather than
+                // interleaved with them, because a repayment is not spending
+                // and folding it into a day would make that day's subtotal
+                // stop meaning what FR-EXP-09 says it means.
+                if (state.settlements.isNotEmpty()) {
+                    item(key = "settlements-header") {
+                        SectionHeader(
+                            text = stringResource(R.string.settlements_heading),
+                            trailing = {
+                                Text(
+                                    text = state.settlements.size.toString(),
+                                    style = DayBookTheme.type.caption,
+                                    color = DayBookTheme.colors.inkSoft,
+                                )
+                            },
+                        )
+                    }
+                    items(
+                        count = state.settlements.size,
+                        key = { i -> "settlement-${state.settlements[i].id}" },
+                    ) { i ->
+                        val settlement = state.settlements[i]
+                        SwipeableRow(
+                            onDelete = { vm.deleteSettlement(settlement.id) },
+                            deleteLabel = deleteSettlementLabel,
+                        ) {
+                            SettlementRow(settlement, state.today)
+                        }
+                    }
+                }
+
                 state.days.forEach { day ->
                     item(key = "header-${day.date.toEpochDay()}") {
                         DayHeader(day, state.today)
@@ -376,6 +413,8 @@ private fun SearchBar(
 @Composable
 private fun SwipeableRow(
     onDelete: () -> Unit,
+    /** What the red ground says the swipe will do — an expense unless told otherwise. */
+    deleteLabel: String = stringResource(R.string.delete_expense),
     content: @Composable () -> Unit,
 ) {
     val colors = DayBookTheme.colors
@@ -411,7 +450,7 @@ private fun SwipeableRow(
             ) {
                 if (swiping) {
                     Text(
-                        text = stringResource(R.string.delete_expense),
+                        text = deleteLabel,
                         style = DayBookTheme.type.caption,
                         color = colors.card,
                     )
@@ -493,6 +532,30 @@ private fun ExpenseWithCategory.splitLine(): String? {
     return stringResource(
         R.string.split_of_bill,
         Money(billMinor).format(locale),
+    )
+}
+
+/**
+ * One settlement under a person's balance — FR-SHR-04, FR-SHR-06.
+ *
+ * The figure is unsigned and the label carries the direction, in the settle
+ * sheet's own words, so the row reads back exactly as it was recorded. A signed
+ * figure would have to mean something relative to the balance above it, and
+ * "−৳500" beside *they paid me* is a sentence nobody can parse at a glance.
+ *
+ * Not tappable: there is nothing to edit into — a settlement recorded wrongly
+ * is swiped away, with Undo, and recorded again.
+ */
+@Composable
+private fun SettlementRow(row: SettlementEntity, today: LocalDate) {
+    val date = LocalDate.ofEpochDay(row.settledOn).relativeLabel(today)
+    LedgerRow(
+        label = stringResource(
+            if (row.amountMinor > 0) R.string.they_paid_me else R.string.i_paid_them,
+        ),
+        amount = Money(row.amountMinor).absoluteValue,
+        secondary = listOfNotNull(date, row.note).joinToString(" · "),
+        trailing = stringResource(PaymentMethod.fromCode(row.paymentMethod).labelRes()),
     )
 }
 

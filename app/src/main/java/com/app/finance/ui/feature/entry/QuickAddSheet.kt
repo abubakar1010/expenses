@@ -600,7 +600,7 @@ private fun NoteSheet(
 
 /** *Today* / *Yesterday* read faster than a date; anything older gets the date. */
 @Composable
-private fun LocalDate.relativeLabel(today: LocalDate): String = when (this) {
+internal fun LocalDate.relativeLabel(today: LocalDate): String = when (this) {
     today -> stringResource(R.string.today)
     today.minusDays(1) -> stringResource(R.string.yesterday)
     else -> remember(this) { format(DATE_FORMAT) }

@@ -1,6 +1,8 @@
 package com.app.finance.ui.feature.people
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -34,8 +36,17 @@ import com.app.finance.ui.common.DayBookChip
 import com.app.finance.ui.common.KeypadKey
 import com.app.finance.ui.common.MoneyText
 import com.app.finance.ui.common.NumericKeypad
+import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.ui.common.dismissKeyboardOnOutsideGesture
+import com.app.finance.ui.common.labelRes
+import com.app.finance.ui.feature.entry.DatePickerSheet
+import com.app.finance.ui.feature.entry.Dot
+import com.app.finance.ui.feature.entry.MethodPickerSheet
+import com.app.finance.ui.feature.entry.NoteSheet
+import com.app.finance.ui.feature.entry.SentencePart
 import com.app.finance.ui.feature.entry.messageRes
+import com.app.finance.ui.feature.entry.relativeLabel
+import java.time.LocalDate
 import com.app.finance.ui.theme.DayBookTheme
 import com.app.finance.ui.theme.Radius
 import com.app.finance.ui.theme.Sizes
@@ -143,13 +154,24 @@ fun PersonEditorSheet(
  * the same row with the sign reversed. Direction is a control rather than being
  * inferred, since "I lent Rahim ৳500" and "Rahim paid me ৳500" are both things
  * that happen to a person who currently owes you nothing.
+ *
+ * **When, how and why are Quick Add's sentence**, *Today · Cash · Add note*,
+ * and open Quick Add's own pickers. A settled-up balance is usually recorded
+ * after the fact — the bKash transfer that arrived on Tuesday — and the columns
+ * for all three were always there; the sheet simply never asked.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettleSheet(
     editor: SettleEditor,
+    today: LocalDate,
     onAmount: (String) -> Unit,
     onDirection: (Boolean) -> Unit,
+    onPicker: (SettlePicker) -> Unit,
+    onDate: (LocalDate) -> Unit,
+    onMethod: (PaymentMethod) -> Unit,
+    onNote: (String?) -> Unit,
+    onDismissPicker: () -> Unit,
     onSubmit: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -197,6 +219,29 @@ fun SettleSheet(
                 )
             }
 
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = Space.gutter)
+                    // Quick Add's reason: three parts do not fit at 320 dp and
+                    // 1.3× (NFR-COMP-04), and each says what it currently is.
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(Space.s2, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SentencePart((editor.date ?: today).relativeLabel(today)) {
+                    onPicker(SettlePicker.DATE)
+                }
+                Dot()
+                SentencePart(stringResource(editor.method.labelRes())) {
+                    onPicker(SettlePicker.METHOD)
+                }
+                Dot()
+                SentencePart(editor.note ?: stringResource(R.string.add_note)) {
+                    onPicker(SettlePicker.NOTE)
+                }
+            }
+
             editor.error?.let {
                 Text(
                     text = stringResource(it.messageRes()),
@@ -227,6 +272,26 @@ fun SettleSheet(
             // Every amount in this app goes through the same keypad.
             NumericKeypad(onKey = { key -> onAmount(editor.input.apply(key)) })
         }
+    }
+
+    when (editor.picker) {
+        SettlePicker.DATE -> DatePickerSheet(
+            date = editor.date ?: today,
+            today = today,
+            onPick = onDate,
+            onDismiss = onDismissPicker,
+        )
+        SettlePicker.METHOD -> MethodPickerSheet(
+            selected = editor.method,
+            onSelect = onMethod,
+            onDismiss = onDismissPicker,
+        )
+        SettlePicker.NOTE -> NoteSheet(
+            note = editor.note,
+            onDone = onNote,
+            onDismiss = onDismissPicker,
+        )
+        SettlePicker.NONE -> Unit
     }
 }
 

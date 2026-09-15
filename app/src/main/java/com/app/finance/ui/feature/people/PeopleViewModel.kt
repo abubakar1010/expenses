@@ -36,6 +36,9 @@ sealed interface PersonEditor {
     ) : PersonEditor
 }
 
+/** Which of the settle sheet's secondary pickers is open — Quick Add's three. */
+enum class SettlePicker { NONE, DATE, METHOD, NOTE }
+
 /** Recording money moving, in either direction — FR-SHR-04. */
 data class SettleEditor(
     val personId: Long,
@@ -43,6 +46,18 @@ data class SettleEditor(
     /** True when they are paying you; false when you are paying them. */
     val theyPay: Boolean,
     val input: String = "",
+    /**
+     * When the money moved. Null until one is picked, which means today.
+     *
+     * `settlement.settled_on`, `payment_method` and `note` have existed since
+     * the table did, and the sheet wrote today, Cash and nothing into them on
+     * every save — so a repayment that arrived on bKash last Tuesday was
+     * recorded as cash, today, with no way to say otherwise.
+     */
+    val date: LocalDate? = null,
+    val method: PaymentMethod = PaymentMethod.DEFAULT,
+    val note: String? = null,
+    val picker: SettlePicker = SettlePicker.NONE,
     val error: EntryError? = null,
 ) {
     val amount: Money? get() = Money.parseOrNull(input)?.takeIf { !it.isZero }
@@ -216,6 +231,41 @@ class PeopleViewModel(
 
     fun dismissSettle() = _state.update { it.copy(settle = null) }
 
+    fun openSettlePicker(picker: SettlePicker) =
+        _state.update { s -> s.copy(settle = s.settle?.copy(picker = picker)) }
+
+    fun dismissSettlePicker() = openSettlePicker(SettlePicker.NONE)
+
+    /**
+     * FR-SHR-04's date, refused here if it is in the future rather than on save.
+     *
+     * `SettlementRepository.record` refuses it too, for Quick Add's reason — a
+     * balance that counts money not yet moved is wrong until it moves. Saying
+     * so the moment the date is picked puts the sentence beside the control
+     * that caused it.
+     */
+    fun setSettleDate(date: LocalDate, today: LocalDate) = _state.update { s ->
+        s.copy(
+            settle = s.settle?.let { e ->
+                if (date.isAfter(today)) e.copy(error = EntryError.FUTURE_DATE, picker = SettlePicker.NONE)
+                else e.copy(date = date, error = null, picker = SettlePicker.NONE)
+            },
+        )
+    }
+
+    fun setSettleMethod(method: PaymentMethod) = _state.update { s ->
+        s.copy(settle = s.settle?.copy(method = method, picker = SettlePicker.NONE))
+    }
+
+    fun setSettleNote(note: String?) = _state.update { s ->
+        s.copy(
+            settle = s.settle?.copy(
+                note = note?.trim()?.ifBlank { null },
+                picker = SettlePicker.NONE,
+            ),
+        )
+    }
+
     fun submitSettle(today: LocalDate) {
         val editor = _state.value.settle ?: return
         val signed = editor.signed
@@ -228,8 +278,9 @@ class PeopleViewModel(
                 settlements.record(
                     personId = editor.personId,
                     amount = signed,
-                    settledOn = today,
-                    method = PaymentMethod.DEFAULT,
+                    settledOn = editor.date ?: today,
+                    method = editor.method,
+                    note = editor.note,
                 )
             }
             when (outcome) {

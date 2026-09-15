@@ -151,8 +151,14 @@ fun PeopleScreen(
     state.settle?.let { settle ->
         SettleSheet(
             editor = settle,
+            today = today,
             onAmount = vm::setSettleAmount,
             onDirection = vm::setSettleDirection,
+            onPicker = vm::openSettlePicker,
+            onDate = { vm.setSettleDate(it, today) },
+            onMethod = vm::setSettleMethod,
+            onNote = vm::setSettleNote,
+            onDismissPicker = vm::dismissSettlePicker,
             onSubmit = { vm.submitSettle(today) },
             onDismiss = vm::dismissSettle,
         )

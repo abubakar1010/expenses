@@ -26,6 +26,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import com.app.finance.core.money.Money
+import com.app.finance.domain.model.PaymentMethod
 import com.app.finance.domain.model.SaveOutcome
 import com.app.finance.domain.model.Split
 import com.app.finance.domain.model.Frequency
@@ -480,5 +481,87 @@ class ExportImportRoundTripTest {
         )
         assertEquals(0L, count("person"))
         assertTrue(grocery > 0)
+    }
+
+    // --- 06 §36.1: a merge carries an edited expense's split with it ----------
+    //
+    // Editing a shared expense rewrites its shares under fresh uuids
+    // (`ExpenseRepository.update`). A merge rewrote the expense row to the
+    // file's version and then planned the shares one by one, so the two halves
+    // of one bill came from different moments.
+
+    private suspend fun person(name: String): Long =
+        (fx.people.findOrCreate(name) as SaveOutcome.Saved).id
+
+    private suspend fun sharedBill(taka: Long, with: List<Long>): Long {
+        val (yours, split) = Split.evenly(Money.ofTaka(taka), with)
+        return (fx.expenses.insert(yours, fx.leafId("Grocery"), fx.today, split = split) as SaveOutcome.Saved).id
+    }
+
+    private suspend fun editTo(id: Long, yours: Money, split: Split) {
+        val outcome = fx.expenses.update(
+            id, yours, fx.leafId("Grocery"), fx.today, PaymentMethod.DEFAULT, null, split,
+        )
+        assertTrue("the local edit failed: $outcome", outcome is SaveOutcome.Saved)
+    }
+
+    private suspend fun sharesOf(id: Long): Map<Long, Long> =
+        fx.db.expenseShareDao().forExpense(id).associate { it.personId to it.shareMinor }
+
+    @Test
+    fun merging_an_older_file_over_a_re_priced_split_takes_both_halves_from_the_file() = runBlocking {
+        val rahim = person("Rahim")
+        val id = sharedBill(1_000, listOf(rahim)) // you ৳500, Rahim ৳500
+        val older = exportJson()
+
+        val (yours, split) = Split.evenly(Money.ofTaka(1_200), listOf(rahim))
+        editTo(id, yours, split) // you ৳600, Rahim ৳600
+
+        val outcome = importJson(older, ImportMode.MERGE)
+
+        assertTrue("merge failed: $outcome", outcome is ImportOutcome.Done)
+        assertEquals(Money.ofTaka(500).paisa, fx.expenses.byId(id)!!.amountMinor)
+        // Rahim's ৳600 survived beside your ৳500: a ৳1,100 bill nobody entered.
+        assertEquals(mapOf(rahim to Money.ofTaka(500).paisa), sharesOf(id))
+        assertEquals(Money.ofTaka(500).paisa, fx.db.settlementDao().balanceOf(rahim))
+    }
+
+    @Test
+    fun merging_an_older_file_over_a_split_with_someone_else_does_not_keep_both() = runBlocking {
+        val rahim = person("Rahim")
+        val karim = person("Karim")
+        val id = sharedBill(1_000, listOf(rahim))
+        val older = exportJson()
+
+        val (yours, split) = Split.evenly(Money.ofTaka(1_000), listOf(karim))
+        editTo(id, yours, split)
+
+        val outcome = importJson(older, ImportMode.MERGE)
+
+        assertTrue("merge failed: $outcome", outcome is ImportOutcome.Done)
+        assertEquals(mapOf(rahim to Money.ofTaka(500).paisa), sharesOf(id))
+        assertEquals("Karim was left owing on a bill the file never split with him",
+            0L, fx.db.settlementDao().balanceOf(karim))
+    }
+
+    @Test
+    fun merging_a_file_where_somebody_else_paid_replaces_a_local_split() = runBlocking {
+        val rahim = person("Rahim")
+        val id = (fx.expenses.insert(
+            Money.ofTaka(500), fx.leafId("Grocery"), fx.today, split = Split.TheyPaid(rahim),
+        ) as SaveOutcome.Saved).id
+        val older = exportJson()
+
+        val (yours, split) = Split.evenly(Money.ofTaka(1_000), listOf(rahim))
+        editTo(id, yours, split)
+
+        // Writing the file's payer over local shares tripped
+        // `trg_payer_excludes_shares`, and the whole merge rolled back.
+        val outcome = importJson(older, ImportMode.MERGE)
+
+        assertTrue("merge failed: $outcome", outcome is ImportOutcome.Done)
+        assertEquals(rahim, fx.expenses.byId(id)!!.payerPersonId)
+        assertTrue(sharesOf(id).isEmpty())
+        assertEquals(-Money.ofTaka(500).paisa, fx.db.settlementDao().balanceOf(rahim))
     }
 }

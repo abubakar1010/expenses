@@ -280,8 +280,33 @@ class Importer(private val db: AppDatabase) {
                 payerPersonId = it.payerPersonId?.let(::person),
             )
         }
-        val expensePlan = plan(expenses, dao.allExpenses().associate { it.uuid to it.toDto() }) { d, id -> d.copy(id = id) }
+        val localExpenses = dao.allExpenses().associate { it.uuid to it.toDto() }
+        val expensePlan = plan(expenses, localExpenses) { d, id -> d.copy(id = id) }
         dao.insertExpenses(expensePlan.inserts.map { it.toEntity() })
+        // An expense and its shares are one bill, so an expense the file
+        // differs on takes its split from the file too (06 §36.1). Editing a
+        // shared expense re-issues its shares under fresh uuids, so planning
+        // them row by row kept whichever local shares the file did not name —
+        // beside the file's amount, or under the file's payer, which
+        // `trg_payer_excludes_shares` refuses and rolled the whole merge back.
+        //
+        // "Differs" is the row *or* its split, compared as (person, amount)
+        // pairs: swapping one person for another at the same share leaves the
+        // expense row itself unchanged, so the row alone cannot be the test.
+        // Cleared *before* the update for that trigger's sake; the share plan
+        // below then reads a ledger where only the file's shares can match.
+        val fileSplits = export.shares.groupBy { it.expenseId }
+        val localSplits = dao.allShares().groupBy { it.expenseId }
+        expenses.forEach { dto ->
+            val local = localExpenses[dto.uuid] ?: return@forEach
+            val fileSplit = fileSplits[dto.id].orEmpty()
+                .map { person(it.personId) to it.shareMinor }.toSet()
+            val localSplit = localSplits[local.id].orEmpty()
+                .map { it.personId to it.shareMinor }.toSet()
+            if (dto.copy(id = local.id) != local || fileSplit != localSplit) {
+                db.expenseShareDao().deleteForExpense(local.id)
+            }
+        }
         dao.updateExpenses(expensePlan.updates.map { it.toEntity() })
         counts[EXPENSES] = expensePlan.counts
 

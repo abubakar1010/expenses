@@ -6755,3 +6755,106 @@ above it describe different moments for the length of a query.
 
 No schema change, so no migration and no upgrade rehearsal; `versionCode`
 stays at §34's 4, which has not been shipped.
+
+## 36. A whole-application review: four defects
+
+A review of the whole application rather than one change, run on 23 November
+2026 by reading every repository, the import path, the backup codec, the
+recurring engine and the entry ViewModels against 02 and 03. It found four
+defects. Each one has a test that failed on the code as it stood (§36.5) and
+passes now.
+
+### 36.1 A merge took an edited expense from the file and its split from the phone
+
+`ExpenseRepository.update` deletes an expense's shares and writes them again
+under fresh uuids. `Importer.merge` rewrote an expense to the file's version
+and then planned its shares row by row, by uuid and then by the
+`(expense, person)` natural key — so the two halves of one bill came from
+different moments:
+
+- **Same people, new amount.** ৳1,000 split with Rahim, re-priced to ৳1,200,
+  then an older file merged back: the expense went back to ৳500, the file's
+  share for Rahim was *skipped* on the natural key, and his ৳600 stayed. A
+  ৳1,100 bill nobody entered, and a balance off by ৳100. Nothing reported it.
+- **A different person.** Rahim's share came back from the file and Karim's
+  stayed, so both owed on one bill.
+- **Somebody else paid.** Writing the file's `payer_person_id` over local shares
+  tripped `trg_payer_excludes_shares`, and the whole merge rolled back as
+  REJECTED.
+
+An expense and its shares are one record, so an expense the file differs on
+now takes its split from the file as well: its local shares are cleared
+*before* the update (the trigger fires on the update), and the share plan
+then sees only the file's. "Differs" means the row **or** its split, compared
+as (person, amount) pairs. The first version cleared shares only for rows the
+plan updated, and the different-person test caught it: swapping Rahim for
+Karim at the same ৳500 share leaves the expense row byte-identical under the
+fixture's pinned clock, so the plan skipped it. On a phone `updated_at` would
+have differed, but the fix should not lean on a timestamp. An expense whose
+row and split both match keeps its shares, so
+`merging_a_shared_file_into_its_own_database_changes_nothing` still holds.
+Rule shares are not touched: nothing in the app edits a rule's split after
+it is made, so they cannot diverge this way.
+
+### 36.2 An archived category or source made its old rows uneditable
+
+`update` ran `insert`'s checks, so an expense in an archived category was
+refused with CATEGORY_ARCHIVED even when only its note changed. Income did the
+same through `resolveOrCreateSource`. FR-CAT-08 keeps archived categories in
+history and FR-EXP-07 keeps history editable. An edit may now **keep** the
+category or source the row already has; moving a row *into* an archived one
+is still refused, and has a test that says so.
+
+On the Quick Add sheet it was worse. The tree collector replaced a selection
+it could not find among the active leaves with the first chip, so if the tree
+re-emitted while an edit was open, Save would quietly have moved the row into
+another category, had the repository not refused it. An edited row now keeps
+its category.
+
+### 36.3 A double tap saved twice
+
+Quick Add has had a `saving` flag since M1. The income sheet, the settle-up
+sheet and the repeating-entry sheet had none, and each one's Save button stays
+enabled until the write returns. Two quick taps recorded the income twice,
+recorded the settlement twice (which moved the balance), or created two
+identical rules. Each editor now carries `saving`, its button is disabled
+while that is set, and a second call returns at once.
+
+### 36.4 A yearly rule could only fall in the month it was made in
+
+The editor asked for a day of the month and passed today as `startingFrom`,
+and `RecurrenceSchedule.firstDueOnOrAfter` takes the month and weekday from
+that date. So a premium due every March could not be entered in August, and
+"every Monday" could only be set up on a Monday. FR-REC-01 offers both
+frequencies. `RecurrenceSchedule.firstDue` now takes a month (yearly) and a
+weekday (weekly). The sheet offers them as chips beside the day of the month
+and shows *First on …* under the schedule, so a clamped 31st or a month that
+has already gone this year is no surprise. The defaults are today's month and
+weekday, which was the old behaviour.
+
+### 36.5 Measured
+
+- **Red, on the code as it stood**, API 37 emulator, the eleven new
+  instrumented tests: **8 failed**: the three merge tests, both "can still be
+  edited" tests, the Quick Add edit test and both double-tap tests. The three
+  that passed are the "still cannot move into an archived …" guards, which
+  are meant to pass either way. The JVM schedule tests and
+  `RecurringViewModelTest` failed to compile, because the API they call did
+  not exist yet.
+- JVM: **348 tests**, green (343 + 5 in `RecurrenceScheduleTest`).
+- **Green**, the same emulator, the thirteen suites the change reaches:
+  `ExportImportRoundTripTest`, `ImportValidationTest`,
+  `ExpenseRepositoryTest`, `IncomeRepositoryTest`, `RecurringRepositoryTest`,
+  `SharedExpenseTest`, `BackupRepositoryTest`, `QuickAddViewModelTest`,
+  `IncomeViewModelTest`, `PeopleViewModelTest`, `RecurringViewModelTest` (new),
+  `LedgerViewModelTest`, `SettingsViewModelTest`. **328 tests, zero
+  failures.** The run before the split comparison had two failures: the
+  different-person merge test (above), and one timeout in
+  `LedgerViewModelTest.scrolling_does_not_move_the_filtered_total`, which no
+  change touches and which passed on the rerun.
+- Not run: the Compose suites, which cannot run on an API 37 image (the
+  Espresso trap at the top of `CLAUDE.md`); the full instrumented suite; and
+  `coverageVerify`, which needs Gradle's `connectedDebugAndroidTest`. The
+  recurring sheet's new chips have not been looked at on a device.
+
+No schema change, so no migration and no `versionCode` bump.

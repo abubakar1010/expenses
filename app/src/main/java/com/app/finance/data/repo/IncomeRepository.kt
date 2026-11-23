@@ -204,7 +204,9 @@ class IncomeRepository(
         val now = clock.millis()
         return runCatchingWrite {
             db.withTransaction {
-                val sourceId = resolveOrCreateSource(sourceName, IncomeKind.VARIABLE, now)
+                val sourceId = resolveOrCreateSource(
+                    sourceName, IncomeKind.VARIABLE, now, keeping = existing.sourceId,
+                )
                 dao.updateEntry(
                     existing.copy(
                         sourceId = sourceId,
@@ -413,10 +415,20 @@ class IncomeRepository(
      * for. Refusing matches what the expense path already does with an archived
      * category (`EntryError.CATEGORY_ARCHIVED`).
      */
-    private suspend fun resolveOrCreateSource(name: String, kind: IncomeKind, now: Long): Long {
+    /**
+     * @param keeping the source an edited entry already has. It may be archived
+     *   — archiving retires a source for new entries, not the ones it has
+     *   (06 §36.2) — but nothing else archived may be named.
+     */
+    private suspend fun resolveOrCreateSource(
+        name: String,
+        kind: IncomeKind,
+        now: Long,
+        keeping: Long? = null,
+    ): Long {
         val key = NameKey.of(name)
         dao.sourceByKey(key)?.let { existing ->
-            if (existing.isArchived) throw ArchivedSource()
+            if (existing.isArchived && existing.id != keeping) throw ArchivedSource()
             return existing.id
         }
         return dao.insertSource(newSource(name, kind, now))

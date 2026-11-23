@@ -281,7 +281,14 @@ class QuickAddViewModel(
                             tree = tree,
                             chips = chips,
                             allLeaves = leaves,
-                            selectedCategoryId = it.selectedCategoryId?.takeIf(byId::containsKey)
+                            // An edited row keeps its category even when that
+                            // category is archived and so not among the active
+                            // leaves: falling back to the first chip here moved
+                            // the row on save without anyone choosing to
+                            // (06 §36.2). The repository still refuses moving a
+                            // row *into* an archived category.
+                            selectedCategoryId = it.selectedCategoryId
+                                ?.takeIf { id -> byId.containsKey(id) || it.editingId != null }
                                 ?: chips.firstOrNull()?.id,
                         )
                     }

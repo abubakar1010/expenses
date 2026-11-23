@@ -118,9 +118,14 @@ class ExpenseRepository(
         note: String?,
         split: Split = Split.NONE,
     ): SaveOutcome {
-        validate(amount, categoryId, spentOn)?.let { return SaveOutcome.Rejected(it) }
-        split.validate(amount)?.let { return SaveOutcome.Rejected(it) }
         val existing = expenseDao.byId(id) ?: return SaveOutcome.Rejected(EntryError.CONSTRAINT_VIOLATION)
+        // FR-CAT-08 hides an archived category from *entry*; the rows already
+        // in it stay in history, and FR-EXP-07 says history stays editable. So
+        // an edit may keep the category the row already has — it just may not
+        // move a row *into* an archived one (06 §36.2).
+        validate(amount, categoryId, spentOn, keeping = existing.categoryId)
+            ?.let { return SaveOutcome.Rejected(it) }
+        split.validate(amount)?.let { return SaveOutcome.Rejected(it) }
 
         return runCatchingWrite {
             db.withTransaction {
@@ -363,7 +368,16 @@ class ExpenseRepository(
         .replace("%", "\\%")
         .replace("_", "\\_")
 
-    private suspend fun validate(amount: Money, categoryId: Long, spentOn: LocalDate): EntryError? {
+    /**
+     * @param keeping the category an edited row already has, which may be
+     *   archived: archiving retires a category for new entries, not old ones.
+     */
+    private suspend fun validate(
+        amount: Money,
+        categoryId: Long,
+        spentOn: LocalDate,
+        keeping: Long? = null,
+    ): EntryError? {
         if (amount.isZero) return EntryError.ZERO_AMOUNT
         // [EntryError.FUTURE_DATE] calls this a data-integrity rule — "a future
         // one would post straight into the period rollup and inflate spending
@@ -378,7 +392,8 @@ class ExpenseRepository(
         // occurrence is `status = 1` anyway, which every rollup excludes.
         if (spentOn.isAfter(LocalDate.now(clock))) return EntryError.FUTURE_DATE
         val category = categoryDao.byId(categoryId) ?: return EntryError.CATEGORY_NOT_FOUND
-        if (category.isArchived) return EntryError.CATEGORY_ARCHIVED
+        val archivedAllowed = categoryId == keeping
+        if (category.isArchived && !archivedAllowed) return EntryError.CATEGORY_ARCHIVED
         val parentId = category.parentId
         if (parentId == null || categoryDao.hasChildren(categoryId)) {
             return EntryError.NOT_A_LEAF_CATEGORY
@@ -388,7 +403,9 @@ class ExpenseRepository(
         // in the app can *produce* this — an imported tree can, because a
         // restore reproduces whatever the file holds. It costs one primary-key
         // lookup and makes the check total rather than true-by-convention.
-        if (categoryDao.byId(parentId)?.isArchived == true) return EntryError.CATEGORY_ARCHIVED
+        if (!archivedAllowed && categoryDao.byId(parentId)?.isArchived == true) {
+            return EntryError.CATEGORY_ARCHIVED
+        }
         return null
     }
 

@@ -592,4 +592,31 @@ class IncomeRepositoryTest {
         assertEquals(0L, scalar("SELECT IFNULL(SUM(amount_minor), 0) FROM income_entry"))
     }
 
+    // --- FR-IE-08 against an archived source (06 §36.2) ----------------------
+
+    @Test
+    fun an_entry_from_an_archived_source_can_still_be_edited() = runBlocking {
+        // The income twin of the expense case: archiving retires a source for
+        // new entries, not the entries it already has.
+        val id = (fx.income.saveEntry(Money.ofTaka(12_000), "Poultry", day(8, 4)) as SaveOutcome.Saved).id
+        val source = fx.income.entryById(id)!!.sourceId
+        fx.income.setSourceArchived(source, archived = true)
+
+        val outcome = fx.income.updateEntry(id, Money.ofTaka(12_500), "Poultry", day(8, 4), "corrected")
+
+        assertEquals(SaveOutcome.Saved(id), outcome)
+        assertEquals(Money.ofTaka(12_500).paisa, fx.income.entryById(id)!!.amountMinor)
+    }
+
+    @Test
+    fun an_edit_still_cannot_move_an_entry_onto_an_archived_source() = runBlocking {
+        val id = (fx.income.saveEntry(Money.ofTaka(12_000), "Poultry", day(8, 4)) as SaveOutcome.Saved).id
+        val other = (fx.income.saveEntry(Money.ofTaka(1_000), "Fishery", day(8, 4)) as SaveOutcome.Saved).id
+        fx.income.setSourceArchived(fx.income.entryById(other)!!.sourceId, archived = true)
+
+        assertEquals(
+            SaveOutcome.Rejected(EntryError.SOURCE_ARCHIVED),
+            fx.income.updateEntry(id, Money.ofTaka(12_000), "Fishery", day(8, 4), null),
+        )
+    }
 }

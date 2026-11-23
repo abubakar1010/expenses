@@ -437,4 +437,51 @@ class ExpenseRepositoryTest {
         assertEquals(1, after.txnCount)
     }
 
+    // --- FR-EXP-07 against FR-CAT-08 (06 §36.2) ------------------------------
+
+    @Test
+    fun an_expense_in_an_archived_category_can_still_be_edited() = runBlocking {
+        // Archiving hides a category from *entry*; the rows already in it stay
+        // in history (FR-CAT-08) and stay editable (FR-EXP-07). `update` ran the
+        // insert's checks and refused a note change with CATEGORY_ARCHIVED.
+        val grocery = fx.leafId("Grocery")
+        val id = (fx.expenses.insert(Money.ofTaka(100), grocery) as SaveOutcome.Saved).id
+        fx.categories.archive(grocery)
+
+        val outcome = fx.expenses.update(
+            id, Money.ofTaka(120), grocery, fx.today, PaymentMethod.DEFAULT, "fixed the amount",
+        )
+
+        assertEquals(SaveOutcome.Saved(id), outcome)
+        assertEquals(Money.ofTaka(120).paisa, fx.expenses.byId(id)!!.amountMinor)
+    }
+
+    @Test
+    fun an_expense_in_an_archived_root_can_still_be_edited() = runBlocking {
+        // The same, reached through the root: archiving a root cascades to its
+        // children, and the leaf check looks at the parent as well.
+        val grocery = fx.leafId("Grocery")
+        val root = fx.db.categoryDao().byId(grocery)!!.parentId!!
+        val id = (fx.expenses.insert(Money.ofTaka(100), grocery) as SaveOutcome.Saved).id
+        fx.categories.archive(root)
+
+        val outcome = fx.expenses.update(
+            id, Money.ofTaka(100), grocery, fx.today, PaymentMethod.DEFAULT, "a note",
+        )
+
+        assertEquals(SaveOutcome.Saved(id), outcome)
+    }
+
+    @Test
+    fun an_edit_still_cannot_move_an_expense_into_an_archived_category() = runBlocking {
+        val grocery = fx.leafId("Grocery")
+        val internet = fx.leafId("Internet")
+        val id = (fx.expenses.insert(Money.ofTaka(100), grocery) as SaveOutcome.Saved).id
+        fx.categories.archive(internet)
+
+        assertEquals(
+            SaveOutcome.Rejected(EntryError.CATEGORY_ARCHIVED),
+            fx.expenses.update(id, Money.ofTaka(100), internet, fx.today, PaymentMethod.DEFAULT, null),
+        )
+    }
 }

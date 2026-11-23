@@ -834,4 +834,26 @@ class QuickAddViewModelTest {
         assertEquals(listOf(rahim), state.splitWith)
         assertEquals(Money.ofTaka(500), state.yourShare)
     }
+
+    // --- 06 §36.2: editing a row whose category has since been archived -------
+
+    @Test
+    fun an_expense_in_an_archived_category_is_edited_in_place() = runBlocking {
+        val grocery = fx.leafId("Grocery")
+        val id = (fx.expenses.insert(Money.ofTaka(100), grocery) as SaveOutcome.Saved).id
+        fx.categories.archive(grocery)
+
+        val vm = startedVm(editingId = id)
+        // Any change to the tree re-emits it, and the collector used to swap a
+        // selection it could not find among the active leaves for the first
+        // chip — so the save moved the row into another category.
+        fx.categories.archive(fx.leafId("Internet"))
+        vm.state.awaitState { s -> s.allLeaves.none { it.name == "Internet" } }
+        vm.onKey(KeypadKey.Digit('9'))
+        vm.saveAndWait()
+
+        val row = fx.expenses.byId(id)!!
+        assertEquals(grocery, row.categoryId)
+        assertEquals(Money.ofTaka(1_009).paisa, row.amountMinor)
+    }
 }

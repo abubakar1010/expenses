@@ -15,6 +15,7 @@ import com.app.finance.ui.common.KeypadKey
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -578,5 +579,33 @@ class IncomeViewModelTest {
             "Salary is still offered, or there is no way back",
             state.filterSources.any { it.name == "Salary" },
         )
+    }
+
+    // --- 06 §36.3: one tap, one entry -----------------------------------------
+
+    @Test
+    fun a_double_tap_on_save_records_the_income_once() = runBlocking {
+        // Quick Add has always had a `saving` guard; this sheet had none, and
+        // its Save button stays live until the write returns.
+        val vm = vm()
+        vm.state.awaitState { !it.initialLoad }
+        vm.addEntry()
+        vm.onKey(KeypadKey.Digit('5'))
+        vm.onKey(KeypadKey.Digit('0'))
+        vm.setSourceName("Poultry")
+
+        vm.saveEntry {}
+        vm.saveEntry {}
+        vm.state.awaitState { it.editor == null }
+        delay(SETTLE_MILLIS)
+
+        val rows = fx.db.openHelper.writableDatabase
+            .query("SELECT COUNT(*) FROM income_entry").use { it.moveToFirst(); it.getLong(0) }
+        assertEquals(1L, rows)
+    }
+
+    private companion object {
+        /** Long enough for a second, unguarded write to land if one was launched. */
+        const val SETTLE_MILLIS = 500L
     }
 }

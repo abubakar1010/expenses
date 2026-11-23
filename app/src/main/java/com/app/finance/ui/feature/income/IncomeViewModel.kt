@@ -48,6 +48,12 @@ data class IncomeEditor(
     /** Null for a new entry; the row being edited otherwise (FR-IE-08). */
     val editingId: Long? = null,
     val openSheet: IncomeSheet = IncomeSheet.NONE,
+    /**
+     * A write is in flight. The Save button is dead while it is and a second
+     * call returns at once: without it a double tap wrote the row twice, as
+     * Quick Add's own `saving` flag has always prevented (06 §36.3).
+     */
+    val saving: Boolean = false,
 ) {
     val isEditing: Boolean get() = editingId != null
 
@@ -59,7 +65,7 @@ data class IncomeEditor(
      * succeed, so a rejection is a bug rather than routine.
      */
     val canSave: Boolean
-        get() = sourceName.isNotBlank() && amount?.let { it.paisa > 0L } == true
+        get() = !saving && sourceName.isNotBlank() && amount?.let { it.paisa > 0L } == true
 }
 
 enum class IncomeSheet { NONE, DATE, NOTE }
@@ -418,11 +424,13 @@ class IncomeViewModel(
 
     fun saveEntry(onSaved: () -> Unit) {
         val editor = _state.value.editor ?: return
+        if (editor.saving) return
         val amount = editor.amount
         if (amount == null || amount.paisa <= 0L) {
             _state.update { it.copy(editor = editor.copy(error = EntryError.NON_POSITIVE_INCOME)) }
             return
         }
+        _state.update { s -> s.copy(editor = s.editor?.copy(saving = true, error = null)) }
         viewModelScope.launch {
             val outcome = withContext(io) {
                 if (editor.editingId == null) {
@@ -443,7 +451,7 @@ class IncomeViewModel(
                     onSaved()
                 }
                 is SaveOutcome.Rejected ->
-                    _state.update { it.copy(editor = editor.copy(error = outcome.error)) }
+                    _state.update { it.copy(editor = editor.copy(error = outcome.error, saving = false)) }
             }
         }
     }

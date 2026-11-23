@@ -253,7 +253,7 @@ fun SettleSheet(
 
             Button(
                 onClick = onSubmit,
-                enabled = editor.amount != null,
+                enabled = editor.canSubmit,
                 shape = RoundedCornerShape(Radius.input),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colors.indigo,

@@ -13,6 +13,7 @@ import com.app.finance.domain.model.SaveOutcome
 import com.app.finance.domain.model.Split
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -314,5 +315,31 @@ class PeopleViewModelTest {
             com.app.finance.domain.model.EntryError.DUPLICATE_NAME,
             state.editor?.error,
         )
+    }
+
+    // --- 06 §36.3: one tap, one settlement ------------------------------------
+
+    @Test
+    fun a_double_tap_on_settle_records_the_repayment_once() = runBlocking {
+        // Two rows here move the balance: Rahim would be ৳500 in credit after
+        // repaying ৳500 he owed.
+        val rahim = person("Rahim")
+        sharedExpense(1_000, listOf(rahim))
+        val vm = vm()
+        val row = vm.state.awaitState { it.owedToYou.isNotEmpty() }.owedToYou.single()
+        vm.settleUp(row)
+
+        vm.submitSettle(fx.today)
+        vm.submitSettle(fx.today)
+        vm.state.awaitState { it.settle == null }
+        delay(SETTLE_MILLIS)
+
+        assertEquals(1L, scalar("SELECT COUNT(*) FROM settlement"))
+        assertEquals(0L, fx.db.settlementDao().balanceOf(rahim))
+    }
+
+    private companion object {
+        /** Long enough for a second, unguarded write to land if one was launched. */
+        const val SETTLE_MILLIS = 500L
     }
 }

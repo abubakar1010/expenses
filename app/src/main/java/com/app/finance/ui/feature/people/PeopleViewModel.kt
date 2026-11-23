@@ -59,8 +59,16 @@ data class SettleEditor(
     val note: String? = null,
     val picker: SettlePicker = SettlePicker.NONE,
     val error: EntryError? = null,
+    /**
+     * A write is in flight. The Save button is dead while it is and a second
+     * call returns at once: without it a double tap wrote the row twice, as
+     * Quick Add's own `saving` flag has always prevented (06 §36.3).
+     */
+    val saving: Boolean = false,
 ) {
     val amount: Money? get() = Money.parseOrNull(input)?.takeIf { !it.isZero }
+
+    val canSubmit: Boolean get() = !saving && amount != null
 
     /** Signed as [SettlementRepository.record] wants it: positive means they paid you. */
     val signed: Money? get() = amount?.let { if (theyPay) it else -it }
@@ -277,11 +285,13 @@ class PeopleViewModel(
         onRecorded: (personId: Long, personName: String) -> Unit = { _, _ -> },
     ) {
         val editor = _state.value.settle ?: return
+        if (editor.saving) return
         val signed = editor.signed
         if (signed == null) {
             _state.update { s -> s.copy(settle = s.settle?.copy(error = EntryError.ZERO_AMOUNT)) }
             return
         }
+        _state.update { s -> s.copy(settle = s.settle?.copy(saving = true, error = null)) }
         viewModelScope.launch {
             val outcome = withContext(io) {
                 settlements.record(
@@ -298,7 +308,9 @@ class PeopleViewModel(
                     onRecorded(editor.personId, editor.personName)
                 }
                 is SaveOutcome.Rejected ->
-                    _state.update { s -> s.copy(settle = s.settle?.copy(error = outcome.error)) }
+                    _state.update { s ->
+                        s.copy(settle = s.settle?.copy(error = outcome.error, saving = false))
+                    }
             }
         }
     }

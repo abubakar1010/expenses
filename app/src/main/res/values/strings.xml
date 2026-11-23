@@ -553,6 +553,9 @@
          under it are Every month / Every week / Every year. -->
     <string name="choose_frequency">How often</string>
     <string name="anchor_day">Day of the month</string>
+    <string name="choose_month">Month</string>
+    <string name="choose_weekday">Day of the week</string>
+    <string name="rule_first_due">First on %1$s</string>
     <string name="auto_post">Add it without asking</string>
     <string name="auto_post_hint">Off by default. An entry you didn\'t check is one you can\'t trust.</string>
     <string name="rule_next_due">Next on %1$s</string>

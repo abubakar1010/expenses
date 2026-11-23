@@ -64,7 +64,10 @@ import com.app.finance.ui.theme.Sizes
 import com.app.finance.ui.theme.Space
 import com.app.finance.ui.common.offerUndo
 import kotlinx.coroutines.launch
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.Month
+import java.time.format.TextStyle
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
@@ -89,6 +92,7 @@ fun RecurringScreen(
                 categories = container.categoryRepo,
                 income = container.incomeRepo,
                 people = container.personRepo,
+                clock = container.clock,
             )
         },
     )
@@ -150,6 +154,8 @@ fun RecurringScreen(
             onTargetId = vm::setTargetId,
             onFrequency = vm::setFrequency,
             onAnchorDay = vm::setAnchorDay,
+            onMonth = vm::setMonth,
+            onWeekday = vm::setWeekday,
             onAutoPost = vm::setAutoPost,
             onKey = vm::onKey,
             onOpenSplit = vm::openSplit,
@@ -281,6 +287,8 @@ private fun RuleEditorSheet(
     onTargetId: (Long) -> Unit,
     onFrequency: (Frequency) -> Unit,
     onAnchorDay: (Int) -> Unit,
+    onMonth: (Int) -> Unit,
+    onWeekday: (DayOfWeek) -> Unit,
     onAutoPost: (Boolean) -> Unit,
     onKey: (com.app.finance.ui.common.KeypadKey) -> Unit,
     onOpenSplit: () -> Unit,
@@ -423,9 +431,40 @@ private fun RuleEditorSheet(
                 }
             }
 
-            // Weekly rules recur every seventh day from today; a day of the
-            // month would make "every Friday" impossible to say.
-            if (editor.frequency != Frequency.WEEKLY) {
+            // A weekly rule is a weekday, not a day of the month — "every
+            // Friday" — and a yearly one needs its month as well as its day.
+            // Both used to come from the day the rule was made (06 §36.4).
+            val locale = rememberJavaLocale()
+            if (editor.frequency == Frequency.WEEKLY) {
+                SectionHeader(stringResource(R.string.choose_weekday))
+                FlowRow(
+                    Modifier.fillMaxWidth().padding(horizontal = Space.gutter),
+                    horizontalArrangement = Arrangement.spacedBy(Space.s2),
+                ) {
+                    DayOfWeek.entries.forEach { weekday ->
+                        DayBookChip(
+                            label = weekday.getDisplayName(TextStyle.SHORT, locale),
+                            selected = editor.weekday == weekday,
+                            onClick = { onWeekday(weekday) },
+                        )
+                    }
+                }
+            } else {
+                if (editor.frequency == Frequency.YEARLY) {
+                    SectionHeader(stringResource(R.string.choose_month))
+                    FlowRow(
+                        Modifier.fillMaxWidth().padding(horizontal = Space.gutter),
+                        horizontalArrangement = Arrangement.spacedBy(Space.s2),
+                    ) {
+                        Month.entries.forEach { month ->
+                            DayBookChip(
+                                label = month.getDisplayName(TextStyle.SHORT, locale),
+                                selected = editor.month == month.value,
+                                onClick = { onMonth(month.value) },
+                            )
+                        }
+                    }
+                }
                 SectionHeader(stringResource(R.string.anchor_day))
                 FlowRow(
                     Modifier.fillMaxWidth().padding(horizontal = Space.gutter),
@@ -440,6 +479,17 @@ private fun RuleEditorSheet(
                     }
                 }
             }
+            // Says what the choices above add up to, so a clamped 31st or a
+            // month that has already gone this year is not a surprise later.
+            Text(
+                text = stringResource(
+                    R.string.rule_first_due,
+                    editor.firstDue.format(dayFormat(locale)),
+                ),
+                style = DayBookTheme.type.caption,
+                color = colors.inkSoft,
+                modifier = Modifier.padding(horizontal = Space.gutter, vertical = Space.s1),
+            )
 
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = Space.gutter, vertical = Space.s3),

@@ -1,7 +1,9 @@
 package com.app.finance.domain.usecase
 
 import com.app.finance.domain.model.Frequency
+import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.temporal.TemporalAdjusters
 import java.time.YearMonth
 
 /**
@@ -45,6 +47,34 @@ object RecurrenceSchedule {
      * loop cannot stand still: a step that returned the same day would spin on
      * a rule whose anchor happens to fall on the date being evaluated.
      */
+    /**
+     * The first occurrence of a rule the user is about to create, on or after
+     * [today] — what the editor shows and what `createRule` starts from.
+     *
+     * [firstDueOnOrAfter] takes the month and the weekday from the date it is
+     * handed, and the editor used to hand it today: a yearly rule could only
+     * fall in the month it was made in, and a weekly one only on the weekday it
+     * was made on (06 §36.4). These are the two choices that were missing.
+     *
+     * @param month 1..12, read by yearly rules only.
+     * @param weekday read by weekly rules only.
+     */
+    fun firstDue(
+        frequency: Frequency,
+        anchor: Int,
+        month: Int,
+        weekday: DayOfWeek,
+        today: LocalDate,
+    ): LocalDate = when (frequency) {
+        Frequency.MONTHLY -> firstDueOnOrAfter(frequency, anchor, today)
+        Frequency.WEEKLY -> today.with(TemporalAdjusters.nextOrSame(weekday))
+        Frequency.YEARLY -> {
+            val thisYear = occurrence(frequency, anchor, LocalDate.of(today.year, month, 1))
+            if (!thisYear.isBefore(today)) thisYear
+            else occurrence(frequency, anchor, LocalDate.of(today.year + 1, month, 1))
+        }
+    }
+
     fun next(frequency: Frequency, anchor: Int, previous: LocalDate): LocalDate = when (frequency) {
         // Weekly ignores the anchor day-of-month entirely — a weekly rule
         // recurs every seventh day from wherever it started, and forcing it

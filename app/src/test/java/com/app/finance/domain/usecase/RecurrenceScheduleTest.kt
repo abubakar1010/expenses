@@ -3,6 +3,7 @@ package com.app.finance.domain.usecase
 import com.app.finance.domain.model.Frequency
 import org.junit.Assert.assertEquals
 import org.junit.Test
+import java.time.DayOfWeek
 import java.time.LocalDate
 
 /**
@@ -164,5 +165,65 @@ class RecurrenceScheduleTest {
                 }
             }
         }
+    }
+
+    // --- 06 §36.4: the user says which month, and which weekday --------------
+
+    private val friday = LocalDate.of(2026, 8, 14)
+
+    @Test
+    fun a_yearly_rule_falls_in_the_month_chosen_not_the_month_it_was_made_in() {
+        // March has already gone this year, so the first one is next March.
+        assertEquals(
+            LocalDate.of(2027, 3, 10),
+            RecurrenceSchedule.firstDue(Frequency.YEARLY, 10, 3, DayOfWeek.MONDAY, friday),
+        )
+        // December has not.
+        assertEquals(
+            LocalDate.of(2026, 12, 25),
+            RecurrenceSchedule.firstDue(Frequency.YEARLY, 25, 12, DayOfWeek.MONDAY, friday),
+        )
+    }
+
+    @Test
+    fun a_yearly_rule_due_later_this_month_is_due_this_year() {
+        assertEquals(
+            LocalDate.of(2026, 8, 20),
+            RecurrenceSchedule.firstDue(Frequency.YEARLY, 20, 8, DayOfWeek.MONDAY, friday),
+        )
+        assertEquals(
+            "today itself is not in the past",
+            friday,
+            RecurrenceSchedule.firstDue(Frequency.YEARLY, 14, 8, DayOfWeek.MONDAY, friday),
+        )
+    }
+
+    @Test
+    fun a_yearly_rule_on_the_29th_of_february_clamps_in_a_common_year() {
+        assertEquals(
+            LocalDate.of(2027, 2, 28),
+            RecurrenceSchedule.firstDue(Frequency.YEARLY, 29, 2, DayOfWeek.MONDAY, friday),
+        )
+    }
+
+    @Test
+    fun a_weekly_rule_falls_on_the_weekday_chosen() {
+        assertEquals(
+            LocalDate.of(2026, 8, 17),
+            RecurrenceSchedule.firstDue(Frequency.WEEKLY, 1, 1, DayOfWeek.MONDAY, friday),
+        )
+        assertEquals(
+            "today's weekday starts today",
+            friday,
+            RecurrenceSchedule.firstDue(Frequency.WEEKLY, 1, 1, DayOfWeek.FRIDAY, friday),
+        )
+    }
+
+    @Test
+    fun a_monthly_rule_ignores_the_month_and_weekday() {
+        assertEquals(
+            LocalDate.of(2026, 9, 10),
+            RecurrenceSchedule.firstDue(Frequency.MONTHLY, 10, 3, DayOfWeek.MONDAY, friday),
+        )
     }
 }

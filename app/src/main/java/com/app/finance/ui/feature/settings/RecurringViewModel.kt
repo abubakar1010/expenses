@@ -17,6 +17,7 @@ import com.app.finance.domain.model.Frequency
 import com.app.finance.domain.model.RuleTarget
 import com.app.finance.domain.model.SaveOutcome
 import com.app.finance.domain.model.SplitDraft
+import com.app.finance.domain.usecase.RecurrenceSchedule
 import com.app.finance.ui.common.KeypadKey
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -27,14 +28,27 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.time.Clock
+import java.time.DayOfWeek
+import java.time.LocalDate
 
 /** The rule editor, open on a new rule. Editing an existing one is P2. */
 data class RuleEditor(
+    /** From the injected clock — what the first occurrence is counted from. */
+    val today: LocalDate,
     val target: RuleTarget = RuleTarget.EXPENSE,
     val targetId: Long? = null,
     val input: String = "",
     val frequency: Frequency = Frequency.MONTHLY,
     val anchorDay: Int = 1,
+    /**
+     * Yearly rules only: the month they fall in, 1..12. It used to be whatever
+     * month the rule was made in, so a premium due every March could not be
+     * entered in August (06 §36.4).
+     */
+    val month: Int = today.monthValue,
+    /** Weekly rules only: the weekday they fall on — the same gap, for weeks. */
+    val weekday: DayOfWeek = today.dayOfWeek,
     /**
      * PRD §6.5 — off by default, "because silently generated transactions that
      * didn't actually happen destroy trust in the ledger faster than any other
@@ -49,7 +63,17 @@ data class RuleEditor(
     val split: SplitDraft = SplitDraft.NONE,
     val splitOpen: Boolean = false,
     val error: EntryError? = null,
+    /**
+     * A write is in flight. The Save button is dead while it is and a second
+     * call returns at once: without it a double tap created the rule twice
+     * (06 §36.3).
+     */
+    val saving: Boolean = false,
 ) {
+    /** When the rule would first post — shown under the schedule, and saved. */
+    val firstDue: LocalDate
+        get() = RecurrenceSchedule.firstDue(frequency, anchorDay, month, weekday, today)
+
     /** What was typed — **the whole bill**, as on Quick Add. */
     val amount: Money? get() = Money.parseOrNull(input)
 
@@ -57,7 +81,7 @@ data class RuleEditor(
     val yourShare: Money? get() = split.yourShare(amount)
 
     val canSave: Boolean
-        get() = targetId != null &&
+        get() = !saving && targetId != null &&
             yourShare?.let { it.paisa > 0L && split.split(amount).validate(it) == null } == true
 }
 
@@ -91,6 +115,7 @@ class RecurringViewModel(
     categories: CategoryRepository,
     income: IncomeRepository,
     private val people: PersonRepository,
+    private val clock: Clock = Clock.systemDefaultZone(),
     private val io: CoroutineDispatcher = Dispatchers.IO,
 ) : ViewModel() {
 
@@ -124,7 +149,7 @@ class RecurringViewModel(
 
     // --- the editor ----------------------------------------------------------
 
-    fun add() = _state.update { it.copy(editor = RuleEditor()) }
+    fun add() = _state.update { it.copy(editor = RuleEditor(today = LocalDate.now(clock))) }
 
     fun dismissEditor() = _state.update { it.copy(editor = null) }
 
@@ -192,6 +217,14 @@ class RecurringViewModel(
         s.copy(editor = s.editor?.copy(anchorDay = day))
     }
 
+    fun setMonth(month: Int) = _state.update { s ->
+        s.copy(editor = s.editor?.copy(month = month.coerceIn(1, 12)))
+    }
+
+    fun setWeekday(weekday: DayOfWeek) = _state.update { s ->
+        s.copy(editor = s.editor?.copy(weekday = weekday))
+    }
+
     fun setAutoPost(autoPost: Boolean) = _state.update { s ->
         s.copy(editor = s.editor?.copy(autoPost = autoPost))
     }
@@ -214,6 +247,7 @@ class RecurringViewModel(
 
     fun submit(onSaved: () -> Unit) {
         val editor = _state.value.editor ?: return
+        if (editor.saving) return
         val bill = editor.amount
         val yourShare = editor.yourShare
         val targetId = editor.targetId
@@ -221,6 +255,7 @@ class RecurringViewModel(
             _state.update { it.copy(editor = editor.copy(error = EntryError.ZERO_AMOUNT)) }
             return
         }
+        _state.update { s -> s.copy(editor = s.editor?.copy(saving = true, error = null)) }
         viewModelScope.launch {
             val outcome = withContext(io) {
                 recurring.createRule(
@@ -232,6 +267,7 @@ class RecurringViewModel(
                     frequency = editor.frequency,
                     anchorDay = editor.anchorDay,
                     autoPost = editor.autoPost,
+                    startingFrom = editor.firstDue,
                     split = editor.split.split(bill),
                 )
             }
@@ -241,7 +277,7 @@ class RecurringViewModel(
                     onSaved()
                 }
                 is SaveOutcome.Rejected ->
-                    _state.update { it.copy(editor = editor.copy(error = outcome.error)) }
+                    _state.update { it.copy(editor = editor.copy(error = outcome.error, saving = false)) }
             }
         }
     }
